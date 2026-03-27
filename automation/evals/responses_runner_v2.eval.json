@@ -1,0 +1,106 @@
+{
+  "workflow": "responses_runner_v2",
+  "supported_checks": [
+    "json_required_keys",
+    "json_array_min_length",
+    "json_path_equals",
+    "structured_required_keys",
+    "text_required_substrings"
+  ],
+  "cases": [
+    {
+      "id": "workflow-manifest-reviewed-three-stage",
+      "checks": [
+        "json_required_keys",
+        "json_array_min_length",
+        "json_path_equals"
+      ],
+      "required_keys": [
+        "schema_version",
+        "workflow_id",
+        "workflow_mode",
+        "defaults",
+        "stages"
+      ],
+      "array_path": "stages",
+      "minimum_length": 3,
+      "json_path": "workflow_mode",
+      "expected_value": "reviewed_three_stage"
+    },
+    {
+      "id": "run-manifest-contract",
+      "checks": [
+        "json_required_keys",
+        "json_array_min_length"
+      ],
+      "required_keys": [
+        "schema_version",
+        "run_id",
+        "run_name",
+        "workflow_id",
+        "workflow_manifest_path",
+        "workflow_manifest_sha256",
+        "run_dir",
+        "status",
+        "stage_order",
+        "stages"
+      ],
+      "array_path": "stages",
+      "minimum_length": 1
+    },
+    {
+      "id": "stage-checkpoint-contract",
+      "checks": [
+        "json_required_keys"
+      ],
+      "required_keys": [
+        "schema_version",
+        "run_id",
+        "stage_id",
+        "stage_number",
+        "updated_at",
+        "status",
+        "terminal",
+        "resume_mode",
+        "request_payload_path",
+        "input_manifest_json_path",
+        "input_manifest_markdown_path",
+        "token_preflight",
+        "artifacts"
+      ]
+    },
+    {
+      "id": "review-bundle-contract",
+      "checks": [
+        "json_required_keys"
+      ],
+      "required_keys": [
+        "schema_version",
+        "workflow_id",
+        "source_stage_id",
+        "source_run_id",
+        "created_at",
+        "review_status",
+        "primary_artifact_markdown",
+        "response_artifact_json",
+        "reviewer_notes",
+        "artifact_hashes",
+        "locked_decisions",
+        "open_dependencies"
+      ]
+    },
+    {
+      "id": "synthetic-summary-structured-output",
+      "checks": [
+        "structured_required_keys"
+      ],
+      "structured_required_keys": [
+        "summary_version",
+        "workflow_id",
+        "final_assessment",
+        "key_points",
+        "open_questions"
+      ]
+    }
+  ]
+}

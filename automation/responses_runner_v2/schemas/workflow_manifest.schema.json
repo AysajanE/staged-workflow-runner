@@ -1,0 +1,458 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Responses Runner V2 Workflow Manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "workflow_id",
+    "workflow_mode",
+    "description",
+    "shared_instructions_file",
+    "defaults",
+    "stages"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "responses_runner_v2.workflow_manifest.v1"
+    },
+    "workflow_id": {
+      "$ref": "#/$defs/idString"
+    },
+    "workflow_name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "workflow_mode": {
+      "enum": [
+        "one_pass",
+        "two_pass",
+        "reviewed_three_stage",
+        "custom_ordered"
+      ]
+    },
+    "description": {
+      "type": "string",
+      "minLength": 1
+    },
+    "shared_instructions_file": {
+      "$ref": "#/$defs/pathString"
+    },
+    "operator_requirements": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "minimum_primary_job_inputs": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "maximum_primary_job_inputs": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "allow_reference_context": {
+          "type": "boolean"
+        }
+      }
+    },
+    "defaults": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "model_roles",
+        "request"
+      ],
+      "properties": {
+        "model_roles": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "primary_generation",
+            "structural_processing"
+          ],
+          "properties": {
+            "primary_generation": {
+              "$ref": "#/$defs/modelRoleProfile"
+            },
+            "structural_processing": {
+              "$ref": "#/$defs/modelRoleProfile"
+            }
+          }
+        },
+        "request": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "background",
+            "store",
+            "parallel_tool_calls",
+            "max_tool_calls",
+            "token_preflight",
+            "file_uploads"
+          ],
+          "properties": {
+            "background": {
+              "type": "boolean"
+            },
+            "store": {
+              "type": "boolean"
+            },
+            "parallel_tool_calls": {
+              "type": "boolean"
+            },
+            "max_tool_calls": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "temperature": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 2
+            },
+            "service_tier": {
+              "enum": [
+                "auto",
+                "default",
+                "flex",
+                "priority",
+                "scale"
+              ]
+            },
+            "safety_identifier": {
+              "type": "string",
+              "minLength": 1
+            },
+            "token_preflight": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "enabled",
+                "max_retries",
+                "retryable_http_status_codes",
+                "on_retryable_service_failure"
+              ],
+              "properties": {
+                "enabled": {
+                  "type": "boolean"
+                },
+                "max_retries": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "retryable_http_status_codes": {
+                  "type": "array",
+                  "items": {
+                    "type": "integer",
+                    "minimum": 100,
+                    "maximum": 599
+                  },
+                  "minItems": 1,
+                  "uniqueItems": true
+                },
+                "on_retryable_service_failure": {
+                  "enum": [
+                    "continue_without_token_count",
+                    "fail_closed"
+                  ]
+                }
+              }
+            },
+            "file_uploads": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "purpose",
+                "delete_on_completion"
+              ],
+              "properties": {
+                "purpose": {
+                  "const": "user_data"
+                },
+                "delete_on_completion": {
+                  "type": "boolean"
+                },
+                "expires_after_seconds": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "stages": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/stage"
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "workflow_mode": {
+            "const": "one_pass"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "stages": {
+            "minItems": 1,
+            "maxItems": 1
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "workflow_mode": {
+            "const": "two_pass"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "stages": {
+            "minItems": 2,
+            "maxItems": 2
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "workflow_mode": {
+            "const": "reviewed_three_stage"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "stages": {
+            "minItems": 3,
+            "maxItems": 3
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "idString": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9._-]{0,127}$"
+    },
+    "pathString": {
+      "type": "string",
+      "minLength": 1
+    },
+    "schemaName": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{1,64}$"
+    },
+    "reasoningEffort": {
+      "enum": [
+        "none",
+        "low",
+        "medium",
+        "high",
+        "xhigh"
+      ]
+    },
+    "verbosity": {
+      "enum": [
+        "low",
+        "medium",
+        "high"
+      ]
+    },
+    "modelRoleProfile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "model",
+        "reasoning_effort",
+        "verbosity"
+      ],
+      "properties": {
+        "model": {
+          "type": "string",
+          "minLength": 1
+        },
+        "reasoning_effort": {
+          "$ref": "#/$defs/reasoningEffort"
+        },
+        "verbosity": {
+          "$ref": "#/$defs/verbosity"
+        },
+        "prompt_cache_retention": {
+          "enum": [
+            "in_memory",
+            "24h"
+          ]
+        }
+      }
+    },
+    "carryForward": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "reference_context_from_stage_ids": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/idString"
+          },
+          "uniqueItems": true
+        },
+        "review_bundle_from_stage_id": {
+          "$ref": "#/$defs/idString"
+        }
+      }
+    },
+    "outputConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "primary_format"
+      ],
+      "properties": {
+        "primary_format": {
+          "enum": [
+            "text",
+            "json_schema"
+          ]
+        },
+        "schema_file": {
+          "$ref": "#/$defs/pathString"
+        },
+        "schema_name": {
+          "$ref": "#/$defs/schemaName"
+        },
+        "sidecar": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "schema_file",
+            "schema_name"
+          ],
+          "properties": {
+            "schema_file": {
+              "$ref": "#/$defs/pathString"
+            },
+            "schema_name": {
+              "$ref": "#/$defs/schemaName"
+            }
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "primary_format": {
+                "const": "json_schema"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "schema_file",
+              "schema_name"
+            ]
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "sidecar"
+            ]
+          },
+          "then": {
+            "properties": {
+              "primary_format": {
+                "const": "text"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "stage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "stage_id",
+        "stage_number",
+        "title",
+        "task_file",
+        "input_manifest_file",
+        "model_role",
+        "gate",
+        "output"
+      ],
+      "properties": {
+        "stage_id": {
+          "$ref": "#/$defs/idString"
+        },
+        "stage_number": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1
+        },
+        "task_file": {
+          "$ref": "#/$defs/pathString"
+        },
+        "stage_instructions_file": {
+          "$ref": "#/$defs/pathString"
+        },
+        "input_manifest_file": {
+          "$ref": "#/$defs/pathString"
+        },
+        "tool_profile_file": {
+          "$ref": "#/$defs/pathString"
+        },
+        "model_role": {
+          "enum": [
+            "primary_generation",
+            "structural_processing"
+          ]
+        },
+        "reasoning_effort": {
+          "$ref": "#/$defs/reasoningEffort"
+        },
+        "verbosity": {
+          "$ref": "#/$defs/verbosity"
+        },
+        "max_input_tokens": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "max_output_tokens": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "gate": {
+          "enum": [
+            "auto",
+            "review_required",
+            "terminal"
+          ]
+        },
+        "carry_forward": {
+          "$ref": "#/$defs/carryForward"
+        },
+        "output": {
+          "$ref": "#/$defs/outputConfig"
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,29 @@
+{
+  "schema_version": "responses_runner_v2.input_manifest.v1",
+  "manifest_id": "synthetic_one_pass",
+  "workflow_id": "synthetic_one_pass",
+  "stage_id": "draft_summary",
+  "description": "Static corpus for the one-pass synthetic stage.",
+  "primary_job_inputs": [
+    {
+      "path": "automation/examples/responses_runner_v2_synthetic/corpus/primary_brief.md",
+      "kind": "file",
+      "notes": "synthetic primary brief"
+    }
+  ],
+  "reviewed_handoff_inputs": [],
+  "attached_repository_files": [
+    {
+      "path": "automation/examples/responses_runner_v2_synthetic/corpus/repo_fact_sheet.md",
+      "kind": "file",
+      "notes": "synthetic repo fact sheet"
+    }
+  ],
+  "reference_context": [
+    {
+      "path": "automation/examples/responses_runner_v2_synthetic/corpus/reference_context.md",
+      "kind": "file",
+      "notes": "synthetic lower-authority reference context"
+    }
+  ]
+}

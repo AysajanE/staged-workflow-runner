@@ -1,0 +1,26 @@
+{
+  "schema_version": "responses_runner_v2.input_manifest.v1",
+  "manifest_id": "synthetic_two_pass_stage1",
+  "workflow_id": "synthetic_two_pass",
+  "stage_id": "collect_findings",
+  "description": "Static corpus for synthetic two-pass stage 1.",
+  "primary_job_inputs": [
+    {
+      "path": "automation/examples/responses_runner_v2_synthetic/corpus/primary_brief.md",
+      "kind": "file"
+    }
+  ],
+  "reviewed_handoff_inputs": [],
+  "attached_repository_files": [
+    {
+      "path": "automation/examples/responses_runner_v2_synthetic/corpus/repo_fact_sheet.md",
+      "kind": "file"
+    }
+  ],
+  "reference_context": [
+    {
+      "path": "automation/examples/responses_runner_v2_synthetic/corpus/reference_context.md",
+      "kind": "file"
+    }
+  ]
+}

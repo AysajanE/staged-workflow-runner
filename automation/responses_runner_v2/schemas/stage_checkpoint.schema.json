@@ -1,0 +1,209 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Responses Runner V2 Stage Checkpoint",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "run_id",
+    "stage_id",
+    "stage_number",
+    "updated_at",
+    "status",
+    "terminal",
+    "resume_mode",
+    "request_payload_path",
+    "input_manifest_json_path",
+    "input_manifest_markdown_path",
+    "token_preflight",
+    "artifacts"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "responses_runner_v2.stage_checkpoint.v1"
+    },
+    "run_id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9._-]{0,127}$"
+    },
+    "stage_id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9._-]{0,127}$"
+    },
+    "stage_number": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "updated_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "status": {
+      "enum": [
+        "prepared",
+        "submitted",
+        "in_progress",
+        "waiting_for_review",
+        "completed",
+        "failed",
+        "cancelled",
+        "incomplete",
+        "blocked"
+      ]
+    },
+    "terminal": {
+      "type": "boolean"
+    },
+    "resume_mode": {
+      "enum": [
+        "fresh_submit",
+        "resume_response_id",
+        "refresh_status_only"
+      ]
+    },
+    "review_checkpoint_required": {
+      "type": "boolean"
+    },
+    "review_bundle_path": {
+      "type": "string",
+      "minLength": 1
+    },
+    "request_payload_path": {
+      "type": "string",
+      "minLength": 1
+    },
+    "input_manifest_json_path": {
+      "type": "string",
+      "minLength": 1
+    },
+    "input_manifest_markdown_path": {
+      "type": "string",
+      "minLength": 1
+    },
+    "token_preflight": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "pending",
+            "succeeded",
+            "skipped_by_operator",
+            "continued_after_retryable_service_failure",
+            "failed_closed"
+          ]
+        },
+        "attempts": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "input_tokens": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "error_message": {
+          "type": "string"
+        },
+        "diagnostics_path": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "response": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "status",
+        "model",
+        "background",
+        "store"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "status": {
+          "enum": [
+            "queued",
+            "in_progress",
+            "completed",
+            "failed",
+            "cancelled",
+            "incomplete"
+          ]
+        },
+        "model": {
+          "type": "string",
+          "minLength": 1
+        },
+        "background": {
+          "type": "boolean"
+        },
+        "store": {
+          "type": "boolean"
+        },
+        "created_at": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "completed_at": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "artifacts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "stage_dir"
+      ],
+      "properties": {
+        "stage_dir": {
+          "type": "string",
+          "minLength": 1
+        },
+        "response_latest_json_path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "response_final_json_path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "response_final_markdown_path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "structured_output_path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sidecar_response_json_path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sidecar_response_markdown_path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "uploads_json_path": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "error": {
+      "type": "object"
+    },
+    "incomplete_details": {
+      "type": "object"
+    }
+  }
+}

@@ -1,0 +1,106 @@
+{
+  "schema_version": "responses_runner_v2.workflow_manifest.v1",
+  "workflow_id": "synthetic_reviewed_three_stage",
+  "workflow_name": "Synthetic Reviewed Three Stage",
+  "workflow_mode": "reviewed_three_stage",
+  "description": "Reviewed three-stage synthetic workflow that exercises review bundles and sidecar output.",
+  "shared_instructions_file": "../shared_instructions.md",
+  "operator_requirements": {
+    "minimum_primary_job_inputs": 0,
+    "allow_reference_context": true
+  },
+  "defaults": {
+    "model_roles": {
+      "primary_generation": {
+        "model": "gpt-5.4-pro",
+        "reasoning_effort": "xhigh",
+        "verbosity": "high",
+        "prompt_cache_retention": "in_memory"
+      },
+      "structural_processing": {
+        "model": "gpt-5.4",
+        "reasoning_effort": "xhigh",
+        "verbosity": "medium",
+        "prompt_cache_retention": "24h"
+      }
+    },
+    "request": {
+      "background": true,
+      "store": true,
+      "parallel_tool_calls": true,
+      "max_tool_calls": 8,
+      "temperature": 1,
+      "service_tier": "default",
+      "token_preflight": {
+        "enabled": true,
+        "max_retries": 2,
+        "retryable_http_status_codes": [429, 500, 502, 503, 504],
+        "on_retryable_service_failure": "continue_without_token_count"
+      },
+      "file_uploads": {
+        "purpose": "user_data",
+        "delete_on_completion": false,
+        "expires_after_seconds": 604800
+      }
+    }
+  },
+  "stages": [
+    {
+      "stage_id": "proposal",
+      "stage_number": 1,
+      "title": "Initial proposal",
+      "task_file": "../prompts/reviewed_stage1.md",
+      "input_manifest_file": "../inputs/reviewed_stage1.input_manifest.json",
+      "tool_profile_file": "../tools/no_tools.profile.json",
+      "model_role": "primary_generation",
+      "max_input_tokens": 120000,
+      "max_output_tokens": 3000,
+      "gate": "review_required",
+      "output": {
+        "primary_format": "text"
+      }
+    },
+    {
+      "stage_id": "revision",
+      "stage_number": 2,
+      "title": "Reviewed revision",
+      "task_file": "../prompts/reviewed_stage2.md",
+      "input_manifest_file": "../inputs/reviewed_stage2.input_manifest.json",
+      "tool_profile_file": "../tools/no_tools.profile.json",
+      "model_role": "primary_generation",
+      "max_input_tokens": 120000,
+      "max_output_tokens": 3000,
+      "gate": "review_required",
+      "carry_forward": {
+        "reference_context_from_stage_ids": ["proposal"],
+        "review_bundle_from_stage_id": "proposal"
+      },
+      "output": {
+        "primary_format": "text"
+      }
+    },
+    {
+      "stage_id": "final_delivery",
+      "stage_number": 3,
+      "title": "Final delivery",
+      "task_file": "../prompts/reviewed_stage3.md",
+      "input_manifest_file": "../inputs/reviewed_stage3.input_manifest.json",
+      "tool_profile_file": "../tools/no_tools.profile.json",
+      "model_role": "primary_generation",
+      "max_input_tokens": 120000,
+      "max_output_tokens": 4000,
+      "gate": "terminal",
+      "carry_forward": {
+        "reference_context_from_stage_ids": ["proposal", "revision"],
+        "review_bundle_from_stage_id": "revision"
+      },
+      "output": {
+        "primary_format": "text",
+        "sidecar": {
+          "schema_file": "../schemas/synthetic_summary.schema.json",
+          "schema_name": "synthetic_summary"
+        }
+      }
+    }
+  ]
+}

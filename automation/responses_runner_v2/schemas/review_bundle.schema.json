@@ -1,0 +1,108 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Responses Runner V2 Review Bundle",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "workflow_id",
+    "source_stage_id",
+    "source_run_id",
+    "created_at",
+    "review_status",
+    "primary_artifact_markdown",
+    "response_artifact_json",
+    "reviewer_notes",
+    "artifact_hashes",
+    "locked_decisions",
+    "open_dependencies"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "responses_runner_v2.review_bundle.v1"
+    },
+    "workflow_id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9._-]{0,127}$"
+    },
+    "source_stage_id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9._-]{0,127}$"
+    },
+    "source_run_id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9._-]{0,127}$"
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "review_status": {
+      "const": "approved"
+    },
+    "primary_artifact_markdown": {
+      "type": "string",
+      "minLength": 1
+    },
+    "response_artifact_json": {
+      "type": "string",
+      "minLength": 1
+    },
+    "structured_artifact_json": {
+      "type": "string",
+      "minLength": 1
+    },
+    "reviewer_notes": {
+      "type": "string",
+      "minLength": 1
+    },
+    "artifact_hashes": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "primary_artifact_markdown_sha256",
+        "response_artifact_json_sha256",
+        "reviewer_notes_sha256"
+      ],
+      "properties": {
+        "primary_artifact_markdown_sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "response_artifact_json_sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "structured_artifact_json_sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "reviewer_notes_sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        }
+      }
+    },
+    "locked_decisions": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "open_dependencies": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "notes": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    }
+  }
+}

@@ -1,0 +1,169 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Responses Runner V2 Stage Input Manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "manifest_id",
+    "primary_job_inputs",
+    "reviewed_handoff_inputs",
+    "attached_repository_files",
+    "reference_context"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "responses_runner_v2.input_manifest.v1"
+    },
+    "manifest_id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9._-]{0,127}$"
+    },
+    "workflow_id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9._-]{0,127}$"
+    },
+    "stage_id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9._-]{0,127}$"
+    },
+    "run_id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9._-]{0,127}$"
+    },
+    "generated_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "description": {
+      "type": "string"
+    },
+    "primary_job_inputs": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/attachmentEntry"
+      }
+    },
+    "reviewed_handoff_inputs": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/attachmentEntry"
+      }
+    },
+    "attached_repository_files": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/attachmentEntry"
+      }
+    },
+    "reference_context": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/attachmentEntry"
+      }
+    }
+  },
+  "$defs": {
+    "resolvedExpandedPath": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "sha256",
+        "bytes",
+        "wrapped_as_markdown"
+      ],
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "wrapped_as_markdown": {
+          "type": "boolean"
+        },
+        "uploaded_file_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "purpose": {
+          "type": "string",
+          "minLength": 1
+        },
+        "expires_at": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "resolvedAttachment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "expanded_paths",
+        "aggregate_file_count",
+        "aggregate_bytes"
+      ],
+      "properties": {
+        "expanded_paths": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/resolvedExpandedPath"
+          }
+        },
+        "aggregate_file_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "aggregate_bytes": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "attachmentEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "kind"
+      ],
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "enum": [
+            "file",
+            "directory"
+          ]
+        },
+        "required": {
+          "type": "boolean"
+        },
+        "exclude_globs": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true
+        },
+        "notes": {
+          "type": "string"
+        },
+        "resolved": {
+          "$ref": "#/$defs/resolvedAttachment"
+        }
+      }
+    }
+  }
+}

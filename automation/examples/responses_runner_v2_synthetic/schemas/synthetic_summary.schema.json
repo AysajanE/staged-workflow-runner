@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Responses Runner V2 Synthetic Example Summary",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "summary_version",
+    "workflow_id",
+    "final_assessment",
+    "key_points",
+    "open_questions"
+  ],
+  "properties": {
+    "summary_version": {
+      "const": "responses_runner_v2.synthetic_summary.v1"
+    },
+    "workflow_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "final_assessment": {
+      "type": "string",
+      "minLength": 1
+    },
+    "key_points": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "minItems": 1
+    },
+    "open_questions": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    }
+  }
+}
