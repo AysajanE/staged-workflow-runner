@@ -8,6 +8,12 @@ This runbook covers day-to-day operation of the runner inside the `staged-workfl
 - `OPENAI_API_KEY` set in the environment, or a `.env` file in the workspace root used for the run
 - a workflow manifest and all statically referenced assets stored under one workspace root
 
+## Current Operator Default
+
+Until the server-side `/responses/input_tokens` issue is resolved, run live workflow submissions with `--skip-token-count`.
+
+This is an operational default, not a runner-engine requirement.
+
 ## Workspace Root Contract
 
 The first release uses **one exact workspace root per run**.
@@ -53,6 +59,7 @@ To submit the same synthetic workflow live and wait for completion:
 python3 automation/run_responses_v2.py run \
   --root . \
   --workflow-file automation/examples/responses_runner_v2_synthetic/workflows/one_pass.workflow.json \
+  --skip-token-count \
   --wait
 ```
 
@@ -65,6 +72,7 @@ python3 /path/to/staged-workflow-runner/automation/run_responses_v2.py run \
   --root /path/to/target-workspace \
   --workflow-file task_packs/example/workflows/example.workflow.json \
   --primary-job-input docs/approved_brief.md \
+  --skip-token-count \
   --wait
 ```
 
@@ -106,6 +114,7 @@ python3 automation/run_responses_v2.py run \
   --workflow-file automation/examples/responses_runner_v2_synthetic/workflows/reviewed_three_stage.workflow.json \
   --run-dir <run_dir> \
   --review-bundle review_bundle.json \
+  --skip-token-count \
   --wait
 ```
 
@@ -154,6 +163,7 @@ python3 automation/run_responses_v2_eval.py \
 ## Guardrails
 
 - Use `--dry-run` before the first live submission of a new task pack.
+- Use `--skip-token-count` for live `run` commands until the server-side token-preflight issue is resolved.
 - Keep committed task-pack manifests free of `.local/...` snapshot paths.
 - Keep all statically referenced files under the workspace root.
 - Packs may live anywhere under the workspace root; there is no required `task_packs/` directory.
