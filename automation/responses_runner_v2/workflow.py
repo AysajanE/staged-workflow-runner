@@ -359,7 +359,10 @@ def _review_handoff_entries(
     source_summary["review_approved"] = True
     source_summary["approved_from_status"] = source_status
     source_summary["review_bundle_path"] = bundle["bundle_path"]
-    return review_bundle.expand_review_bundle_inputs(bundle), str(bundle["bundle_path"])
+    return review_bundle.expand_review_bundle_inputs(
+        bundle,
+        include_response_artifact_json=stage.carry_forward.review_bundle_include_response_artifact_json,
+    ), str(bundle["bundle_path"])
 
 
 def _build_request_payload(

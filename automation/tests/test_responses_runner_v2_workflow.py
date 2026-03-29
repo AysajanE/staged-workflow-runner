@@ -12,6 +12,21 @@ from automation.responses_runner_v2.workflow import refresh_stage, resume_stage,
 
 
 ROOT = Path(__file__).resolve().parents[2]
+SYNTHETIC_SHARED_INSTRUCTIONS = (
+    ROOT / "automation/examples/responses_runner_v2_synthetic/shared_instructions.md"
+).as_posix()
+SYNTHETIC_REVIEWED_STAGE1_PROMPT = (
+    ROOT / "automation/examples/responses_runner_v2_synthetic/prompts/reviewed_stage1.md"
+).as_posix()
+SYNTHETIC_REVIEWED_STAGE2_PROMPT = (
+    ROOT / "automation/examples/responses_runner_v2_synthetic/prompts/reviewed_stage2.md"
+).as_posix()
+SYNTHETIC_REVIEWED_STAGE1_INPUT = (
+    ROOT / "automation/examples/responses_runner_v2_synthetic/inputs/reviewed_stage1.input_manifest.json"
+).as_posix()
+SYNTHETIC_REVIEWED_STAGE2_INPUT = (
+    ROOT / "automation/examples/responses_runner_v2_synthetic/inputs/reviewed_stage2.input_manifest.json"
+).as_posix()
 
 
 def _completed_response(response_id: str, *, model: str = "gpt-5.4-pro") -> dict:
@@ -163,6 +178,126 @@ class ResponsesRunnerV2WorkflowTests(unittest.TestCase):
             self.assertTrue((stage_dir / "stage_checkpoint.json").exists())
             self.assertEqual(run_manifest["status"], "created")
             self.assertNotIn("attachment_role_blocks", request_payload)
+
+    def test_stage_can_exclude_raw_response_json_from_review_handoff_inputs(self) -> None:
+        with tempfile.TemporaryDirectory(dir=ROOT) as tmp:
+            tmp_path = Path(tmp)
+            workflow_path = tmp_path / "workflow.json"
+            workflow_payload = {
+                "schema_version": "responses_runner_v2.workflow_manifest.v1",
+                "workflow_id": "synthetic_review_handoff_trimmed",
+                "workflow_mode": "two_pass",
+                "description": "Synthetic workflow that trims raw response JSON from review handoff.",
+                "shared_instructions_file": SYNTHETIC_SHARED_INSTRUCTIONS,
+                "defaults": {
+                    "model_roles": {
+                        "primary_generation": {
+                            "model": "gpt-5.4-pro",
+                            "reasoning_effort": "xhigh",
+                            "verbosity": "high"
+                        },
+                        "structural_processing": {
+                            "model": "gpt-5.4-mini",
+                            "reasoning_effort": "medium",
+                            "verbosity": "medium"
+                        }
+                    },
+                    "request": {
+                        "background": True,
+                        "store": True,
+                        "parallel_tool_calls": True,
+                        "max_tool_calls": 8,
+                        "token_preflight": {
+                            "enabled": True,
+                            "max_retries": 1,
+                            "retryable_http_status_codes": [429, 500, 502, 503, 504],
+                            "on_retryable_service_failure": "continue_without_token_count"
+                        },
+                        "file_uploads": {
+                            "purpose": "user_data",
+                            "delete_on_completion": False
+                        }
+                    }
+                },
+                "stages": [
+                    {
+                        "stage_id": "proposal",
+                        "stage_number": 1,
+                        "title": "Proposal",
+                        "task_file": SYNTHETIC_REVIEWED_STAGE1_PROMPT,
+                        "input_manifest_file": SYNTHETIC_REVIEWED_STAGE1_INPUT,
+                        "model_role": "primary_generation",
+                        "gate": "review_required",
+                        "output": {"primary_format": "text"}
+                    },
+                    {
+                        "stage_id": "revision",
+                        "stage_number": 2,
+                        "title": "Revision",
+                        "task_file": SYNTHETIC_REVIEWED_STAGE2_PROMPT,
+                        "input_manifest_file": SYNTHETIC_REVIEWED_STAGE2_INPUT,
+                        "model_role": "primary_generation",
+                        "gate": "terminal",
+                        "carry_forward": {
+                            "review_bundle_from_stage_id": "proposal",
+                            "review_bundle_include_response_artifact_json": False
+                        },
+                        "output": {"primary_format": "text"}
+                    }
+                ]
+            }
+            workflow_path.write_text(json.dumps(workflow_payload, indent=2) + "\n", encoding="utf-8")
+
+            stage1 = run_workflow(
+                workflow_file=workflow_path.relative_to(ROOT).as_posix(),
+                runtime=RuntimeOptions(
+                    run_name="synthetic-trimmed-review-handoff",
+                    output_root=tmp_path.relative_to(ROOT),
+                    wait=True,
+                ),
+                client=FakeClient(),
+                root=ROOT,
+            )
+            run_dir = ROOT / stage1["run_dir"]
+            run_manifest = json.loads((run_dir / "run_manifest.json").read_text(encoding="utf-8"))
+            notes = run_dir / "proposal.review.md"
+            notes.write_text("# approved\n", encoding="utf-8")
+            bundle = run_dir / "proposal.review_bundle.json"
+            create_review_bundle(
+                root=ROOT,
+                output_path=bundle.relative_to(ROOT),
+                workflow_id="synthetic_review_handoff_trimmed",
+                source_stage_id="proposal",
+                source_run_id=run_manifest["run_id"],
+                primary_artifact_markdown=(run_dir / "stages/01_proposal/response.final.md").relative_to(ROOT),
+                response_artifact_json=(run_dir / "stages/01_proposal/response.final.json").relative_to(ROOT),
+                reviewer_notes=notes.relative_to(ROOT),
+            )
+
+            run_workflow(
+                workflow_file=workflow_path.relative_to(ROOT).as_posix(),
+                runtime=RuntimeOptions(
+                    run_dir=run_dir.relative_to(ROOT),
+                    stage_id="revision",
+                    output_root=tmp_path.relative_to(ROOT),
+                    review_bundles=[bundle.relative_to(ROOT).as_posix()],
+                    dry_run=True,
+                ),
+                root=ROOT,
+            )
+
+            revision_stage_dir = run_dir / "stages/02_revision"
+            manifest = json.loads((revision_stage_dir / "input_manifest.json").read_text(encoding="utf-8"))
+            reviewed_paths = [entry["path"] for entry in manifest["reviewed_handoff_inputs"]]
+
+        self.assertEqual(
+            reviewed_paths,
+            [
+                bundle.relative_to(ROOT).as_posix(),
+                (run_dir / "stages/01_proposal/response.final.md").relative_to(ROOT).as_posix(),
+                notes.relative_to(ROOT).as_posix(),
+            ],
+        )
 
     def test_token_preflight_retryable_failure_can_continue_without_hard_limit(self) -> None:
         with tempfile.TemporaryDirectory(dir=ROOT) as tmp:

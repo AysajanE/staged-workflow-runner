@@ -192,6 +192,9 @@ def _parse_stage(
             if carry_forward_payload.get("review_bundle_from_stage_id") is not None
             else None
         ),
+        review_bundle_include_response_artifact_json=bool(
+            carry_forward_payload.get("review_bundle_include_response_artifact_json", True)
+        ),
     )
     output = _parse_output_config(root, base_dir, payload["output"], model_role)
     return StageDefinition(

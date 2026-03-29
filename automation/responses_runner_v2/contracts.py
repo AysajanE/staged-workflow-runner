@@ -257,6 +257,7 @@ class RequestDefaults:
 class CarryForwardConfig:
     reference_context_from_stage_ids: tuple[str, ...] = ()
     review_bundle_from_stage_id: str | None = None
+    review_bundle_include_response_artifact_json: bool = True
 
 
 @dataclass(frozen=True)

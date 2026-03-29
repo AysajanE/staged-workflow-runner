@@ -76,6 +76,36 @@ class ResponsesRunnerV2ReviewBundleTests(unittest.TestCase):
         self.assertGreaterEqual(len(entries), 4)
         self.assertEqual(entries[0].path, "review_bundle.json")
 
+    def test_expand_review_bundle_inputs_can_exclude_raw_response_json(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            output = root / "review_bundle.json"
+            primary_md = root / "response.final.md"
+            response_json = root / "response.final.json"
+            reviewer_notes = root / "reviewer_notes.md"
+            primary_md.write_text("# ok\n", encoding="utf-8")
+            response_json.write_text('{"id":"resp_1"}\n', encoding="utf-8")
+            reviewer_notes.write_text("# notes\n", encoding="utf-8")
+
+            create_review_bundle(
+                root=root,
+                output_path=output,
+                workflow_id="synthetic_reviewed_three_stage",
+                source_stage_id="proposal",
+                source_run_id="run_test",
+                primary_artifact_markdown=primary_md,
+                response_artifact_json=response_json,
+                reviewer_notes=reviewer_notes,
+            )
+            bundle = load_review_bundle(root=root, bundle_path=output)
+            entries = expand_review_bundle_inputs(bundle, include_response_artifact_json=False)
+
+        self.assertEqual([entry.path for entry in entries], [
+            "review_bundle.json",
+            "response.final.md",
+            "reviewer_notes.md",
+        ])
+
     def test_hash_mismatch_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

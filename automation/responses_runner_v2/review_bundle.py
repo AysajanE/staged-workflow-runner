@@ -230,7 +230,9 @@ def _validate_bundle_artifact_matches_stage_summary(
         )
 
 
-def expand_review_bundle_inputs(bundle: dict[str, Any]) -> list[AttachmentEntry]:
+def expand_review_bundle_inputs(
+    bundle: dict[str, Any], *, include_response_artifact_json: bool = True
+) -> list[AttachmentEntry]:
     entries = [
         AttachmentEntry(
             path=str(bundle["bundle_path"]),
@@ -242,12 +244,15 @@ def expand_review_bundle_inputs(bundle: dict[str, Any]) -> list[AttachmentEntry]
             kind="file",
             notes=f"approved markdown from stage {bundle['source_stage_id']}",
         ),
-        AttachmentEntry(
-            path=str(bundle["response_artifact_json"]),
-            kind="file",
-            notes=f"approved raw response JSON from stage {bundle['source_stage_id']}",
-        ),
     ]
+    if include_response_artifact_json:
+        entries.append(
+            AttachmentEntry(
+                path=str(bundle["response_artifact_json"]),
+                kind="file",
+                notes=f"approved raw response JSON from stage {bundle['source_stage_id']}",
+            )
+        )
     if bundle.get("structured_artifact_json") is not None:
         entries.append(
             AttachmentEntry(
