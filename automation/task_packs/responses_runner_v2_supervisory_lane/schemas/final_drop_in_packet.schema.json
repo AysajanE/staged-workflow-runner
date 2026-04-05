@@ -1,0 +1,196 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "responses_runner_v2_supervisory_lane_final_drop_in_packet",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "packet_version",
+    "workflow_id",
+    "summary",
+    "integration_strategy",
+    "files",
+    "failure_handling_policies",
+    "human_pause_conditions",
+    "acceptance_checks"
+  ],
+  "properties": {
+    "packet_version": {
+      "type": "string",
+      "const": "responses_runner_v2.supervisory_lane.packet.v1"
+    },
+    "workflow_id": {
+      "type": "string",
+      "const": "responses_runner_v2_supervisory_lane_self_improvement"
+    },
+    "summary": {
+      "type": "string",
+      "minLength": 1
+    },
+    "integration_strategy": {
+      "type": "string",
+      "minLength": 1
+    },
+    "files": {
+      "type": "array",
+      "minItems": 1,
+      "allOf": [
+        {
+          "contains": {
+            "type": "object",
+            "required": [
+              "path"
+            ],
+            "properties": {
+              "path": {
+                "const": "AGENTS.md"
+              }
+            }
+          }
+        }
+      ],
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "path",
+          "action",
+          "category",
+          "purpose"
+        ],
+        "properties": {
+          "path": {
+            "type": "string",
+            "minLength": 1
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "create",
+              "update"
+            ]
+          },
+          "category": {
+            "type": "string",
+            "enum": [
+              "engine",
+              "task_pack",
+              "docs",
+              "tests",
+              "config",
+              "ops"
+            ]
+          },
+          "purpose": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "failure_handling_policies": {
+      "type": "array",
+      "minItems": 1,
+      "allOf": [
+        {
+          "contains": {
+            "type": "object",
+            "required": [
+              "case_id"
+            ],
+            "properties": {
+              "case_id": {
+                "const": "failed_retrievable_artifact"
+              }
+            }
+          }
+        },
+        {
+          "contains": {
+            "type": "object",
+            "required": [
+              "case_id"
+            ],
+            "properties": {
+              "case_id": {
+                "const": "failed_rerun_as_is"
+              }
+            }
+          }
+        },
+        {
+          "contains": {
+            "type": "object",
+            "required": [
+              "case_id"
+            ],
+            "properties": {
+              "case_id": {
+                "const": "failed_unrecoverable"
+              }
+            }
+          }
+        },
+        {
+          "contains": {
+            "type": "object",
+            "required": [
+              "case_id"
+            ],
+            "properties": {
+              "case_id": {
+                "const": "incomplete_output_limit"
+              }
+            }
+          }
+        }
+      ],
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "case_id",
+          "trigger",
+          "decision_rule",
+          "automation_action",
+          "human_pause_required"
+        ],
+        "properties": {
+          "case_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "trigger": {
+            "type": "string",
+            "minLength": 1
+          },
+          "decision_rule": {
+            "type": "string",
+            "minLength": 1
+          },
+          "automation_action": {
+            "type": "string",
+            "minLength": 1
+          },
+          "human_pause_required": {
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    "human_pause_conditions": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "acceptance_checks": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    }
+  }
+}

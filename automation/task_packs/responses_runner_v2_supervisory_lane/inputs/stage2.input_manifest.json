@@ -1,0 +1,125 @@
+{
+  "schema_version": "responses_runner_v2.input_manifest.v1",
+  "manifest_id": "responses_runner_v2_supervisory_lane.stage2",
+  "workflow_id": "responses_runner_v2_supervisory_lane_self_improvement",
+  "stage_id": "draft_drop_in_packet",
+  "description": "Stage 2 curated drafting corpus for converting the approved architecture into the exact drop-in packet. The approved stage-1 review bundle is added dynamically. This stage intentionally narrows context to the implementation surfaces most likely to change: runtime orchestration, manifest and review-bundle loading, artifact persistence, monitoring and recovery behavior, the current self-improvement pack surfaces that shape drafting, and the most relevant executable-spec tests. Broad stage-1-only background, non-core eval harness context, and pack-self tests are removed.",
+  "primary_job_inputs": [
+    {
+      "path": "automation/task_packs/responses_runner_v2_supervisory_lane/corpus/task_brief.md",
+      "kind": "file",
+      "notes": "authoritative task statement and supervisory-lane requirements"
+    },
+    {
+      "path": "automation/task_packs/responses_runner_v2_supervisory_lane/corpus/operator_experience_and_failure_requirements.md",
+      "kind": "file",
+      "notes": "authoritative operator workflow, review discipline, and failure-recovery requirements"
+    },
+    {
+      "path": "automation/task_packs/responses_runner_v2_supervisory_lane/corpus/final_deliverable_contract.md",
+      "kind": "file",
+      "notes": "authoritative final output contract for the drop-in-ready package"
+    }
+  ],
+  "reviewed_handoff_inputs": [],
+  "attached_repository_files": [
+    {
+      "path": "README.md",
+      "kind": "file",
+      "notes": "top-level operating contract for the standalone runner repository"
+    },
+    {
+      "path": "docs/runbooks/responses-runner-v2.md",
+      "kind": "file",
+      "notes": "operator runbook for run, review, resume, and refresh behavior"
+    },
+    {
+      "path": "automation/run_responses_v2.py",
+      "kind": "file",
+      "notes": "generic CLI entrypoint for run, resume, and refresh"
+    },
+    {
+      "path": "automation/create_review_bundle_v2.py",
+      "kind": "file",
+      "notes": "approved review-bundle creation CLI"
+    },
+    {
+      "path": "automation/responses_runner_v2",
+      "kind": "directory",
+      "exclude_globs": [
+        "automation/responses_runner_v2/__init__.py",
+        "automation/responses_runner_v2/README.md",
+        "automation/responses_runner_v2/prompts"
+      ],
+      "notes": "current engine implementation surfaces needed for drafting; package overview and built-in sidecar prompt files are excluded at this stage"
+    },
+    {
+      "path": "automation/tests/test_responses_runner_v2_review_bundle.py",
+      "kind": "file",
+      "notes": "review-bundle hashing, validation, and handoff-expansion coverage"
+    },
+    {
+      "path": "automation/tests/test_responses_runner_v2_workflow.py",
+      "kind": "file",
+      "notes": "authoritative coverage for failure recovery, resume, refresh, sidecar cleanup, and approved progression from failed stages with real artifacts"
+    },
+    {
+      "path": "automation/task_packs/responses_runner_v2_supervisory_lane",
+      "kind": "directory",
+      "exclude_globs": [
+        "automation/task_packs/responses_runner_v2_supervisory_lane/corpus",
+        "automation/task_packs/responses_runner_v2_supervisory_lane/prompts/stage1_architecture_blueprint.md",
+        "automation/task_packs/responses_runner_v2_supervisory_lane/inputs/stage1.input_manifest.json",
+        "automation/task_packs/responses_runner_v2_supervisory_lane/tools/stage1_web_search.profile.json"
+      ],
+      "notes": "current self-improvement pack surfaces needed for drafting, excluding the stage-1-specific scaffold files and corpus already provided through higher-authority channels"
+    }
+  ],
+  "reference_context": [
+    {
+      "path": "automation/examples/responses_runner_v2_synthetic/README.md",
+      "kind": "file",
+      "notes": "bounded proof-pack overview"
+    },
+    {
+      "path": "automation/examples/responses_runner_v2_synthetic/shared_instructions.md",
+      "kind": "file",
+      "notes": "example pack shared instructions"
+    },
+    {
+      "path": "automation/examples/responses_runner_v2_synthetic/workflows/reviewed_three_stage.workflow.json",
+      "kind": "file",
+      "notes": "example reviewed-three-stage workflow manifest"
+    },
+    {
+      "path": "automation/examples/responses_runner_v2_synthetic/inputs/reviewed_stage1.input_manifest.json",
+      "kind": "file",
+      "notes": "example reviewed workflow stage 1 input manifest"
+    },
+    {
+      "path": "automation/examples/responses_runner_v2_synthetic/inputs/reviewed_stage2.input_manifest.json",
+      "kind": "file",
+      "notes": "example reviewed workflow stage 2 input manifest"
+    },
+    {
+      "path": "automation/examples/responses_runner_v2_synthetic/inputs/reviewed_stage3.input_manifest.json",
+      "kind": "file",
+      "notes": "example reviewed workflow stage 3 input manifest"
+    },
+    {
+      "path": "automation/examples/responses_runner_v2_synthetic/prompts/reviewed_stage1.md",
+      "kind": "file",
+      "notes": "example reviewed workflow stage 1 prompt"
+    },
+    {
+      "path": "automation/examples/responses_runner_v2_synthetic/prompts/reviewed_stage2.md",
+      "kind": "file",
+      "notes": "example reviewed workflow stage 2 prompt"
+    },
+    {
+      "path": "automation/examples/responses_runner_v2_synthetic/prompts/reviewed_stage3.md",
+      "kind": "file",
+      "notes": "example reviewed workflow stage 3 prompt"
+    }
+  ]
+}

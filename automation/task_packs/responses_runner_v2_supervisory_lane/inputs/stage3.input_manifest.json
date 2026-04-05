@@ -1,0 +1,127 @@
+{
+  "schema_version": "responses_runner_v2.input_manifest.v1",
+  "manifest_id": "responses_runner_v2_supervisory_lane.stage3",
+  "workflow_id": "responses_runner_v2_supervisory_lane_self_improvement",
+  "stage_id": "final_drop_in_packet",
+  "description": "Stage 3 curated hardening corpus for emitting the final drop-in packet. The approved stage-2 review bundle is added dynamically. This stage narrows context further to the final acceptance and hardening surfaces: the runtime and review-bundle code that constrain the implementation, the current stage-3 scaffold surfaces, the acceptance schema, and the executable-spec tests most likely to catch final inconsistency. Broad background, non-core eval harness context, and earlier-stage drafting context are intentionally removed.",
+  "primary_job_inputs": [
+    {
+      "path": "automation/task_packs/responses_runner_v2_supervisory_lane/corpus/task_brief.md",
+      "kind": "file",
+      "notes": "authoritative task statement and supervisory-lane requirements"
+    },
+    {
+      "path": "automation/task_packs/responses_runner_v2_supervisory_lane/corpus/operator_experience_and_failure_requirements.md",
+      "kind": "file",
+      "notes": "authoritative operator workflow, review discipline, and failure-recovery requirements"
+    },
+    {
+      "path": "automation/task_packs/responses_runner_v2_supervisory_lane/corpus/final_deliverable_contract.md",
+      "kind": "file",
+      "notes": "authoritative final output contract for the drop-in-ready package"
+    }
+  ],
+  "reviewed_handoff_inputs": [],
+  "attached_repository_files": [
+    {
+      "path": "README.md",
+      "kind": "file",
+      "notes": "top-level operating contract for the standalone runner repository"
+    },
+    {
+      "path": "docs/runbooks/responses-runner-v2.md",
+      "kind": "file",
+      "notes": "operator runbook for run, review, resume, and refresh behavior"
+    },
+    {
+      "path": "automation/run_responses_v2.py",
+      "kind": "file",
+      "notes": "generic CLI entrypoint for run, resume, and refresh"
+    },
+    {
+      "path": "automation/create_review_bundle_v2.py",
+      "kind": "file",
+      "notes": "approved review-bundle creation CLI"
+    },
+    {
+      "path": "automation/responses_runner_v2",
+      "kind": "directory",
+      "exclude_globs": [
+        "automation/responses_runner_v2/__init__.py",
+        "automation/responses_runner_v2/README.md",
+        "automation/responses_runner_v2/attachments.py",
+        "automation/responses_runner_v2/prompts",
+        "automation/responses_runner_v2/schemas/run_manifest.schema.json",
+        "automation/responses_runner_v2/schemas/stage_checkpoint.schema.json"
+      ],
+      "notes": "final hardening surfaces from the engine package, excluding non-critical package marker, high-level overview, attachment-expansion internals, built-in sidecar prompts, and schemas not needed for final acceptance"
+    },
+    {
+      "path": "automation/tests/test_responses_runner_v2_review_bundle.py",
+      "kind": "file",
+      "notes": "review-bundle hashing, validation, and handoff-expansion coverage"
+    },
+    {
+      "path": "automation/tests/test_responses_runner_v2_workflow.py",
+      "kind": "file",
+      "notes": "authoritative coverage for failure recovery, resume, refresh, and approved progression from failed stages with real artifacts"
+    },
+    {
+      "path": "automation/task_packs/responses_runner_v2_supervisory_lane/README.md",
+      "kind": "file",
+      "notes": "current self-improvement pack overview and operating notes"
+    },
+    {
+      "path": "automation/task_packs/responses_runner_v2_supervisory_lane/shared_instructions.md",
+      "kind": "file",
+      "notes": "current shared instruction contract for the meta-run"
+    },
+    {
+      "path": "automation/task_packs/responses_runner_v2_supervisory_lane/prompts/stage3_final_drop_in_packet.md",
+      "kind": "file",
+      "notes": "current stage 3 prompt surface that governs final hardening"
+    },
+    {
+      "path": "automation/task_packs/responses_runner_v2_supervisory_lane/inputs/stage3.input_manifest.json",
+      "kind": "file",
+      "notes": "current stage 3 manifest surface"
+    },
+    {
+      "path": "automation/task_packs/responses_runner_v2_supervisory_lane/tools/stage3_web_search.profile.json",
+      "kind": "file",
+      "notes": "current stage 3 tool profile"
+    },
+    {
+      "path": "automation/task_packs/responses_runner_v2_supervisory_lane/workflows/three_stage.workflow.json",
+      "kind": "file",
+      "notes": "current three-stage workflow scaffold"
+    },
+    {
+      "path": "automation/task_packs/responses_runner_v2_supervisory_lane/schemas/final_drop_in_packet.schema.json",
+      "kind": "file",
+      "notes": "current final-stage sidecar acceptance schema"
+    }
+  ],
+  "reference_context": [
+    {
+      "path": "automation/examples/responses_runner_v2_synthetic/shared_instructions.md",
+      "kind": "file",
+      "notes": "example pack shared instructions"
+    },
+    {
+      "path": "automation/examples/responses_runner_v2_synthetic/workflows/reviewed_three_stage.workflow.json",
+      "kind": "file",
+      "notes": "example reviewed-three-stage workflow manifest"
+    },
+    {
+      "path": "automation/examples/responses_runner_v2_synthetic/inputs/reviewed_stage3.input_manifest.json",
+      "kind": "file",
+      "notes": "example reviewed workflow stage 3 input manifest"
+    },
+    {
+      "path": "automation/examples/responses_runner_v2_synthetic/prompts/reviewed_stage3.md",
+      "kind": "file",
+      "notes": "example reviewed workflow stage 3 prompt"
+    }
+  ]
+}

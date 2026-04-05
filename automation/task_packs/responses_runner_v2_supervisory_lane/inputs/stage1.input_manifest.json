@@ -1,0 +1,84 @@
+{
+  "schema_version": "responses_runner_v2.input_manifest.v1",
+  "manifest_id": "responses_runner_v2_supervisory_lane.stage1",
+  "workflow_id": "responses_runner_v2_supervisory_lane_self_improvement",
+  "stage_id": "architecture_blueprint",
+  "description": "Stage 1 curated architecture corpus for designing the integrated supervisory lane. The attached entries provide a broad picture of the current runner contract and also expose this pack's own real scaffold surfaces so the architecture can reason about how scaffold creation and scaffold review should be automated using actual in-repo prompts, manifests, tool profiles, workflow settings, and acceptance schema. Non-core development-only eval surfaces are excluded. The synthetic example pack remains attached as bounded low-authority structure evidence for current task-pack authoring patterns.",
+  "primary_job_inputs": [
+    {
+      "path": "automation/task_packs/responses_runner_v2_supervisory_lane/corpus/task_brief.md",
+      "kind": "file",
+      "notes": "authoritative task statement and supervisory-lane requirements"
+    },
+    {
+      "path": "automation/task_packs/responses_runner_v2_supervisory_lane/corpus/operator_experience_and_failure_requirements.md",
+      "kind": "file",
+      "notes": "authoritative operator workflow, review discipline, and failure-recovery requirements"
+    },
+    {
+      "path": "automation/task_packs/responses_runner_v2_supervisory_lane/corpus/final_deliverable_contract.md",
+      "kind": "file",
+      "notes": "authoritative final output contract for the drop-in-ready package"
+    }
+  ],
+  "reviewed_handoff_inputs": [],
+  "attached_repository_files": [
+    {
+      "path": "README.md",
+      "kind": "file",
+      "notes": "top-level operating contract for the standalone runner repository"
+    },
+    {
+      "path": "TEAM_ONBOARDING.md",
+      "kind": "file",
+      "notes": "recommended reading order and core mental model for the current engine"
+    },
+    {
+      "path": "docs/runbooks/responses-runner-v2.md",
+      "kind": "file",
+      "notes": "operator runbook for run, review, resume, and refresh behavior"
+    },
+    {
+      "path": "automation/run_responses_v2.py",
+      "kind": "file",
+      "notes": "generic CLI entrypoint for run, resume, and refresh"
+    },
+    {
+      "path": "automation/create_review_bundle_v2.py",
+      "kind": "file",
+      "notes": "approved review-bundle creation CLI"
+    },
+    {
+      "path": "automation/responses_runner_v2",
+      "kind": "directory",
+      "exclude_globs": [
+        "automation/responses_runner_v2/__init__.py"
+      ],
+      "notes": "core engine package, prompts, and schemas as a single directory attachment; only the package marker file is excluded"
+    },
+    {
+      "path": "automation/tests",
+      "kind": "directory",
+      "exclude_globs": [
+        "automation/tests/test_responses_runner_v2_eval.py",
+        "automation/tests/test_responses_runner_v2_supervisory_lane_pack.py"
+      ],
+      "notes": "executable-spec tests for loader, workflow, review-bundle, and proof-pack behavior; development-only eval and pack-self tests are excluded"
+    },
+    {
+      "path": "automation/task_packs/responses_runner_v2_supervisory_lane",
+      "kind": "directory",
+      "exclude_globs": [
+        "automation/task_packs/responses_runner_v2_supervisory_lane/corpus"
+      ],
+      "notes": "this pack's real scaffold surfaces, excluding the corpus files already attached as primary inputs"
+    }
+  ],
+  "reference_context": [
+    {
+      "path": "automation/examples/responses_runner_v2_synthetic",
+      "kind": "directory",
+      "notes": "bounded proof pack showing one-pass, two-pass, reviewed three-stage, tool-profile, and sidecar authoring patterns"
+    }
+  ]
+}

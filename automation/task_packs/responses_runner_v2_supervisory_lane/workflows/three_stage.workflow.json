@@ -1,0 +1,116 @@
+{
+  "schema_version": "responses_runner_v2.workflow_manifest.v1",
+  "workflow_id": "responses_runner_v2_supervisory_lane_self_improvement",
+  "workflow_name": "Responses Runner V2 Supervisory Lane Self Improvement",
+  "workflow_mode": "reviewed_three_stage",
+  "description": "Design and finalize the integrated automation and supervisory lane for this repository as a drop-in-ready package.",
+  "shared_instructions_file": "../shared_instructions.md",
+  "operator_requirements": {
+    "minimum_primary_job_inputs": 0,
+    "maximum_primary_job_inputs": 0,
+    "allow_reference_context": false
+  },
+  "defaults": {
+    "model_roles": {
+      "primary_generation": {
+        "model": "gpt-5.4-pro",
+        "reasoning_effort": "xhigh",
+        "verbosity": "high",
+        "prompt_cache_retention": "in_memory"
+      },
+      "structural_processing": {
+        "model": "gpt-5.4",
+        "reasoning_effort": "high",
+        "verbosity": "medium",
+        "prompt_cache_retention": "24h"
+      }
+    },
+    "request": {
+      "background": true,
+      "store": true,
+      "parallel_tool_calls": true,
+      "max_tool_calls": 8,
+      "service_tier": "default",
+      "token_preflight": {
+        "enabled": true,
+        "max_retries": 2,
+        "retryable_http_status_codes": [
+          429,
+          500,
+          502,
+          503,
+          504
+        ],
+        "on_retryable_service_failure": "continue_without_token_count"
+      },
+      "file_uploads": {
+        "purpose": "user_data",
+        "delete_on_completion": false,
+        "expires_after_seconds": 604800
+      }
+    }
+  },
+  "stages": [
+    {
+      "stage_id": "architecture_blueprint",
+      "stage_number": 1,
+      "title": "Architecture Blueprint",
+      "task_file": "../prompts/stage1_architecture_blueprint.md",
+      "input_manifest_file": "../inputs/stage1.input_manifest.json",
+      "tool_profile_file": "../tools/stage1_web_search.profile.json",
+      "model_role": "primary_generation",
+      "max_output_tokens": 64000,
+      "gate": "review_required",
+      "output": {
+        "primary_format": "text"
+      }
+    },
+    {
+      "stage_id": "draft_drop_in_packet",
+      "stage_number": 2,
+      "title": "Draft Drop-In Packet",
+      "task_file": "../prompts/stage2_draft_drop_in_packet.md",
+      "input_manifest_file": "../inputs/stage2.input_manifest.json",
+      "tool_profile_file": "../tools/stage2_web_search.profile.json",
+      "model_role": "primary_generation",
+      "max_output_tokens": 128000,
+      "gate": "review_required",
+      "carry_forward": {
+        "reference_context_from_stage_ids": [
+          "architecture_blueprint"
+        ],
+        "review_bundle_from_stage_id": "architecture_blueprint",
+        "review_bundle_include_response_artifact_json": false
+      },
+      "output": {
+        "primary_format": "text"
+      }
+    },
+    {
+      "stage_id": "final_drop_in_packet",
+      "stage_number": 3,
+      "title": "Final Drop-In Packet",
+      "task_file": "../prompts/stage3_final_drop_in_packet.md",
+      "input_manifest_file": "../inputs/stage3.input_manifest.json",
+      "tool_profile_file": "../tools/stage3_web_search.profile.json",
+      "model_role": "primary_generation",
+      "max_output_tokens": 128000,
+      "gate": "terminal",
+      "carry_forward": {
+        "reference_context_from_stage_ids": [
+          "architecture_blueprint",
+          "draft_drop_in_packet"
+        ],
+        "review_bundle_from_stage_id": "draft_drop_in_packet",
+        "review_bundle_include_response_artifact_json": false
+      },
+      "output": {
+        "primary_format": "text",
+        "sidecar": {
+          "schema_file": "../schemas/final_drop_in_packet.schema.json",
+          "schema_name": "final_drop_in_packet"
+        }
+      }
+    }
+  ]
+}
