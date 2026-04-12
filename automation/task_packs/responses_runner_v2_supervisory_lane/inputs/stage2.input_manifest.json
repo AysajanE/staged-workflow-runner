@@ -3,7 +3,7 @@
   "manifest_id": "responses_runner_v2_supervisory_lane.stage2",
   "workflow_id": "responses_runner_v2_supervisory_lane_self_improvement",
   "stage_id": "draft_drop_in_packet",
-  "description": "Stage 2 curated drafting corpus for converting the approved architecture into the exact drop-in packet. The approved stage-1 review bundle is added dynamically. This stage intentionally narrows context to the implementation surfaces most likely to change: runtime orchestration, manifest and review-bundle loading, artifact persistence, monitoring and recovery behavior, the current self-improvement pack surfaces that shape drafting, and the most relevant executable-spec tests. Broad stage-1-only background, non-core eval harness context, and pack-self tests are removed.",
+  "description": "Stage 2 curated drafting corpus for converting the approved architecture into the locked draft package contract: exact file inventory, per-file implementation contracts, the baseline red/green validation matrix, and only the smallest necessary subset of boundary-locking full files. The approved stage-1 review bundle is added dynamically. This stage intentionally narrows context to the implementation surfaces most likely to change: runtime orchestration, manifest and review-bundle loading, artifact persistence, monitoring and recovery behavior, the current self-improvement pack surfaces that shape the stage-2-to-stage-3 handoff, and the most relevant executable-spec tests. Broad stage-1-only background, non-core eval harness context, and pack-self tests are removed.",
   "primary_job_inputs": [
     {
       "path": "automation/task_packs/responses_runner_v2_supervisory_lane/corpus/task_brief.md",

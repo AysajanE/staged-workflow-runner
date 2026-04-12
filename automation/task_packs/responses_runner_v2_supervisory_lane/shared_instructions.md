@@ -11,9 +11,16 @@ Across all stages, complete this self-improvement run by:
 - deriving the target requirements from the primary job inputs and any approved reviewed handoffs
 - grounding every important design and implementation claim in current repo evidence and authoritative external sources when needed
 - locking a repo-fit architecture and integration boundary in stage 1
-- converting the approved architecture into a minimum-change draft drop-in package in stage 2
-- hardening the approved draft into a final drop-in-ready package in stage 3
+- converting the approved architecture into a locked draft package contract in stage 2
+- hardening the approved draft contract into a final drop-in-ready package in stage 3
 </goal>
+
+<layer_separation_rules>
+- These shared instructions govern how to perform this current meta-run.
+- Do not treat shared-instruction text as the source of target-system policy for the future supervisory lane.
+- Derive target-system behavior, operating policies, and acceptance expectations from the primary job inputs and approved reviewed handoffs.
+- The current run is still manually reviewed between stages.
+</layer_separation_rules>
 
 <attachment_authority_order>
 Among attached materials, follow the v2 fixed authority order:
@@ -98,8 +105,9 @@ Among attached materials, follow the v2 fixed authority order:
 
 <stage_boundary_rules>
 - Stage 1 defines the architecture, supervisory workflow, failure model, review protocol, and minimum-change repo integration plan. It does not emit the full final file set.
-- Stage 2 converts the approved architecture into the draft drop-in package with exact file contents.
-- Stage 3 hardens the approved draft, reconciles review findings, and emits the final drop-in-ready package.
+- Stage 2 converts the approved architecture into the locked draft package contract: exact file inventory, per-file implementation contracts, the red/green validation baseline, and only the smallest necessary subset of boundary-locking full file contents.
+- Stage 3 hardens the approved draft contract, reconciles review findings, and emits the full final drop-in-ready package.
+- Stage 3 must preserve the approved stage-2 file inventory, per-file implementation contracts, boundary-locking full files, and validation baseline unless the stage-2 review explicitly reopens them.
 - Stage 3 may tighten completeness, consistency, validation, and file-set discipline, but it must not reopen approved architecture unless the review explicitly requires it.
 </stage_boundary_rules>
 

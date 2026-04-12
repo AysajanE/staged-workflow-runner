@@ -32,9 +32,9 @@ The three stages are:
 1. `architecture_blueprint`
    Produces the architecture, operating contract, recovery model, and minimum-change repo integration plan.
 2. `draft_drop_in_packet`
-   Produces the draft drop-in file set with exact repo paths and full file contents.
+   Produces the locked draft package contract: exact repo file inventory, per-file implementation contracts, the baseline red/green validation matrix, and only the smallest necessary subset of boundary-locking full file contents.
 3. `final_drop_in_packet`
-   Hardens the package after review and emits the final drop-in-ready packet, including a root `AGENTS.md`.
+   Hardens the approved draft contract after review and emits the complete final drop-in-ready packet, including a root `AGENTS.md`.
 
 Each stage is deliberately non-trivial.
 
@@ -115,7 +115,9 @@ Repeat the same pattern for stage 2 review and then continue to stage 3.
 ## Operational Notes
 
 - Use `--skip-token-count` for live runs unless the service-side token-preflight issue is known to be resolved.
-- Web search is enabled in all three stages. Stage 1 has the highest tool-call budget because it does the broadest external and currentness-sensitive research; stages 2 and 3 taper that budget as the task narrows into drafting and hardening.
+- Web search is enabled in all three stages. Stage 1 has the highest tool-call budget because it does the broadest external and currentness-sensitive research; stages 2 and 3 taper that budget as the task narrows into drafting and hardening. In stage 2, search should be selective and used only when it can materially change the draft contract, validation matrix, or a boundary-locking file.
+- Stage 2 should not emit the whole package. Its job is to lock the exact inventory, file contracts, and the smallest necessary set of boundary-critical full files so stage 3 can finish the package without reopening architecture.
+- Stage 3 should emit the whole package and preserve the approved stage-2 contract unless the stage-2 review explicitly reopens part of it.
 - Keep reviewer notes and review bundles inside the same workspace root as the run.
 - Do not rewrite the stage architecture in later stages unless review findings require it.
 - The final stage output is expected to be directly droppable into this repository without reinterpretation.

@@ -3,7 +3,7 @@
   "manifest_id": "responses_runner_v2_supervisory_lane.stage3",
   "workflow_id": "responses_runner_v2_supervisory_lane_self_improvement",
   "stage_id": "final_drop_in_packet",
-  "description": "Stage 3 curated hardening corpus for emitting the final drop-in packet. The approved stage-2 review bundle is added dynamically. This stage narrows context further to the final acceptance and hardening surfaces: the runtime and review-bundle code that constrain the implementation, the current stage-3 scaffold surfaces, the acceptance schema, and the executable-spec tests most likely to catch final inconsistency. Broad background, non-core eval harness context, and earlier-stage drafting context are intentionally removed.",
+  "description": "Stage 3 curated hardening corpus for converting the approved stage-2 draft contract into the final drop-in packet. The approved stage-2 review bundle is added dynamically. This stage narrows context further to the final acceptance and hardening surfaces: the runtime and review-bundle code that constrain the implementation, the current stage-3 scaffold surfaces, the stage-2 scaffold surfaces that define the preserved draft contract boundary, the acceptance schema, and the executable-spec tests most likely to catch final inconsistency. Broad background and non-core eval harness context are intentionally removed, but the stage-2 prompt and manifest remain attached because final hardening must stay tightly bound to the approved draft contract.",
   "primary_job_inputs": [
     {
       "path": "automation/task_packs/responses_runner_v2_supervisory_lane/corpus/task_brief.md",
@@ -77,9 +77,19 @@
       "notes": "current shared instruction contract for the meta-run"
     },
     {
+      "path": "automation/task_packs/responses_runner_v2_supervisory_lane/prompts/stage2_draft_drop_in_packet.md",
+      "kind": "file",
+      "notes": "current stage 2 prompt surface that defines the approved draft contract boundary"
+    },
+    {
       "path": "automation/task_packs/responses_runner_v2_supervisory_lane/prompts/stage3_final_drop_in_packet.md",
       "kind": "file",
       "notes": "current stage 3 prompt surface that governs final hardening"
+    },
+    {
+      "path": "automation/task_packs/responses_runner_v2_supervisory_lane/inputs/stage2.input_manifest.json",
+      "kind": "file",
+      "notes": "current stage 2 manifest surface that defines the drafting corpus and stage-3 handoff boundary"
     },
     {
       "path": "automation/task_packs/responses_runner_v2_supervisory_lane/inputs/stage3.input_manifest.json",

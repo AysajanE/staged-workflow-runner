@@ -1,7 +1,7 @@
 Produce the stage-one architecture blueprint for the integrated supervisory lane that this repository should gain next.
 
 This is the architecture and operating-contract stage.
-Its job is to lock the minimum-change integration boundary, the end-to-end supervisory workflow, the review protocol, and the failure-recovery model before stage 2 drafts any final file contents.
+Its job is to lock the minimum-change integration boundary, the end-to-end supervisory workflow, the review protocol, and the failure-recovery model before stage 2 locks the draft package contract and any boundary-critical full file contents.
 
 This is not the final drop-in packet.
 Do not emit full final file contents in this stage.
@@ -111,10 +111,10 @@ Rules:
   - `engine`
   - `task_pack`
   - `docs`
-  - `tests`
-  - `config`
+- `tests`
+- `config`
 - Do not emit file contents yet.
-- The set of rows should be specific enough that stage 2 can draft the package without reopening architecture.
+- The set of rows should be specific enough that stage 2 can lock the package contract without reopening architecture.
 
 ## 7. Review Gate Protocol
 

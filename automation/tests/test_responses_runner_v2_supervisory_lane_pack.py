@@ -268,8 +268,8 @@ class ResponsesRunnerV2SupervisoryLanePackTests(unittest.TestCase):
         self.assertNotIn("<scope_rules>", shared)
         self.assertIn("<requirement_source_rules>", shared)
         self.assertIn("locking a repo-fit architecture and integration boundary in stage 1", shared)
-        self.assertIn("converting the approved architecture into a minimum-change draft drop-in package in stage 2", shared)
-        self.assertIn("hardening the approved draft into a final drop-in-ready package in stage 3", shared)
+        self.assertIn("converting the approved architecture into a locked draft package contract in stage 2", shared)
+        self.assertIn("hardening the approved draft contract into a final drop-in-ready package in stage 3", shared)
         self.assertIn("The current run is still manually reviewed between stages.", shared)
         self.assertIn("For this current meta-run, stage reviews remain manual.", brief)
         self.assertIn("## Quality And Stage-Economics Rules", brief)
@@ -282,9 +282,18 @@ class ResponsesRunnerV2SupervisoryLanePackTests(unittest.TestCase):
         self.assertIn("## Testing Rule", final_contract)
         self.assertIn("red/green TDD", final_contract)
         self.assertIn("define the automated tests for each new or changed behavior before implementation", final_contract)
+        self.assertIn("draft package contract", stage2)
+        self.assertIn("| path | action | category | purpose | stage3_obligation |", stage2)
+        self.assertIn("| path | required_behavior | must_include | dependencies_or_interfaces | stage3_completion_rule |", stage2)
+        self.assertIn("## 4. Boundary-Locking Draft Files", stage2)
+        self.assertIn("Do not emit complete contents for the whole package in this stage.", stage2)
         self.assertIn("| phase | check_id | command_or_method | expected_result | why_it_matters |", stage2)
         self.assertIn("`phase` must be `red` or `green`.", stage2)
         self.assertIn("A `red` row must fail against the pre-change state", stage2)
+        self.assertNotIn("Every changed file must be emitted as a complete final file", stage2)
+        self.assertIn("This is the only full-package emission stage.", stage3)
+        self.assertIn("Preserve the approved stage-two file inventory, per-file implementation contracts, boundary-locking full files, and validation matrix", stage3)
+        self.assertIn("Every row must correspond to a file already present in the approved stage-two draft inventory", stage3)
         self.assertIn("| phase | check_id | command_or_method | expected_result | acceptance_reason |", stage3)
         self.assertIn("`phase` must be `red` or `green`.", stage3)
         self.assertIn("A `green` row must pass after the final package is applied.", stage3)
@@ -292,6 +301,18 @@ class ResponsesRunnerV2SupervisoryLanePackTests(unittest.TestCase):
     def test_pack_does_not_prebundle_review_scaffold_artifacts(self) -> None:
         self.assertFalse((PACK_ROOT / "review_checklists").exists())
         self.assertFalse((PACK_ROOT / "review_templates").exists())
+
+    def test_stage3_static_context_includes_stage2_boundary_surfaces(self) -> None:
+        stage3 = self._load_manifest("stage3.input_manifest.json")
+        attached_paths = self._materialized_paths(stage3, "attached_repository_files")
+        self.assertIn(
+            "automation/task_packs/responses_runner_v2_supervisory_lane/prompts/stage2_draft_drop_in_packet.md",
+            attached_paths,
+        )
+        self.assertIn(
+            "automation/task_packs/responses_runner_v2_supervisory_lane/inputs/stage2.input_manifest.json",
+            attached_paths,
+        )
 
     def test_final_schema_requires_agents_and_required_failure_cases(self) -> None:
         schema = json.loads(
