@@ -208,6 +208,14 @@ When configured, the engine:
 
 This keeps structured extraction inside the framework instead of pushing it into custom wrapper scripts.
 
+Sidecar artifacts are finalized only on the terminal-artifact path. In operator terms:
+
+- `run --wait` writes the primary artifacts and the sidecar when the stage reaches terminal status.
+- `resume --wait` does the same for a previously submitted background stage.
+- `refresh` records the latest remote status only.
+
+If a stage shows `response_status=completed` in `run_manifest.json` but is missing `output.structured.json` or `sidecar.response.*`, the stage has been refreshed but not finalized locally yet. Run `resume` on that stage to backfill the final artifacts.
+
 ## Artifact Layout
 
 Default output root:

@@ -141,6 +141,8 @@ python3 automation/run_responses_v2.py refresh \
 
 Use `refresh` when you only want the latest remote status recorded locally. Use `resume` when you want the runner to continue through terminal completion and artifact finalization.
 
+If a remote stage is already terminal but you are missing `response.final.md`, `output.structured.json`, or `sidecar.response.*`, that is a local finalization gap, not a sidecar-schema failure. Use `resume` on the stage to write the final artifacts. `refresh` is status-only and will not backfill them.
+
 ## Eval Harness
 
 List bundled eval cases:

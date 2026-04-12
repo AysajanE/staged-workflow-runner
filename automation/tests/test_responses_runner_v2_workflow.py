@@ -407,6 +407,54 @@ class ResponsesRunnerV2WorkflowTests(unittest.TestCase):
             checkpoint = json.loads((stage_dir / "stage_checkpoint.json").read_text(encoding="utf-8"))
             self.assertEqual(checkpoint["resume_mode"], "refresh_status_only")
 
+    def test_resume_after_refresh_materializes_missing_terminal_sidecar_artifacts(self) -> None:
+        with tempfile.TemporaryDirectory(dir=ROOT) as tmp:
+            runtime = RuntimeOptions(
+                run_name="synthetic-refresh-then-resume",
+                output_root=Path(tmp).relative_to(ROOT),
+                wait=False,
+            )
+            result = run_workflow(
+                workflow_file="automation/examples/responses_runner_v2_synthetic/workflows/one_pass.workflow.json",
+                runtime=runtime,
+                client=FakeClient(completed=False),
+                root=ROOT,
+            )
+            run_dir = ROOT / result["run_dir"]
+            stage_dir = run_dir / "stages/01_draft_summary"
+
+            self.assertFalse((stage_dir / "response.final.md").exists())
+            self.assertFalse((stage_dir / "output.structured.json").exists())
+            self.assertFalse((stage_dir / "sidecar.response.json").exists())
+            self.assertFalse((stage_dir / "sidecar.response.md").exists())
+
+            refreshed = refresh_stage(
+                run_dir=run_dir.relative_to(ROOT),
+                stage_id="draft_summary",
+                client=FakeClient(),
+                root=ROOT,
+            )
+            self.assertEqual(refreshed["status"], "completed")
+            self.assertFalse((stage_dir / "response.final.md").exists())
+            self.assertFalse((stage_dir / "output.structured.json").exists())
+            self.assertFalse((stage_dir / "sidecar.response.json").exists())
+            self.assertFalse((stage_dir / "sidecar.response.md").exists())
+
+            resumed = resume_stage(
+                run_dir=run_dir.relative_to(ROOT),
+                stage_id="draft_summary",
+                wait=False,
+                poll_interval=0.1,
+                max_wait_seconds=10.0,
+                client=FakeClient(),
+                root=ROOT,
+            )
+            self.assertEqual(resumed["status"], "completed")
+            self.assertTrue((stage_dir / "response.final.md").exists())
+            self.assertTrue((stage_dir / "output.structured.json").exists())
+            self.assertTrue((stage_dir / "sidecar.response.json").exists())
+            self.assertTrue((stage_dir / "sidecar.response.md").exists())
+
     def test_terminal_cleanup_tracks_and_deletes_sidecar_uploads(self) -> None:
         with tempfile.TemporaryDirectory(dir=ROOT) as tmp:
             runtime = RuntimeOptions(
