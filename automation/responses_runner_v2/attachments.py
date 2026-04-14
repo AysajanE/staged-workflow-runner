@@ -37,8 +37,6 @@ def needs_context_wrapper(path: Path) -> bool:
     suffix = path.suffix.lower()
     if suffix in RESPONSES_CONTEXT_SUPPORTED_SUFFIXES:
         return False
-    if not suffix:
-        return False
     return is_probably_utf8_text(path)
 
 

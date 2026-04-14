@@ -194,6 +194,12 @@ class ResponsesRunnerV2ContractsTests(unittest.TestCase):
             sample.write_text("contract Sample {}\n", encoding="utf-8")
             self.assertTrue(needs_context_wrapper(sample))
 
+    def test_extensionless_text_file_requires_wrapper(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            sample = Path(tmp) / "Makefile"
+            sample.write_text("test:\n\tpython -m pytest\n", encoding="utf-8")
+            self.assertTrue(needs_context_wrapper(sample))
+
 
 if __name__ == "__main__":
     unittest.main()
