@@ -180,6 +180,7 @@ It binds:
 - workflow id
 - source stage id
 - source run id
+- optional approved downstream handoff markdown
 - approved markdown artifact
 - raw response JSON
 - optional structured JSON artifact
@@ -191,6 +192,8 @@ It binds:
 Schema:
 
 - `schemas/review_bundle.schema.json`
+
+When present, approved downstream handoff markdown is carried into the next reviewed stage ahead of the raw prior-stage artifact so reviewers can provide a concise, authoritative synthesis without discarding the detailed stage output.
 
 ## Sidecar Processing
 

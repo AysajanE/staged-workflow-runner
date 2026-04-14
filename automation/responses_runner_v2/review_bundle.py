@@ -26,6 +26,7 @@ def create_review_bundle(
     primary_artifact_markdown: str | Path,
     response_artifact_json: str | Path,
     reviewer_notes: str | Path,
+    approved_handoff_markdown: str | Path | None = None,
     structured_artifact_json: str | Path | None = None,
     locked_decisions: Sequence[str] = (),
     open_dependencies: Sequence[str] = (),
@@ -36,6 +37,11 @@ def create_review_bundle(
     primary_md = resolve_under_root(root, primary_artifact_markdown, must_exist=True)
     response_json = resolve_under_root(root, response_artifact_json, must_exist=True)
     reviewer_notes_path = resolve_under_root(root, reviewer_notes, must_exist=True)
+    approved_handoff_path = (
+        resolve_under_root(root, approved_handoff_markdown, must_exist=True)
+        if approved_handoff_markdown is not None
+        else None
+    )
     structured_json_path = (
         resolve_under_root(root, structured_artifact_json, must_exist=True)
         if structured_artifact_json is not None
@@ -59,6 +65,11 @@ def create_review_bundle(
         "locked_decisions": [item for item in locked_decisions if item],
         "open_dependencies": [item for item in open_dependencies if item],
     }
+    if approved_handoff_path is not None:
+        payload["approved_handoff_markdown"] = relpath(root, approved_handoff_path)
+        payload["artifact_hashes"]["approved_handoff_markdown_sha256"] = sha256_file(
+            approved_handoff_path
+        )
     if structured_json_path is not None:
         payload["structured_artifact_json"] = relpath(root, structured_json_path)
         payload["artifact_hashes"]["structured_artifact_json_sha256"] = sha256_file(
@@ -110,6 +121,12 @@ def load_review_bundle(
     for key in ("primary_artifact_markdown", "response_artifact_json", "reviewer_notes"):
         path = resolve_under_root(root, str(payload[key]), must_exist=True)
         resolved[f"_{key}_resolved"] = path
+    if payload.get("approved_handoff_markdown") is not None:
+        resolved["_approved_handoff_markdown_resolved"] = resolve_under_root(
+            root,
+            str(payload["approved_handoff_markdown"]),
+            must_exist=True,
+        )
     if payload.get("structured_artifact_json") is not None:
         resolved["_structured_artifact_json_resolved"] = resolve_under_root(
             root,
@@ -131,6 +148,11 @@ def load_review_bundle(
         "reviewer_notes_sha256"
     ):
         raise SystemExit("review bundle reviewer_notes hash mismatch.")
+    if payload.get("approved_handoff_markdown") is not None:
+        if sha256_file(resolved["_approved_handoff_markdown_resolved"]) != hashes.get(
+            "approved_handoff_markdown_sha256"
+        ):
+            raise SystemExit("review bundle approved_handoff_markdown hash mismatch.")
     if payload.get("structured_artifact_json") is not None:
         if sha256_file(resolved["_structured_artifact_json_resolved"]) != hashes.get(
             "structured_artifact_json_sha256"
@@ -239,12 +261,29 @@ def expand_review_bundle_inputs(
             kind="file",
             notes="review bundle contract",
         ),
+    ]
+    if bundle.get("approved_handoff_markdown") is not None:
+        entries.append(
+            AttachmentEntry(
+                path=str(bundle["approved_handoff_markdown"]),
+                kind="file",
+                notes=f"approved downstream handoff markdown for stage {bundle['source_stage_id']}",
+            )
+        )
+    entries.append(
+        AttachmentEntry(
+            path=str(bundle["reviewer_notes"]),
+            kind="file",
+            notes="reviewer notes for approved handoff",
+        )
+    )
+    entries.append(
         AttachmentEntry(
             path=str(bundle["primary_artifact_markdown"]),
             kind="file",
             notes=f"approved markdown from stage {bundle['source_stage_id']}",
-        ),
-    ]
+        )
+    )
     if include_response_artifact_json:
         entries.append(
             AttachmentEntry(
@@ -261,11 +300,4 @@ def expand_review_bundle_inputs(
                 notes=f"approved structured output from stage {bundle['source_stage_id']}",
             )
         )
-    entries.append(
-        AttachmentEntry(
-            path=str(bundle["reviewer_notes"]),
-            kind="file",
-            notes="reviewer notes for approved handoff",
-        )
-    )
     return entries

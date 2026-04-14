@@ -35,6 +35,14 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--primary-artifact-markdown", required=True, type=Path)
     parser.add_argument("--response-artifact-json", required=True, type=Path)
     parser.add_argument("--reviewer-notes", required=True, type=Path)
+    parser.add_argument(
+        "--approved-handoff-markdown",
+        type=Path,
+        help=(
+            "Optional concise downstream handoff markdown prepared during review. "
+            "When provided, downstream reviewed stages receive it ahead of the raw prior-stage artifact."
+        ),
+    )
     parser.add_argument("--structured-artifact-json", type=Path)
     parser.add_argument("--locked-decision", action="append", default=[])
     parser.add_argument("--open-dependency", action="append", default=[])
@@ -54,6 +62,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         primary_artifact_markdown=args.primary_artifact_markdown,
         response_artifact_json=args.response_artifact_json,
         reviewer_notes=args.reviewer_notes,
+        approved_handoff_markdown=args.approved_handoff_markdown,
         structured_artifact_json=args.structured_artifact_json,
         locked_decisions=args.locked_decision,
         open_dependencies=args.open_dependency,

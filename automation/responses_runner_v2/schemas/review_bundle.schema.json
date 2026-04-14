@@ -48,6 +48,10 @@
       "type": "string",
       "minLength": 1
     },
+    "approved_handoff_markdown": {
+      "type": "string",
+      "minLength": 1
+    },
     "structured_artifact_json": {
       "type": "string",
       "minLength": 1
@@ -70,6 +74,10 @@
           "pattern": "^[a-f0-9]{64}$"
         },
         "response_artifact_json_sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "approved_handoff_markdown_sha256": {
           "type": "string",
           "pattern": "^[a-f0-9]{64}$"
         },
