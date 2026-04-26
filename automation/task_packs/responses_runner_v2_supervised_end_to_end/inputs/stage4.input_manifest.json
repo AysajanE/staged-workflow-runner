@@ -1,0 +1,90 @@
+{
+  "schema_version": "responses_runner_v2.input_manifest.v1",
+  "manifest_id": "responses_runner_v2_supervised_end_to_end.stage4",
+  "workflow_id": "responses_runner_v2_supervised_end_to_end_self_improvement",
+  "stage_id": "final_drop_in_packet",
+  "description": "Stage 4 final hardening corpus. The approved Stage 3 bundle is added dynamically. Context focuses on final packet correctness, model migration, review-agent protocol, tests, and materialization readiness.",
+  "primary_job_inputs": [
+    {
+      "path": "automation/task_packs/responses_runner_v2_supervised_end_to_end/corpus/task_brief.md",
+      "kind": "file"
+    },
+    {
+      "path": "automation/task_packs/responses_runner_v2_supervised_end_to_end/corpus/final_deliverable_contract.md",
+      "kind": "file"
+    },
+    {
+      "path": "automation/task_packs/responses_runner_v2_supervised_end_to_end/corpus/review_agent_requirements.md",
+      "kind": "file"
+    },
+    {
+      "path": "automation/task_packs/responses_runner_v2_supervised_end_to_end/corpus/prompting_guidance_reference.md",
+      "kind": "file"
+    }
+  ],
+  "reviewed_handoff_inputs": [],
+  "attached_repository_files": [
+    {
+      "path": "README.md",
+      "kind": "file"
+    },
+    {
+      "path": "docs/runbooks/responses-runner-v2.md",
+      "kind": "file"
+    },
+    {
+      "path": "automation/run_responses_v2.py",
+      "kind": "file"
+    },
+    {
+      "path": "automation/create_review_bundle_v2.py",
+      "kind": "file"
+    },
+    {
+      "path": "automation/responses_runner_v2/contracts.py",
+      "kind": "file"
+    },
+    {
+      "path": "automation/responses_runner_v2/workflow.py",
+      "kind": "file"
+    },
+    {
+      "path": "automation/responses_runner_v2/review_bundle.py",
+      "kind": "file"
+    },
+    {
+      "path": "automation/responses_runner_v2/artifacts.py",
+      "kind": "file"
+    },
+    {
+      "path": "automation/responses_runner_v2/schemas",
+      "kind": "directory"
+    },
+    {
+      "path": "automation/tests",
+      "kind": "directory",
+      "exclude_globs": [
+        "automation/tests/__pycache__",
+        "automation/tests/test_responses_runner_v2_eval.py"
+      ]
+    },
+    {
+      "path": "automation/task_packs/responses_runner_v2_supervised_end_to_end/schemas/final_supervisory_packet.schema.json",
+      "kind": "file"
+    },
+    {
+      "path": "automation/task_packs/responses_runner_v2_supervised_end_to_end/prompts/stage4_final_drop_in_packet.md",
+      "kind": "file"
+    }
+  ],
+  "reference_context": [
+    {
+      "path": "automation/examples/responses_runner_v2_synthetic/README.md",
+      "kind": "file"
+    },
+    {
+      "path": "automation/examples/responses_runner_v2_synthetic/workflows/reviewed_three_stage.workflow.json",
+      "kind": "file"
+    }
+  ]
+}

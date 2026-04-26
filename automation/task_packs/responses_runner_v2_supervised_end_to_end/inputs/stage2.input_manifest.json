@@ -1,0 +1,126 @@
+{
+  "schema_version": "responses_runner_v2.input_manifest.v1",
+  "manifest_id": "responses_runner_v2_supervised_end_to_end.stage2",
+  "workflow_id": "responses_runner_v2_supervised_end_to_end_self_improvement",
+  "stage_id": "agent_review_protocol_and_package_contract",
+  "description": "Stage 2 narrows to agent protocol, implementation contracts, schemas, command behavior, tests, and docs. The approved Stage 1 bundle is added dynamically.",
+  "primary_job_inputs": [
+    {
+      "path": "automation/task_packs/responses_runner_v2_supervised_end_to_end/corpus/task_brief.md",
+      "kind": "file"
+    },
+    {
+      "path": "automation/task_packs/responses_runner_v2_supervised_end_to_end/corpus/final_deliverable_contract.md",
+      "kind": "file"
+    },
+    {
+      "path": "automation/task_packs/responses_runner_v2_supervised_end_to_end/corpus/review_agent_requirements.md",
+      "kind": "file"
+    },
+    {
+      "path": "automation/task_packs/responses_runner_v2_supervised_end_to_end/corpus/prompting_guidance_reference.md",
+      "kind": "file"
+    },
+    {
+      "path": "automation/task_packs/responses_runner_v2_supervised_end_to_end/corpus/prior_stage1_architecture_adaptation.md",
+      "kind": "file"
+    }
+  ],
+  "reviewed_handoff_inputs": [],
+  "attached_repository_files": [
+    {
+      "path": "README.md",
+      "kind": "file"
+    },
+    {
+      "path": "docs/runbooks/responses-runner-v2.md",
+      "kind": "file"
+    },
+    {
+      "path": "automation/run_responses_v2.py",
+      "kind": "file"
+    },
+    {
+      "path": "automation/create_review_bundle_v2.py",
+      "kind": "file"
+    },
+    {
+      "path": "automation/responses_runner_v2/contracts.py",
+      "kind": "file"
+    },
+    {
+      "path": "automation/responses_runner_v2/workflow.py",
+      "kind": "file"
+    },
+    {
+      "path": "automation/responses_runner_v2/review_bundle.py",
+      "kind": "file"
+    },
+    {
+      "path": "automation/responses_runner_v2/artifacts.py",
+      "kind": "file"
+    },
+    {
+      "path": "automation/responses_runner_v2/pack_loader.py",
+      "kind": "file"
+    },
+    {
+      "path": "automation/responses_runner_v2/sidecar.py",
+      "kind": "file"
+    },
+    {
+      "path": "automation/responses_runner_v2/schemas/workflow_manifest.schema.json",
+      "kind": "file"
+    },
+    {
+      "path": "automation/responses_runner_v2/schemas/review_bundle.schema.json",
+      "kind": "file"
+    },
+    {
+      "path": "automation/responses_runner_v2/schemas/run_manifest.schema.json",
+      "kind": "file"
+    },
+    {
+      "path": "automation/responses_runner_v2/schemas/stage_checkpoint.schema.json",
+      "kind": "file"
+    },
+    {
+      "path": "automation/tests/test_responses_runner_v2_workflow.py",
+      "kind": "file"
+    },
+    {
+      "path": "automation/tests/test_responses_runner_v2_review_bundle.py",
+      "kind": "file"
+    },
+    {
+      "path": "automation/tests/test_responses_runner_v2_contracts.py",
+      "kind": "file"
+    },
+    {
+      "path": "automation/task_packs/responses_runner_v2_supervised_end_to_end",
+      "kind": "directory",
+      "exclude_globs": [
+        "automation/task_packs/responses_runner_v2_supervised_end_to_end/corpus"
+      ],
+      "notes": "current scaffold surfaces"
+    }
+  ],
+  "reference_context": [
+    {
+      "path": "automation/examples/responses_runner_v2_synthetic/workflows/reviewed_three_stage.workflow.json",
+      "kind": "file"
+    },
+    {
+      "path": "automation/examples/responses_runner_v2_synthetic/inputs/reviewed_stage1.input_manifest.json",
+      "kind": "file"
+    },
+    {
+      "path": "automation/examples/responses_runner_v2_synthetic/inputs/reviewed_stage2.input_manifest.json",
+      "kind": "file"
+    },
+    {
+      "path": "automation/examples/responses_runner_v2_synthetic/inputs/reviewed_stage3.input_manifest.json",
+      "kind": "file"
+    }
+  ]
+}

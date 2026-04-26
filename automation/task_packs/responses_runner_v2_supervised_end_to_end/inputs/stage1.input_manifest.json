@@ -1,0 +1,109 @@
+{
+  "schema_version": "responses_runner_v2.input_manifest.v1",
+  "manifest_id": "responses_runner_v2_supervised_end_to_end.stage1",
+  "workflow_id": "responses_runner_v2_supervised_end_to_end_self_improvement",
+  "stage_id": "architecture_and_supervision_protocol",
+  "description": "Stage 1 broad architecture corpus. It includes authoritative task inputs, adapted prior Stage 1 decisions, current runner code, tests, docs, the old supervisory-lane scaffold, and the synthetic proof pack as low-authority structure evidence.",
+  "primary_job_inputs": [
+    {
+      "path": "automation/task_packs/responses_runner_v2_supervised_end_to_end/corpus/task_brief.md",
+      "kind": "file",
+      "notes": "authoritative task brief"
+    },
+    {
+      "path": "automation/task_packs/responses_runner_v2_supervised_end_to_end/corpus/final_deliverable_contract.md",
+      "kind": "file",
+      "notes": "authoritative final packet contract"
+    },
+    {
+      "path": "automation/task_packs/responses_runner_v2_supervised_end_to_end/corpus/review_agent_requirements.md",
+      "kind": "file",
+      "notes": "authoritative review-agent lane requirements"
+    },
+    {
+      "path": "automation/task_packs/responses_runner_v2_supervised_end_to_end/corpus/prompting_guidance_reference.md",
+      "kind": "file",
+      "notes": "official-source prompting and CLI guidance distilled for this task"
+    },
+    {
+      "path": "automation/task_packs/responses_runner_v2_supervised_end_to_end/corpus/prior_stage1_architecture_adaptation.md",
+      "kind": "file",
+      "notes": "adapted reusable architecture decisions from the previous completed Stage 1"
+    }
+  ],
+  "reviewed_handoff_inputs": [],
+  "attached_repository_files": [
+    {
+      "path": "README.md",
+      "kind": "file",
+      "notes": "top-level repository contract"
+    },
+    {
+      "path": "TEAM_ONBOARDING.md",
+      "kind": "file",
+      "notes": "team mental model and reading order"
+    },
+    {
+      "path": "docs/runbooks/responses-runner-v2.md",
+      "kind": "file",
+      "notes": "current runner operating runbook"
+    },
+    {
+      "path": "automation/run_responses_v2.py",
+      "kind": "file",
+      "notes": "current runner CLI"
+    },
+    {
+      "path": "automation/create_review_bundle_v2.py",
+      "kind": "file",
+      "notes": "current review-bundle CLI"
+    },
+    {
+      "path": "automation/run_responses_v2_eval.py",
+      "kind": "file",
+      "notes": "current eval harness"
+    },
+    {
+      "path": "automation/evals/responses_runner_v2.eval.json",
+      "kind": "file",
+      "notes": "current eval dataset"
+    },
+    {
+      "path": "automation/responses_runner_v2",
+      "kind": "directory",
+      "exclude_globs": [
+        "automation/responses_runner_v2/__pycache__",
+        "automation/responses_runner_v2/__init__.py"
+      ],
+      "notes": "core engine package, schemas, prompts, and orchestration code"
+    },
+    {
+      "path": "automation/tests",
+      "kind": "directory",
+      "exclude_globs": [
+        "automation/tests/__pycache__"
+      ],
+      "notes": "current executable specifications"
+    },
+    {
+      "path": "automation/task_packs/responses_runner_v2_supervisory_lane",
+      "kind": "directory",
+      "notes": "previous three-stage self-improvement scaffold for comparison and reuse"
+    },
+    {
+      "path": "automation/task_packs/responses_runner_v2_supervised_end_to_end",
+      "kind": "directory",
+      "exclude_globs": [
+        "automation/task_packs/responses_runner_v2_supervised_end_to_end/corpus"
+      ],
+      "notes": "this new scaffold's prompts, manifests, schema, tool profiles, and workflow"
+    }
+  ],
+  "reference_context": [
+    {
+      "path": "automation/examples/responses_runner_v2_synthetic",
+      "kind": "directory",
+      "notes": "low-authority proof-pack structure evidence"
+    }
+  ]
+}

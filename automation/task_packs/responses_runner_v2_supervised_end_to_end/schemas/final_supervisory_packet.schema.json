@@ -1,0 +1,291 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Responses Runner V2 Supervised End To End Final Packet",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "packet_version",
+    "workflow_id",
+    "summary",
+    "model_migration",
+    "files",
+    "agent_protocols",
+    "failure_policies",
+    "human_pause_conditions",
+    "acceptance_checks"
+  ],
+  "properties": {
+    "packet_version": {
+      "const": "responses_runner_v2.supervised_end_to_end.packet.v1"
+    },
+    "workflow_id": {
+      "const": "responses_runner_v2_supervised_end_to_end_self_improvement"
+    },
+    "summary": {
+      "type": "string",
+      "minLength": 1
+    },
+    "model_migration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "primary_generation_model",
+        "structural_processing_model",
+        "surfaces_updated"
+      ],
+      "properties": {
+        "primary_generation_model": {
+          "const": "gpt-5.5-pro"
+        },
+        "structural_processing_model": {
+          "const": "gpt-5.5"
+        },
+        "surfaces_updated": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "files": {
+      "type": "array",
+      "minItems": 1,
+      "allOf": [
+        {
+          "contains": {
+            "type": "object",
+            "required": [
+              "path"
+            ],
+            "properties": {
+              "path": {
+                "const": "AGENTS.md"
+              }
+            }
+          }
+        }
+      ],
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "path",
+          "action",
+          "category",
+          "purpose"
+        ],
+        "properties": {
+          "path": {
+            "type": "string",
+            "minLength": 1
+          },
+          "action": {
+            "enum": [
+              "create",
+              "update"
+            ]
+          },
+          "category": {
+            "enum": [
+              "engine",
+              "task_pack",
+              "docs",
+              "tests",
+              "config",
+              "ops"
+            ]
+          },
+          "purpose": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "agent_protocols": {
+      "type": "array",
+      "minItems": 3,
+      "allOf": [
+        {
+          "contains": {
+            "type": "object",
+            "required": [
+              "agent"
+            ],
+            "properties": {
+              "agent": {
+                "const": "operator_codex"
+              }
+            }
+          }
+        },
+        {
+          "contains": {
+            "type": "object",
+            "required": [
+              "agent"
+            ],
+            "properties": {
+              "agent": {
+                "const": "codex_review_agent"
+              }
+            }
+          }
+        },
+        {
+          "contains": {
+            "type": "object",
+            "required": [
+              "agent"
+            ],
+            "properties": {
+              "agent": {
+                "const": "claude_review_agent"
+              }
+            }
+          }
+        }
+      ],
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "agent",
+          "command_shape",
+          "prompt_file",
+          "output_artifacts"
+        ],
+        "properties": {
+          "agent": {
+            "type": "string",
+            "minLength": 1
+          },
+          "command_shape": {
+            "type": "string",
+            "minLength": 1
+          },
+          "prompt_file": {
+            "type": "string",
+            "minLength": 1
+          },
+          "output_artifacts": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        }
+      }
+    },
+    "failure_policies": {
+      "type": "array",
+      "minItems": 1,
+      "allOf": [
+        {
+          "contains": {
+            "type": "object",
+            "required": [
+              "case_id"
+            ],
+            "properties": {
+              "case_id": {
+                "const": "completed_complete_artifact"
+              }
+            }
+          }
+        },
+        {
+          "contains": {
+            "type": "object",
+            "required": [
+              "case_id"
+            ],
+            "properties": {
+              "case_id": {
+                "const": "failed_complete_artifact"
+              }
+            }
+          }
+        },
+        {
+          "contains": {
+            "type": "object",
+            "required": [
+              "case_id"
+            ],
+            "properties": {
+              "case_id": {
+                "const": "failed_no_artifact"
+              }
+            }
+          }
+        },
+        {
+          "contains": {
+            "type": "object",
+            "required": [
+              "case_id"
+            ],
+            "properties": {
+              "case_id": {
+                "const": "incomplete_output_limit"
+              }
+            }
+          }
+        }
+      ],
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "case_id",
+          "trigger",
+          "decision_rule",
+          "automation_action",
+          "human_pause_required"
+        ],
+        "properties": {
+          "case_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "trigger": {
+            "type": "string",
+            "minLength": 1
+          },
+          "decision_rule": {
+            "type": "string",
+            "minLength": 1
+          },
+          "automation_action": {
+            "type": "string",
+            "minLength": 1
+          },
+          "human_pause_required": {
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    "human_pause_conditions": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "acceptance_checks": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    }
+  }
+}
