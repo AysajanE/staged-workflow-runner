@@ -2163,7 +2163,7 @@ Quality bar:
       "input_manifest_file": "../inputs/stage1.input_manifest.json",
       "tool_profile_file": "../tools/stage1_web_search.profile.json",
       "model_role": "primary_generation",
-      "max_output_tokens": 96000,
+      "max_output_tokens": 128000,
       "gate": "review_required",
       "output": {
         "primary_format": "text"
@@ -2177,7 +2177,7 @@ Quality bar:
       "input_manifest_file": "../inputs/stage2.input_manifest.json",
       "tool_profile_file": "../tools/stage2_web_search.profile.json",
       "model_role": "primary_generation",
-      "max_output_tokens": 96000,
+      "max_output_tokens": 128000,
       "gate": "review_required",
       "carry_forward": {
         "reference_context_from_stage_ids": [
