@@ -52,7 +52,7 @@ There must be exactly one row for every file in Section 2.
 
 Use this exact table:
 
-| agent | canonical_command_shape | compatibility_notes | required_inputs | required_outputs | failure_handling |
+| agent | canonical_command_shape | command_constraints | required_inputs | required_outputs | failure_handling |
 
 Include:
 

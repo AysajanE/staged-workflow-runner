@@ -21,7 +21,6 @@ Design implications for this task:
 - Use `gpt-5.5` for structural or lower-latency processing when sufficient.
 - Use `reasoning_effort: xhigh` only where maximum intelligence matters more than latency/cost.
 - Use `codex exec` as the canonical non-interactive Codex CLI command.
-- Treat `codex -exec` as a local compatibility alias only if the team's wrapper supports it.
 
 ## Anthropic Claude Guidance
 

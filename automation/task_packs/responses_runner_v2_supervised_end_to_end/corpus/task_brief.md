@@ -18,7 +18,7 @@ The final implementation packet produced by this workflow must make the staged w
 6. retrieving terminal artifacts;
 7. reviewing intermediate stage outputs substantively;
 8. invoking independent non-interactive review agents:
-   - Codex review agent using `codex exec` as the canonical current command, with local compatibility for `codex -exec` if the team's wrapper supports it;
+   - Codex review agent using `codex exec` as the canonical current command;
    - Claude review agent using `claude -p`;
 9. consolidating independent reviews;
 10. allowing the operator Codex agent to accept only supported reviewer recommendations;

@@ -28,19 +28,11 @@ The operator must not blindly accept reviewer recommendations.
 
 The Codex review agent runs non-interactively.
 
-Canonical command:
+Required command:
 
 ```bash
 codex exec "<prompt or prompt-file-driven task>"
 ```
-
-Compatibility note:
-
-```bash
-codex -exec "<prompt or prompt-file-driven task>"
-```
-
-may be supported by a local wrapper, but the final implementation must use canonical `codex exec` unless the repo explicitly provides a wrapper.
 
 The Codex review agent should be read-only unless the implementation explicitly stages a repair task. For review, it must produce an artifact, not patches.
 

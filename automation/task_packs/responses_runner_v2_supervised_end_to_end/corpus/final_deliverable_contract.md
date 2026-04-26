@@ -19,9 +19,8 @@ The packet must include, at minimum:
 7. Codex review-agent prompt content;
 8. Claude review-agent prompt content;
 9. review consolidation prompt content;
-10. command templates or wrapper behavior for:
+10. command templates for:
     - `codex exec`
-    - local compatibility alias `codex -exec` if the team's environment supports it
     - `claude -p`
 11. tests for:
     - model migration;
