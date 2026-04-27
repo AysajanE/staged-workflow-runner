@@ -2120,7 +2120,7 @@ Quality bar:
         "model": "gpt-5.5-pro",
         "reasoning_effort": "xhigh",
         "verbosity": "high",
-        "prompt_cache_retention": "in_memory"
+        "prompt_cache_retention": "24h"
       },
       "structural_processing": {
         "model": "gpt-5.5",
