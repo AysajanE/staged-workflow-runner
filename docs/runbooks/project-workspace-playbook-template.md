@@ -23,10 +23,10 @@ This file should not try to re-teach the full runner architecture every time.
 
 New operators should read these once from the runner repository:
 
-1. `/Users/aeziz-local/staged-workflow-runner/TEAM_ONBOARDING.md`
-2. `/Users/aeziz-local/staged-workflow-runner/docs/runbooks/responses-runner-v2.md`
-3. `/Users/aeziz-local/staged-workflow-runner/docs/runbooks/first-use-adaptation-example.md`
-4. `/Users/aeziz-local/staged-workflow-runner/automation/examples/responses_runner_v2_synthetic/README.md`
+1. `<runner-checkout>/TEAM_ONBOARDING.md`
+2. `<runner-checkout>/docs/runbooks/responses-runner-v2.md`
+3. `<runner-checkout>/docs/runbooks/first-use-adaptation-example.md`
+4. `<runner-checkout>/automation/examples/responses_runner_v2_synthetic/README.md`
 
 If the operator already knows the runner and has already done the synthetic proof path, this brief should be enough.
 
@@ -34,7 +34,7 @@ If the operator already knows the runner and has already done the synthetic proo
 
 Runner root for this local environment:
 
-- `/Users/aeziz-local/staged-workflow-runner`
+- `<runner-checkout>`
 
 ## Fill In For This Workspace
 
@@ -97,7 +97,7 @@ Dry run:
 ```bash
 cd "<target-workspace>"
 
-python3 "/Users/aeziz-local/staged-workflow-runner/automation/run_responses_v2.py" run \
+python3 "<runner-checkout>/automation/run_responses_v2.py" run \
   --root . \
   --workflow-file <workflow-file> \
   --dry-run
@@ -108,7 +108,7 @@ First live run:
 ```bash
 cd "<target-workspace>"
 
-python3 "/Users/aeziz-local/staged-workflow-runner/automation/run_responses_v2.py" run \
+python3 "<runner-checkout>/automation/run_responses_v2.py" run \
   --root . \
   --workflow-file <workflow-file> \
   --skip-token-count \
@@ -120,7 +120,7 @@ Resume a nonterminal stage:
 ```bash
 cd "<target-workspace>"
 
-python3 "/Users/aeziz-local/staged-workflow-runner/automation/run_responses_v2.py" resume \
+python3 "<runner-checkout>/automation/run_responses_v2.py" resume \
   --root . \
   --run-dir <run-dir> \
   --stage <stage-id> \
@@ -132,7 +132,7 @@ Refresh remote status without resubmitting:
 ```bash
 cd "<target-workspace>"
 
-python3 "/Users/aeziz-local/staged-workflow-runner/automation/run_responses_v2.py" refresh \
+python3 "<runner-checkout>/automation/run_responses_v2.py" refresh \
   --root . \
   --run-dir <run-dir> \
   --stage <stage-id>
@@ -141,7 +141,7 @@ python3 "/Users/aeziz-local/staged-workflow-runner/automation/run_responses_v2.p
 If the workflow uses reviewed gates, create a review bundle:
 
 ```bash
-python3 "/Users/aeziz-local/staged-workflow-runner/automation/create_review_bundle_v2.py" \
+python3 "<runner-checkout>/automation/create_review_bundle_v2.py" \
   --root "<target-workspace>" \
   --output review_bundle.json \
   --workflow-id <workflow-id> \
@@ -157,7 +157,7 @@ Continue after review:
 ```bash
 cd "<target-workspace>"
 
-python3 "/Users/aeziz-local/staged-workflow-runner/automation/run_responses_v2.py" run \
+python3 "<runner-checkout>/automation/run_responses_v2.py" run \
   --root . \
   --workflow-file <workflow-file> \
   --run-dir <run-dir> \

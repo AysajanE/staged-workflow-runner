@@ -1,4 +1,16 @@
+# Local runner output, supervisor sessions, extracted packets, and archives.
 .local/
-__pycache__/
-.DS_Store
+
+# Local secrets and environment overrides.
 .env
+.env.*
+!.env.example
+
+# Python and test caches.
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Editor, OS, and scratch artifacts.
+.DS_Store
+inspect_live.*

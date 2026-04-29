@@ -1,41 +1,40 @@
 # staged-workflow-runner
 
-A manifest-driven runner for high-stakes staged OpenAI Responses workflows that operators can point at any single workspace root without rewriting the engine.
+A manifest-driven runner for high-stakes staged OpenAI Responses workflows. The runner is designed to execute complex tasks from explicit task packs, preserve durable local evidence, support reviewed handoffs between stages, and optionally operate through an additive supervisor lane.
 
-## What This Repository Provides
+## Current Status
 
-This repository packages a reusable high-stakes runner with:
+This repository is ready to publish as a standalone source repository for the runner.
 
-- manifest-driven staged workflows
-- reviewed handoff bundles
-- token preflight before live submission
-- upload lifecycle tracking and optional cleanup
-- dry run, resume, and refresh controls
-- optional structured sidecar extraction
-- a bounded synthetic proof pack for validation
-- an additive supervisor lane for end-to-end AI-operated execution after an initial clarification gate
+- Core engine: implemented under `automation/responses_runner_v2/`.
+- Generic CLI: `automation/run_responses_v2.py`.
+- Review-bundle CLI: `automation/create_review_bundle_v2.py`.
+- Supervisor CLI: `automation/run_responses_supervisor_v2.py`.
+- Synthetic proof pack: included under `automation/examples/responses_runner_v2_synthetic/`.
+- Supervisor/self-improvement packs: included under `automation/task_packs/`.
+- Local run outputs, secrets, caches, and scratch archives are intentionally excluded from Git.
 
-## First-Release Operating Contract
+The first release intentionally preserves the tested internal layout and names: `automation/...`, `responses_runner_v2`, existing CLI filenames, and schema identifiers.
 
-- The runner is shipped as a standalone tool repository.
-- Each invocation operates against **one exact workspace root**.
-- `--root` is the exact workspace root when supplied.
-- If `--root` is omitted, `RESPONSES_RUNNER_V2_ROOT` is used when set.
-- If neither is supplied, the current working directory is used as-is.
-- Workflow manifests, static inputs, review bundles, carry-forward artifacts, supervisor sessions, archives, and run outputs must all stay under that one root.
-- Dual-root support is deliberately deferred.
+## Operating Contract
 
-## Important Packaging Note
+- Each invocation operates against one exact workspace root.
+- Root resolution order is explicit `--root`, then `RESPONSES_RUNNER_V2_ROOT`, then the current working directory.
+- Workflow manifests, input manifests, static attachments, review bundles, supervisor sessions, archives, and run outputs must stay under that root.
+- Dual-root mode is deliberately deferred for the first release.
+- Task behavior belongs in task-pack files: prompts, manifests, tool profiles, schemas, and reviewed handoff bundles.
 
-The repository is named `staged-workflow-runner`, but the first release intentionally preserves the current internal `automation/...` layout, `responses_runner_v2` module path, CLI filenames, and schema identifiers.
+## Requirements
 
-That keeps the transfer close to the tested implementation and avoids unnecessary churn across:
-
-- workflow manifests
-- input manifests
-- tests
-- runbooks
-- operator muscle memory
+- Python 3.10 or newer.
+- `OPENAI_API_KEY` in the environment, or a `.env` file in the active workspace root for live OpenAI runs.
+- No mandatory third-party runtime package for the core runner; the HTTP client uses the Python standard library.
+- Optional: `jsonschema` for full JSON Schema validation. A limited fallback validator is built in for supervisor artifacts.
+- Optional for tests: `pytest`. The repository test suite also runs with standard-library `unittest`.
+- Supervisor review automation additionally requires:
+  - Codex CLI available as `codex`;
+  - Claude CLI available as `claude`;
+  - non-interactive command execution available in the current shell.
 
 ## Model Defaults
 
@@ -44,13 +43,19 @@ Runtime and committed workflow defaults use the GPT-5.5 family:
 - primary generation: `gpt-5.5-pro`
 - structural processing: `gpt-5.5`
 - committed GPT-5.5-family prompt cache retention: `24h`
-- high-stakes primary generation reasoning effort: `xhigh`
-- structural processing reasoning effort: `high` or `medium`
+- high-stakes primary reasoning effort: `xhigh`
+- structural reasoning effort: `high` or `medium`
 - locked high-stakes self-improvement max output tokens: `128000`
 
-## Generic Runner Quick Start
+## Quick Start
 
-Dry-run the bundled synthetic proof pack from this repository root:
+Run the full local test suite:
+
+```bash
+python3 -m unittest discover -s automation/tests -p 'test_*.py'
+```
+
+Dry-run the bundled synthetic proof pack:
 
 ```bash
 python3 automation/run_responses_v2.py run \
@@ -65,23 +70,27 @@ Run the same proof pack live and wait for completion:
 python3 automation/run_responses_v2.py run \
   --root . \
   --workflow-file automation/examples/responses_runner_v2_synthetic/workflows/one_pass.workflow.json \
+  --skip-token-count \
   --wait
 ```
 
-Use the runner checkout against an external target workspace:
+Use this checkout against an external target workspace:
 
 ```bash
 python3 /path/to/staged-workflow-runner/automation/run_responses_v2.py run \
   --root /path/to/target-workspace \
   --workflow-file task_packs/example/workflows/example.workflow.json \
+  --skip-token-count \
   --wait
 ```
 
-Set `OPENAI_API_KEY` in the environment, or place it in `.env` under the workspace root used for the run.
+## Supervisor Lane
 
-## Supervisor Lane Quick Start
+The supervisor lane is additive: it does not replace the generic runner engine. The engine still owns workflow loading, request construction, Responses API submission, resume/refresh, artifact finalization, sidecar extraction, and review-bundle validation.
 
-Create a clarified brief, then initialize a supervisor session:
+The supervisor owns session state, scaffold staging, dry-run gating, review-agent invocation, consolidation, operator selective acceptance, failure classification, archive-before-rerun evidence, human-pause records, and final implementation-bundle assembly.
+
+Initialize a session after a human has accepted a clarified task brief:
 
 ```bash
 python3 automation/run_responses_supervisor_v2.py init-session \
@@ -90,65 +99,97 @@ python3 automation/run_responses_supervisor_v2.py init-session \
   --summary "One-sentence accepted task summary"
 ```
 
-Stage a scaffold for pre-launch review:
+Stage and dry-run a scaffold:
 
 ```bash
 python3 automation/run_responses_supervisor_v2.py stage-scaffold \
   --root . \
   --session <supervisor_session_id> \
   --scaffold-path automation/task_packs/example_task
-```
 
-Dry-run the scaffold before paid execution:
-
-```bash
 python3 automation/run_responses_supervisor_v2.py dry-run-scaffold \
   --root . \
   --session <supervisor_session_id> \
   --workflow-file automation/task_packs/example_task/workflows/workflow.json
 ```
 
-The supervisor then runs the required review loop:
+For every scaffold and non-terminal stage, the required supervisor review loop is:
 
-1. operator Codex provisional review via `codex exec`;
-2. Codex review agent via `codex exec`;
-3. Claude review agent via `claude --bare -p`;
+1. operator Codex provisional review through `codex exec`;
+2. independent read-only Codex review through `codex exec`;
+3. independent read-only Claude review through `claude --bare -p`;
 4. deterministic consolidation;
-5. operator selective acceptance with applied-change evidence.
-
-The supervisor creates approved review bundles only after operator acceptance.
+5. operator selective acceptance with applied-change evidence;
+6. approved review-bundle creation only after acceptance.
 
 ## Repository Layout
 
-- `automation/responses_runner_v2/` — core engine package
-- `automation/run_responses_v2.py` — generic runner CLI
-- `automation/create_review_bundle_v2.py` — approved handoff bundle CLI
-- `automation/run_responses_supervisor_v2.py` — supervised execution CLI
-- `automation/run_responses_v2_eval.py` — lightweight eval and freeze-gate helper
-- `automation/examples/responses_runner_v2_synthetic/` — bounded proof pack
-- `automation/task_packs/responses_runner_v2_supervisor_internal/` — internal supervisor prompts and command templates
-- `automation/tests/` — regression coverage
-- `docs/runbooks/` — operator-facing runbooks
+- `AGENTS.md` — repository-level automation-agent instructions.
+- `TEAM_ONBOARDING.md` — team onboarding guide.
+- `automation/responses_runner_v2/` — core engine package.
+- `automation/run_responses_v2.py` — generic runner CLI.
+- `automation/create_review_bundle_v2.py` — approved review-bundle CLI.
+- `automation/run_responses_supervisor_v2.py` — supervisor CLI.
+- `automation/run_responses_v2_eval.py` — lightweight eval and freeze-gate helper.
+- `automation/examples/responses_runner_v2_synthetic/` — bounded proof pack.
+- `automation/task_packs/responses_runner_v2_supervisor_internal/` — supervisor prompt and command-template library.
+- `automation/task_packs/responses_runner_v2_supervised_end_to_end/` — current four-stage self-improvement pack.
+- `automation/task_packs/responses_runner_v2_supervisory_lane/` — legacy three-stage supervisory-lane pack kept as historical regression coverage.
+- `automation/tests/` — regression tests.
+- `docs/runbooks/` — operator-facing runbooks.
+- `docs/fresh_self_improvement_task_pack.md` — design provenance for the current supervised self-improvement pack.
+
+## Publication Boundary
+
+Push these to GitHub:
+
+- core runner code, CLIs, schemas, tests, eval fixtures, synthetic examples, runbooks, and task-pack definitions;
+- `AGENTS.md`, `TEAM_ONBOARDING.md`, and this `README.md`;
+- supervisor internal prompt and command-template assets, because the supervisor CLI depends on them.
+
+Do not push these:
+
+- `.env` or any environment-specific secret file;
+- `.local/` run outputs, response artifacts, supervisor sessions, archives, extracted packets, or internal handoffs;
+- `.pytest_cache/`, `__pycache__/`, `*.pyc`, `.DS_Store`, and scratch directories such as `inspect_live.*`;
+- project-specific handoff material for unrelated target repositories.
+
+Project-specific handoff runbooks that were useful during local development have been moved out of the publishable tree and preserved under ignored `.local/internal_archive/`.
 
 ## Validation
 
-Run the focused validation suite after applying supervisor changes:
+Baseline validation:
 
 ```bash
-python3 -m pytest \
-  automation/tests/test_responses_runner_v2_model_migration.py \
-  automation/tests/test_responses_runner_v2_supervisor.py \
-  automation/tests/test_responses_runner_v2_contracts.py \
-  automation/tests/test_responses_runner_v2_workflow.py
+python3 -m unittest discover -s automation/tests -p 'test_*.py'
 ```
 
-Dry-run the migrated synthetic proof pack:
+Optional pytest validation:
+
+```bash
+PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python3 -m pytest automation/tests -q
+```
+
+Dry-run validation:
 
 ```bash
 python3 automation/run_responses_v2.py run \
   --root . \
   --workflow-file automation/examples/responses_runner_v2_synthetic/workflows/one_pass.workflow.json \
   --dry-run
+
+python3 automation/run_responses_v2.py run \
+  --root . \
+  --workflow-file automation/task_packs/responses_runner_v2_supervised_end_to_end/workflows/four_stage.workflow.json \
+  --dry-run
+```
+
+Supervisor smoke:
+
+```bash
+python3 automation/run_responses_supervisor_v2.py validate-session \
+  --root . \
+  --session <supervisor_session_id>
 ```
 
 ## Start Here

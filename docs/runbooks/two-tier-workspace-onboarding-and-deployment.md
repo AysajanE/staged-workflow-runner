@@ -26,7 +26,7 @@ Tier 2 is recreated for each target workspace.
 
 In this local environment, the runner repository is:
 
-- `/Users/aeziz-local/staged-workflow-runner`
+- `<runner-checkout>`
 
 ## Tier 1: One-Time Runner Onboarding
 
@@ -38,14 +38,14 @@ They should complete this once before running high-stakes workflows in any targe
 
 Read these files in order:
 
-1. `/Users/aeziz-local/staged-workflow-runner/TEAM_ONBOARDING.md`
-2. `/Users/aeziz-local/staged-workflow-runner/docs/runbooks/responses-runner-v2.md`
-3. `/Users/aeziz-local/staged-workflow-runner/docs/runbooks/first-use-adaptation-example.md`
-4. `/Users/aeziz-local/staged-workflow-runner/automation/examples/responses_runner_v2_synthetic/README.md`
+1. `<runner-checkout>/TEAM_ONBOARDING.md`
+2. `<runner-checkout>/docs/runbooks/responses-runner-v2.md`
+3. `<runner-checkout>/docs/runbooks/first-use-adaptation-example.md`
+4. `<runner-checkout>/automation/examples/responses_runner_v2_synthetic/README.md`
 
 If deeper execution-path understanding is needed, then read:
 
-5. `/Users/aeziz-local/staged-workflow-runner/automation/responses_runner_v2/workflow.py`
+5. `<runner-checkout>/automation/responses_runner_v2/workflow.py`
 
 ### Step 2: Understand The Non-Negotiable Runner Facts
 
@@ -71,7 +71,7 @@ This is the proof path for learning the runner without touching a real project.
 Run the example-pack unit test:
 
 ```bash
-cd /Users/aeziz-local/staged-workflow-runner
+cd <runner-checkout>
 
 python3 -m unittest automation.tests.test_responses_runner_v2_example_pack
 ```
@@ -79,7 +79,7 @@ python3 -m unittest automation.tests.test_responses_runner_v2_example_pack
 Dry-run the synthetic one-pass workflow:
 
 ```bash
-cd /Users/aeziz-local/staged-workflow-runner
+cd <runner-checkout>
 
 python3 automation/run_responses_v2.py run \
   --root . \
@@ -148,7 +148,7 @@ For a new target workspace:
 
 This section walks through the model for this concrete target workspace:
 
-- `/Users/aeziz-local/Research/autonomous-agentic-research-swarm`
+- `<target-workspace>`
 
 The goal here is not to define the task itself yet.
 The goal is to make the team in that target project operationally ready.
@@ -157,7 +157,7 @@ The goal is to make the team in that target project operationally ready.
 
 The target workspace root is:
 
-- `/Users/aeziz-local/Research/autonomous-agentic-research-swarm`
+- `<target-workspace>`
 
 This must be the root used for task-pack assets, run artifacts, and `.env` lookup.
 
@@ -181,8 +181,8 @@ Copy the short template from the runner repo into the target workspace:
 
 ```bash
 cp \
-  "/Users/aeziz-local/staged-workflow-runner/docs/runbooks/project-workspace-playbook-template.md" \
-  "/Users/aeziz-local/Research/autonomous-agentic-research-swarm/RUNNER_PLAYBOOK.md"
+  "<runner-checkout>/docs/runbooks/project-workspace-playbook-template.md" \
+  "<target-workspace>/RUNNER_PLAYBOOK.md"
 ```
 
 That copied file becomes the workspace-local operator brief.
@@ -191,7 +191,7 @@ That copied file becomes the workspace-local operator brief.
 
 Open:
 
-- `/Users/aeziz-local/Research/autonomous-agentic-research-swarm/RUNNER_PLAYBOOK.md`
+- `<target-workspace>/RUNNER_PLAYBOOK.md`
 
 Fill in:
 
@@ -223,19 +223,19 @@ Avoid starting with a reviewed multi-stage high-complexity pack unless the team 
 
 All files that will be attached statically must live under:
 
-- `/Users/aeziz-local/Research/autonomous-agentic-research-swarm`
+- `<target-workspace>`
 
 Based on the current layout, likely starting points include:
 
-- `/Users/aeziz-local/Research/autonomous-agentic-research-swarm/README.md`
-- `/Users/aeziz-local/Research/autonomous-agentic-research-swarm/contracts/project.yaml`
-- `/Users/aeziz-local/Research/autonomous-agentic-research-swarm/contracts/model_spec.md`
-- `/Users/aeziz-local/Research/autonomous-agentic-research-swarm/docs/protocol.md`
-- `/Users/aeziz-local/Research/autonomous-agentic-research-swarm/docs/autonomous_agentic_research_workflow_roadmap.md`
+- `<target-workspace>/README.md`
+- `<target-workspace>/contracts/project.yaml`
+- `<target-workspace>/contracts/model_spec.md`
+- `<target-workspace>/docs/protocol.md`
+- `<target-workspace>/docs/autonomous_agentic_research_workflow_roadmap.md`
 
 If the task depends on specific data or processed outputs, include the relevant files under:
 
-- `/Users/aeziz-local/Research/autonomous-agentic-research-swarm/data`
+- `<target-workspace>/data`
 
 ### Step 7: Classify Inputs By Authority
 
@@ -260,7 +260,7 @@ Create the initial task pack under the target workspace root.
 Recommended starting layout:
 
 ```text
-/Users/aeziz-local/Research/autonomous-agentic-research-swarm/
+<target-workspace>/
   task_packs/
     <task-name>/
       shared_instructions.md
@@ -312,7 +312,7 @@ Write `inputs/stage1.input_manifest.json`.
 
 Rules:
 
-- every static path must resolve under `/Users/aeziz-local/Research/autonomous-agentic-research-swarm`
+- every static path must resolve under `<target-workspace>`
 - only task-defining inputs go into `primary_job_inputs`
 - supporting repo evidence goes into `attached_repository_files`
 - lower-authority context goes into `reference_context`
@@ -335,9 +335,9 @@ For the first task in a new workspace, keep it simple:
 Run the dry run from inside the target workspace:
 
 ```bash
-cd "/Users/aeziz-local/Research/autonomous-agentic-research-swarm"
+cd "<target-workspace>"
 
-python3 "/Users/aeziz-local/staged-workflow-runner/automation/run_responses_v2.py" run \
+python3 "<runner-checkout>/automation/run_responses_v2.py" run \
   --root . \
   --workflow-file task_packs/<task-name>/workflows/<workflow-id>.workflow.json \
   --dry-run
@@ -346,7 +346,7 @@ python3 "/Users/aeziz-local/staged-workflow-runner/automation/run_responses_v2.p
 This is important:
 
 - `--root .` means the run artifacts should be written under the target workspace `.local/...` tree
-- the runner code stays in `/Users/aeziz-local/staged-workflow-runner`
+- the runner code stays in `<runner-checkout>`
 - the task pack stays in the target workspace
 
 ### Step 14: Inspect The Dry-Run Artifacts
@@ -373,9 +373,9 @@ If the dry run is wrong, fix the task pack and rerun the dry run.
 Only after the dry run looks correct:
 
 ```bash
-cd "/Users/aeziz-local/Research/autonomous-agentic-research-swarm"
+cd "<target-workspace>"
 
-python3 "/Users/aeziz-local/staged-workflow-runner/automation/run_responses_v2.py" run \
+python3 "<runner-checkout>/automation/run_responses_v2.py" run \
   --root . \
   --workflow-file task_packs/<task-name>/workflows/<workflow-id>.workflow.json \
   --skip-token-count \
@@ -437,7 +437,7 @@ The target workspace is launch-ready when:
 
 Use this runbook together with:
 
-- `/Users/aeziz-local/staged-workflow-runner/docs/runbooks/project-workspace-playbook-template.md`
+- `<runner-checkout>/docs/runbooks/project-workspace-playbook-template.md`
 
 The template is the copyable short brief.
 This document is the full explanation of how and why the two-tier model works.
