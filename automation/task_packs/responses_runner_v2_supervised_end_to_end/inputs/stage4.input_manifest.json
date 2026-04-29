@@ -3,7 +3,7 @@
   "manifest_id": "responses_runner_v2_supervised_end_to_end.stage4",
   "workflow_id": "responses_runner_v2_supervised_end_to_end_self_improvement",
   "stage_id": "final_drop_in_packet",
-  "description": "Stage 4 final hardening corpus. The approved Stage 3 bundle is added dynamically. Context focuses on final packet correctness, model migration, review-agent protocol, tests, and materialization readiness.",
+  "description": "Stage 4 final hardening corpus. The approved Stage 3 bundle is added dynamically. Context focuses on final packet correctness, model migration, review-agent protocol, tests, local implementation baselines, and materialization readiness. Stage 4 is intentionally local-context-only with no web/tool profile.",
   "primary_job_inputs": [
     {
       "path": "automation/task_packs/responses_runner_v2_supervised_end_to_end/corpus/task_brief.md",
@@ -41,23 +41,7 @@
       "kind": "file"
     },
     {
-      "path": "automation/responses_runner_v2/contracts.py",
-      "kind": "file"
-    },
-    {
-      "path": "automation/responses_runner_v2/workflow.py",
-      "kind": "file"
-    },
-    {
-      "path": "automation/responses_runner_v2/review_bundle.py",
-      "kind": "file"
-    },
-    {
-      "path": "automation/responses_runner_v2/artifacts.py",
-      "kind": "file"
-    },
-    {
-      "path": "automation/responses_runner_v2/schemas",
+      "path": "automation/responses_runner_v2",
       "kind": "directory"
     },
     {
@@ -69,22 +53,29 @@
       ]
     },
     {
-      "path": "automation/task_packs/responses_runner_v2_supervised_end_to_end/schemas/final_supervisory_packet.schema.json",
+      "path": "automation/examples/responses_runner_v2_synthetic",
+      "kind": "directory"
+    },
+    {
+      "path": "automation/task_packs/responses_runner_v2_supervisory_lane",
+      "kind": "directory"
+    },
+    {
+      "path": "automation/task_packs/responses_runner_v2_supervised_end_to_end/README.md",
       "kind": "file"
     },
     {
-      "path": "automation/task_packs/responses_runner_v2_supervised_end_to_end/prompts/stage4_final_drop_in_packet.md",
+      "path": "automation/task_packs/responses_runner_v2_supervised_end_to_end/workflows/four_stage.workflow.json",
+      "kind": "file"
+    },
+    {
+      "path": "automation/task_packs/responses_runner_v2_supervised_end_to_end/tools",
+      "kind": "directory"
+    },
+    {
+      "path": "automation/task_packs/responses_runner_v2_supervised_end_to_end/schemas/final_supervisory_packet.schema.json",
       "kind": "file"
     }
   ],
-  "reference_context": [
-    {
-      "path": "automation/examples/responses_runner_v2_synthetic/README.md",
-      "kind": "file"
-    },
-    {
-      "path": "automation/examples/responses_runner_v2_synthetic/workflows/reviewed_three_stage.workflow.json",
-      "kind": "file"
-    }
-  ]
+  "reference_context": []
 }

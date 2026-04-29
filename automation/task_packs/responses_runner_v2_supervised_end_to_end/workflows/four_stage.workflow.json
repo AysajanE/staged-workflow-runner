@@ -92,7 +92,6 @@
       "title": "Draft Drop-In Packet",
       "task_file": "../prompts/stage3_draft_drop_in_packet.md",
       "input_manifest_file": "../inputs/stage3.input_manifest.json",
-      "tool_profile_file": "../tools/stage3_web_search.profile.json",
       "model_role": "primary_generation",
       "max_output_tokens": 128000,
       "gate": "review_required",
@@ -114,15 +113,13 @@
       "title": "Final Drop-In Packet",
       "task_file": "../prompts/stage4_final_drop_in_packet.md",
       "input_manifest_file": "../inputs/stage4.input_manifest.json",
-      "tool_profile_file": "../tools/stage4_web_search.profile.json",
       "model_role": "primary_generation",
       "max_output_tokens": 128000,
       "gate": "terminal",
       "carry_forward": {
         "reference_context_from_stage_ids": [
           "architecture_and_supervision_protocol",
-          "agent_review_protocol_and_package_contract",
-          "draft_drop_in_packet"
+          "agent_review_protocol_and_package_contract"
         ],
         "review_bundle_from_stage_id": "draft_drop_in_packet",
         "review_bundle_include_response_artifact_json": false
