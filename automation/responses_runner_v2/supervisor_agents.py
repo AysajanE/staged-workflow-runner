@@ -116,7 +116,12 @@ def validate_review_decision(decision: dict[str, Any]) -> None:
         raise AgentOutputError(str(exc)) from exc
 
     actor_role = decision.get("actor_role")
-    if actor_role in {"operator_codex", "codex_review_agent", "claude_review_agent"} and not isinstance(decision.get("command"), dict):
+    review_kind = decision.get("review_kind")
+    if (
+        actor_role in {"operator_codex", "codex_review_agent", "claude_review_agent"}
+        and review_kind != "operator_acceptance"
+        and not isinstance(decision.get("command"), dict)
+    ):
         raise AgentOutputError("Agent-backed review decision must include command metadata.")
     if actor_role in {"codex_review_agent", "claude_review_agent"}:
         read_only_check = decision.get("read_only_check")
@@ -381,11 +386,28 @@ def _invoke_agent(
     read_only_check = None
     if actor_role in {"codex_review_agent", "claude_review_agent"}:
         read_only_after = snapshot_workspace(root)
-        changes = diff_snapshots(read_only_before or {}, read_only_after)
+        allowed_output_paths = {
+            relpath(root, stdout_path),
+            relpath(root, stderr_path),
+            relpath(root, output_path / f"{command_id}.json"),
+            relpath(root, output_path / f"{command_id}.md"),
+            relpath(root, output_path / f"{command_id}.readonly.diff.md"),
+        }
+        filtered_before = {
+            path: digest
+            for path, digest in (read_only_before or {}).items()
+            if path not in allowed_output_paths
+        }
+        filtered_after = {
+            path: digest
+            for path, digest in read_only_after.items()
+            if path not in allowed_output_paths
+        }
+        changes = diff_snapshots(filtered_before, filtered_after)
         diff_path = output_path / f"{command_id}.readonly.diff.md"
         diff_rel = write_diff(root, diff_path, changes)
-        before_hash = sha256_text(json.dumps(read_only_before or {}, sort_keys=True))
-        after_hash = sha256_text(json.dumps(read_only_after, sort_keys=True))
+        before_hash = sha256_text(json.dumps(filtered_before, sort_keys=True))
+        after_hash = sha256_text(json.dumps(filtered_after, sort_keys=True))
         read_only_check = {
             "method": "workspace_snapshot_excluding_local_artifacts",
             "before_hash": before_hash,
