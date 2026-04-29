@@ -18,6 +18,7 @@ from .contracts import (
     ROLE_TO_FIELD,
     TokenPreflightPolicy,
     WORKFLOW_SCHEMA_VERSION,
+    base_model_name,
     WorkflowDefinition,
     StageDefinition,
     load_json,
@@ -49,6 +50,10 @@ def _parse_model_role_profile(
     prompt_cache_retention = payload.get("prompt_cache_retention")
     if prompt_cache_retention is not None:
         prompt_cache_retention = str(prompt_cache_retention)
+    if base_model_name(model).startswith("gpt-5.5") and prompt_cache_retention != "24h":
+        raise SystemExit(
+            f"GPT-5.5-family model role {model!r} must explicitly set prompt_cache_retention=24h."
+        )
     return ModelRoleProfile(
         model=model,
         reasoning_effort=reasoning_effort,

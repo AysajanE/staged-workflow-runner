@@ -1,0 +1,72 @@
+{
+  "schema_version": "responses_runner_v2.supervisor_command_template.v1",
+  "agent": "claude_review_agent",
+  "canonical_command": "claude --bare -p",
+  "primary_argv_template": [
+    "claude",
+    "--bare",
+    "-p",
+    "--model",
+    "opus",
+    "--effort",
+    "max",
+    "--output-format",
+    "json",
+    "--append-system-prompt-file",
+    "automation/task_packs/responses_runner_v2_supervisor_internal/prompts/claude_review.md",
+    "{review_job_json}"
+  ],
+  "fallback_argv_template": [
+    "claude",
+    "--bare",
+    "-p",
+    "--model",
+    "opus",
+    "--effort",
+    "xhigh",
+    "--output-format",
+    "json",
+    "--append-system-prompt-file",
+    "automation/task_packs/responses_runner_v2_supervisor_internal/prompts/claude_review.md",
+    "{review_job_json}"
+  ],
+  "fallback_rule": "Retry once with --effort xhigh only when stderr/stdout indicates that --effort max is unsupported or invalid. Log fallback_used=true.",
+  "cwd": "{workspace_root}",
+  "prompt_file": "automation/task_packs/responses_runner_v2_supervisor_internal/prompts/claude_review.md",
+  "read_only": true,
+  "immutable_input_bundle": "{immutable_review_input_bundle_path}",
+  "allowed_side_effects": [
+    "{command_stdout_path}",
+    "{command_stderr_path}",
+    "{supervisor_written_json_report_path}",
+    "{supervisor_written_markdown_report_path}",
+    "{read_only_diff_path}"
+  ],
+  "timeout_seconds": 3600,
+  "json_transport": {
+    "mode": "stdout_json_required_supervisor_sidecar",
+    "stdout_capture": "{command_stdout_path}",
+    "stderr_capture": "{command_stderr_path}",
+    "expected_json_report_path": "{expected_json_report_path}",
+    "expected_markdown_report_path": "{expected_markdown_report_path}",
+    "schema": "automation/responses_runner_v2/schemas/review_decision.schema.json",
+    "missing_malformed_or_schema_invalid_is_failure": true
+  },
+  "read_only_enforcement": {
+    "method": "workspace_snapshot_excluding_local_artifacts",
+    "unexpected_file_modification_is_failure": true,
+    "diff_path": "{read_only_diff_path}"
+  },
+  "failure_classifications": [
+    "missing_cli",
+    "unsupported_flags_after_fallback",
+    "nonzero_exit",
+    "timeout",
+    "missing_stdout_json",
+    "malformed_stdout_json",
+    "schema_invalid_json",
+    "missing_approval_decision",
+    "read_only_violation"
+  ],
+  "notes": "Claude review is independent and read-only. XML-structured instructions are provided with --append-system-prompt-file."
+}

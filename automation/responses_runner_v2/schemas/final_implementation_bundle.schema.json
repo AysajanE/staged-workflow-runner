@@ -1,0 +1,303 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Responses Runner V2 Final Implementation Bundle",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "packet_version",
+    "created_at",
+    "summary",
+    "file_inventory",
+    "emitted_files",
+    "validation_evidence",
+    "agent_reviews",
+    "consolidation",
+    "operator_acceptance",
+    "model_migration_summary",
+    "failure_policy_summary",
+    "human_pause_summary",
+    "rollout_instructions",
+    "residual_risks"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "responses_runner_v2.final_implementation_bundle.v1"
+    },
+    "packet_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "summary": {
+      "type": "string",
+      "minLength": 1
+    },
+    "file_inventory": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/fileInventoryItem"
+      }
+    },
+    "emitted_files": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/emittedFile"
+      }
+    },
+    "validation_evidence": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/validationEvidence"
+      }
+    },
+    "agent_reviews": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "operator_codex",
+        "codex_review_agent",
+        "claude_review_agent"
+      ],
+      "properties": {
+        "operator_codex": {
+          "$ref": "#/$defs/reviewRef"
+        },
+        "codex_review_agent": {
+          "$ref": "#/$defs/reviewRef"
+        },
+        "claude_review_agent": {
+          "$ref": "#/$defs/reviewRef"
+        }
+      }
+    },
+    "consolidation": {
+      "$ref": "#/$defs/reviewRef"
+    },
+    "operator_acceptance": {
+      "$ref": "#/$defs/reviewRef"
+    },
+    "model_migration_summary": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "primary_generation_model",
+        "structural_processing_model",
+        "prompt_cache_retention",
+        "surfaces_updated"
+      ],
+      "properties": {
+        "primary_generation_model": {
+          "const": "gpt-5.5-pro"
+        },
+        "structural_processing_model": {
+          "const": "gpt-5.5"
+        },
+        "prompt_cache_retention": {
+          "const": "24h"
+        },
+        "surfaces_updated": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "failure_policy_summary": {
+      "type": "array",
+      "minItems": 6,
+      "items": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "case_id",
+          "action"
+        ],
+        "properties": {
+          "case_id": {
+            "enum": [
+              "completed_complete_artifact",
+              "failed_complete_artifact",
+              "failed_no_artifact",
+              "incomplete_output_limit",
+              "blocked_token_preflight",
+              "long_running_monitoring_anomaly"
+            ]
+          },
+          "action": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "human_pause_summary": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "trigger",
+          "artifact_to_present",
+          "decision_required",
+          "safe_continuation_action"
+        ]
+      }
+    },
+    "rollout_instructions": {
+      "type": "string",
+      "minLength": 1
+    },
+    "residual_risks": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "$defs": {
+    "fileInventoryItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "action",
+        "category",
+        "purpose"
+      ],
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "action": {
+          "enum": [
+            "create",
+            "update"
+          ]
+        },
+        "category": {
+          "enum": [
+            "engine",
+            "task_pack",
+            "docs",
+            "tests",
+            "config",
+            "ops"
+          ]
+        },
+        "purpose": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "emittedFile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "action",
+        "content_kind",
+        "sha256"
+      ],
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "action": {
+          "enum": [
+            "create",
+            "update"
+          ]
+        },
+        "content_kind": {
+          "enum": [
+            "full_file",
+            "patch"
+          ]
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        }
+      }
+    },
+    "validationEvidence": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "check_id",
+        "phase",
+        "command_or_method",
+        "expected_result",
+        "actual_result",
+        "status"
+      ],
+      "properties": {
+        "check_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "phase": {
+          "enum": [
+            "red",
+            "green"
+          ]
+        },
+        "command_or_method": {
+          "type": "string",
+          "minLength": 1
+        },
+        "expected_result": {
+          "type": "string",
+          "minLength": 1
+        },
+        "actual_result": {
+          "type": "string",
+          "minLength": 1
+        },
+        "status": {
+          "enum": [
+            "passed",
+            "failed",
+            "blocked"
+          ]
+        }
+      }
+    },
+    "reviewRef": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "json_path",
+        "markdown_path",
+        "decision"
+      ],
+      "properties": {
+        "json_path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "markdown_path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "decision": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    }
+  }
+}

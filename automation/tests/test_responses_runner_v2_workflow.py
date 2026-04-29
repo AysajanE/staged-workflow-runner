@@ -29,7 +29,7 @@ SYNTHETIC_REVIEWED_STAGE2_INPUT = (
 ).as_posix()
 
 
-def _completed_response(response_id: str, *, model: str = "gpt-5.4-pro") -> dict:
+def _completed_response(response_id: str, *, model: str = "gpt-5.5-pro") -> dict:
     return {
         "id": response_id,
         "status": "completed",
@@ -47,7 +47,7 @@ def _completed_response(response_id: str, *, model: str = "gpt-5.4-pro") -> dict
     }
 
 
-def _in_progress_response(response_id: str, *, model: str = "gpt-5.4-pro") -> dict:
+def _in_progress_response(response_id: str, *, model: str = "gpt-5.5-pro") -> dict:
     return {
         "id": response_id,
         "status": "in_progress",
@@ -59,7 +59,7 @@ def _in_progress_response(response_id: str, *, model: str = "gpt-5.4-pro") -> di
     }
 
 
-def _failed_response(response_id: str, *, model: str = "gpt-5.4-pro") -> dict:
+def _failed_response(response_id: str, *, model: str = "gpt-5.5-pro") -> dict:
     return {
         "id": response_id,
         "status": "failed",
@@ -104,7 +104,7 @@ class FakeClient:
             return {
                 "id": "resp_sidecar",
                 "status": "completed",
-                "model": "gpt-5.4",
+                "model": "gpt-5.5",
                 "background": False,
                 "store": True,
                 "output_parsed": {
@@ -192,14 +192,16 @@ class ResponsesRunnerV2WorkflowTests(unittest.TestCase):
                 "defaults": {
                     "model_roles": {
                         "primary_generation": {
-                            "model": "gpt-5.4-pro",
+                            "model": "gpt-5.5-pro",
                             "reasoning_effort": "xhigh",
-                            "verbosity": "high"
+                            "verbosity": "high",
+                            "prompt_cache_retention": "24h"
                         },
                         "structural_processing": {
-                            "model": "gpt-5.4-mini",
+                            "model": "gpt-5.5",
                             "reasoning_effort": "medium",
-                            "verbosity": "medium"
+                            "verbosity": "medium",
+                            "prompt_cache_retention": "24h"
                         }
                     },
                     "request": {
@@ -313,14 +315,16 @@ class ResponsesRunnerV2WorkflowTests(unittest.TestCase):
                 "defaults": {
                     "model_roles": {
                         "primary_generation": {
-                            "model": "gpt-5.4",
+                            "model": "gpt-5.5-pro",
                             "reasoning_effort": "xhigh",
-                            "verbosity": "high"
+                            "verbosity": "high",
+                            "prompt_cache_retention": "24h"
                         },
                         "structural_processing": {
-                            "model": "gpt-5.4",
+                            "model": "gpt-5.5",
                             "reasoning_effort": "medium",
-                            "verbosity": "medium"
+                            "verbosity": "medium",
+                            "prompt_cache_retention": "24h"
                         }
                     },
                     "request": {

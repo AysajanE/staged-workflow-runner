@@ -12,13 +12,13 @@
   "defaults": {
     "model_roles": {
       "primary_generation": {
-        "model": "gpt-5.4-pro",
+        "model": "gpt-5.5-pro",
         "reasoning_effort": "xhigh",
         "verbosity": "high",
-        "prompt_cache_retention": "in_memory"
+        "prompt_cache_retention": "24h"
       },
       "structural_processing": {
-        "model": "gpt-5.4",
+        "model": "gpt-5.5",
         "reasoning_effort": "xhigh",
         "verbosity": "medium",
         "prompt_cache_retention": "24h"
@@ -34,7 +34,13 @@
       "token_preflight": {
         "enabled": true,
         "max_retries": 2,
-        "retryable_http_status_codes": [429, 500, 502, 503, 504],
+        "retryable_http_status_codes": [
+          429,
+          500,
+          502,
+          503,
+          504
+        ],
         "on_retryable_service_failure": "continue_without_token_count"
       },
       "file_uploads": {
@@ -72,7 +78,9 @@
       "max_output_tokens": 4000,
       "gate": "terminal",
       "carry_forward": {
-        "reference_context_from_stage_ids": ["collect_findings"]
+        "reference_context_from_stage_ids": [
+          "collect_findings"
+        ]
       },
       "output": {
         "primary_format": "text",

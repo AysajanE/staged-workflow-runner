@@ -1,0 +1,548 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Responses Runner V2 Supervisor Session",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "supervisor_session_id",
+    "created_at",
+    "updated_at",
+    "workspace_root",
+    "operator_boundary",
+    "status",
+    "current_phase",
+    "clarified_task_brief",
+    "policy",
+    "model_defaults",
+    "retry_budget",
+    "monitoring_policy",
+    "scaffold_versions",
+    "dry_run_validations",
+    "runs",
+    "stage_outcomes",
+    "monitoring_events",
+    "review_cycles",
+    "review_agent_invocations",
+    "consolidations",
+    "operator_acceptance_records",
+    "human_pauses",
+    "archives",
+    "approved_review_bundles",
+    "final_bundle",
+    "validation_results",
+    "command_log",
+    "errors"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "responses_runner_v2.supervisor_session.v1"
+    },
+    "supervisor_session_id": {
+      "$ref": "#/$defs/idString"
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "updated_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "workspace_root": {
+      "type": "string",
+      "minLength": 1
+    },
+    "operator_boundary": {
+      "const": "headless_discrete_codex_exec_with_deterministic_supervisor_cli"
+    },
+    "status": {
+      "enum": [
+        "created",
+        "clarified",
+        "scaffold_staged",
+        "scaffold_reviewing",
+        "ready_to_launch",
+        "stage_running",
+        "waiting_for_review",
+        "blocked",
+        "completed",
+        "failed"
+      ]
+    },
+    "current_phase": {
+      "enum": [
+        "clarification",
+        "scaffold",
+        "scaffold_review",
+        "stage_execution",
+        "monitoring",
+        "classification",
+        "review",
+        "acceptance",
+        "bundle_creation",
+        "finalization",
+        "recovery"
+      ]
+    },
+    "clarified_task_brief": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "sha256",
+        "accepted_at",
+        "summary"
+      ],
+      "properties": {
+        "path": {
+          "$ref": "#/$defs/pathString"
+        },
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "accepted_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "summary": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "policy": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "review_agents",
+        "retry_budgets",
+        "monitoring",
+        "human_pause_rules",
+        "read_only_enforcement_method"
+      ]
+    },
+    "model_defaults": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "primary",
+        "structural",
+        "prompt_cache_retention",
+        "max_output_tokens"
+      ],
+      "properties": {
+        "primary": {
+          "const": "gpt-5.5-pro"
+        },
+        "structural": {
+          "const": "gpt-5.5"
+        },
+        "prompt_cache_retention": {
+          "const": "24h"
+        },
+        "max_output_tokens": {
+          "const": 128000
+        },
+        "primary_reasoning_effort": {
+          "enum": [
+            "xhigh"
+          ]
+        },
+        "structural_reasoning_effort": {
+          "enum": [
+            "medium",
+            "high",
+            "xhigh"
+          ]
+        },
+        "primary_verbosity": {
+          "enum": [
+            "high"
+          ]
+        },
+        "structural_verbosity": {
+          "enum": [
+            "medium",
+            "high"
+          ]
+        }
+      }
+    },
+    "retry_budget": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "monitoring_policy": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "poll_interval_seconds",
+        "stale_after_seconds",
+        "max_refresh_attempts",
+        "max_resume_attempts",
+        "no_duplicate_submit"
+      ]
+    },
+    "scaffold_versions": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/scaffoldVersion"
+      }
+    },
+    "dry_run_validations": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/dryRunValidation"
+      }
+    },
+    "runs": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/runRef"
+      }
+    },
+    "stage_outcomes": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/stageOutcomeRef"
+      }
+    },
+    "monitoring_events": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/monitoringEvent"
+      }
+    },
+    "review_cycles": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/reviewCycle"
+      }
+    },
+    "review_agent_invocations": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/agentInvocation"
+      }
+    },
+    "consolidations": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/consolidationRef"
+      }
+    },
+    "operator_acceptance_records": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/pathString"
+      }
+    },
+    "human_pauses": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "archives": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/archiveRef"
+      }
+    },
+    "approved_review_bundles": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/reviewBundleRef"
+      }
+    },
+    "final_bundle": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/finalBundleRef"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "validation_results": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/validationResult"
+      }
+    },
+    "command_log": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/commandLogEntry"
+      }
+    },
+    "errors": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/errorEntry"
+      }
+    }
+  },
+  "$defs": {
+    "idString": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9._-]{0,127}$"
+    },
+    "pathString": {
+      "type": "string",
+      "minLength": 1
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "scaffoldVersion": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "version_id",
+        "path",
+        "hash_manifest_path",
+        "created_by",
+        "dry_run_artifacts",
+        "approval_status"
+      ],
+      "properties": {
+        "version_id": {
+          "$ref": "#/$defs/idString"
+        },
+        "path": {
+          "$ref": "#/$defs/pathString"
+        },
+        "hash_manifest_path": {
+          "$ref": "#/$defs/pathString"
+        },
+        "created_by": {
+          "type": "string",
+          "minLength": 1
+        },
+        "dry_run_artifacts": {
+          "type": "array"
+        },
+        "approval_status": {
+          "enum": [
+            "staged",
+            "dry_run_passed",
+            "reviewing",
+            "accepted",
+            "blocked",
+            "rejected"
+          ]
+        }
+      }
+    },
+    "dryRunValidation": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "command",
+        "exit_code",
+        "status"
+      ],
+      "properties": {
+        "command": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "exit_code": {
+          "type": "integer"
+        },
+        "status": {
+          "enum": [
+            "passed",
+            "failed"
+          ]
+        }
+      }
+    },
+    "runRef": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "run_id",
+        "workflow_id",
+        "run_dir",
+        "run_manifest_path",
+        "status"
+      ]
+    },
+    "stageOutcomeRef": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "run_id",
+        "stage_id",
+        "classification",
+        "artifact_path",
+        "reviewability"
+      ]
+    },
+    "monitoringEvent": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "timestamp",
+        "run_id",
+        "stage_id",
+        "status",
+        "action",
+        "artifact_path"
+      ]
+    },
+    "reviewCycle": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "review_cycle_id",
+        "review_kind",
+        "artifacts_reviewed",
+        "operator_provisional_record",
+        "review_agent_outputs",
+        "consolidation",
+        "acceptance_status"
+      ]
+    },
+    "agentInvocation": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "command_id",
+        "actor_role",
+        "argv",
+        "cwd",
+        "started_at",
+        "completed_at",
+        "exit_code",
+        "stdout_path",
+        "stderr_path"
+      ]
+    },
+    "consolidationRef": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "review_cycle_id",
+        "consolidated_review_json",
+        "consolidated_review_md",
+        "recommendation_counts"
+      ]
+    },
+    "archiveRef": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "archive_manifest_path"
+      ]
+    },
+    "reviewBundleRef": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "bundle_path",
+        "source_run_id",
+        "source_stage_id",
+        "artifact_hashes",
+        "validation_status"
+      ]
+    },
+    "finalBundleRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "bundle_path",
+        "schema_validation_status",
+        "file_inventory_hash",
+        "acceptance_record_id"
+      ],
+      "properties": {
+        "bundle_path": {
+          "$ref": "#/$defs/pathString"
+        },
+        "schema_validation_status": {
+          "type": "string",
+          "minLength": 1
+        },
+        "file_inventory_hash": {
+          "type": "string",
+          "minLength": 1
+        },
+        "acceptance_record_id": {
+          "type": "string"
+        }
+      }
+    },
+    "validationResult": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "check_id",
+        "command_or_method",
+        "phase",
+        "expected_result",
+        "actual_result",
+        "status",
+        "artifact_path"
+      ]
+    },
+    "commandLogEntry": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "command_id",
+        "command_type",
+        "argv",
+        "cwd",
+        "started_at",
+        "completed_at",
+        "exit_code",
+        "stdout_path",
+        "stderr_path"
+      ]
+    },
+    "errorEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "error_id",
+        "severity",
+        "message",
+        "related_artifact",
+        "recovery_action"
+      ],
+      "properties": {
+        "error_id": {
+          "$ref": "#/$defs/idString"
+        },
+        "severity": {
+          "enum": [
+            "critical",
+            "blocking",
+            "high",
+            "medium",
+            "low"
+          ]
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1
+        },
+        "related_artifact": {
+          "type": "string"
+        },
+        "recovery_action": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    }
+  }
+}

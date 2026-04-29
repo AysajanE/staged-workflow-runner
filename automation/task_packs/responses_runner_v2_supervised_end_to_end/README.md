@@ -2,16 +2,16 @@
 
 This task pack supersedes the older `responses_runner_v2_supervisory_lane` three-stage scaffold.
 
-Its purpose is to run the current staged workflow runner on the task of designing the next-generation automated supervisory lane for itself.
+Its purpose is to run the staged workflow runner on the task of designing the next-generation automated supervisory lane for itself.
 
 The final stage must output a complete drop-in-ready implementation packet that the team can apply directly to this repository.
 
 ## Why This Pack Uses Four Stages
 
-The new requirements add a second high-stakes design axis: independent non-interactive review by:
+The requirements add a second high-stakes design axis: independent non-interactive review by:
 
 - a Codex review agent via `codex exec`
-- a Claude review agent via `claude -p`
+- a Claude review agent via `claude --bare -p`
 - an operator Codex agent that consolidates recommendations and accepts only supported changes
 
 That review-and-agent protocol is too important to bury inside a generic draft stage. The workflow therefore has four material stages:
@@ -23,42 +23,33 @@ That review-and-agent protocol is too important to bury inside a generic draft s
 
 Each stage performs a non-trivial, high-stakes task.
 
-## Stage Summary
+## Stage Boundary
 
-### Stage 1 — Architecture And Supervision Protocol
+- Stage 1 locks architecture and supervision protocol.
+- Stage 2 locks agent review protocol, command contracts, prompt contracts, file inventory, and implementation contracts.
+- Stage 3 emits a complete draft drop-in packet.
+- Stage 4 emits the final hardened drop-in packet.
 
-Locks:
+Stage 3 and Stage 4 must not reopen the architecture, engine/supervisor boundary, agent topology, consolidation-vs-acceptance separation, failure policy, human-pause contract, or model posture unless a concrete repository contradiction is discovered and recorded for review.
 
-- overall supervisory architecture
-- operator/reviewer/consolidator topology
-- failure and recovery model
-- model migration posture from GPT-5.4 to GPT-5.5
-- minimum-change integration boundary
-- human-pause conditions
+## Review-Agent Topology
 
-### Stage 2 — Agent Review Protocol And Package Contract
+The future lane produced by this workflow must include:
 
-Locks:
+- accountable operator Codex lane;
+- independent read-only Codex review-agent lane;
+- independent read-only Claude review-agent lane;
+- deterministic consolidation pass;
+- separate operator selective-acceptance artifact.
 
-- exact Codex operator prompt contract
-- exact Codex review-agent prompt contract
-- exact Claude review-agent prompt contract
-- command and artifact protocol for `codex exec` and `claude -p`
-- review consolidation protocol
-- implementation file inventory
-- schema and validation baseline
+For every non-terminal stage:
 
-### Stage 3 — Draft Drop-In Packet
-
-Produces a complete draft package, with full contents or exact patches for all files.
-
-The draft must be good enough for an independent two-agent review loop.
-
-### Stage 4 — Final Drop-In Packet
-
-Hardens the draft after review and emits the final package.
-
-No downstream design work should be required after this stage.
+1. operator Codex prepares provisional review and next-stage bundle;
+2. Codex review agent independently reviews;
+3. Claude review agent independently reviews;
+4. consolidation preserves provenance and classifies recommendations;
+5. operator Codex accepts only evidence-supported recommendations with applied-change evidence;
+6. supervisor creates the approved review bundle or blocks progression.
 
 ## Model Configuration
 
@@ -66,8 +57,29 @@ This pack uses:
 
 - primary generation: `gpt-5.5-pro`
 - structural processing: `gpt-5.5`
+- prompt cache retention: `24h`
+- max output tokens for all stages: `128000`
 
-The final implementation packet must update the repository's own defaults, model caps, example workflows, task packs, docs, and tests away from `gpt-5.4` / `gpt-5.4-pro` where appropriate.
+The final implementation packet updates the repository's own defaults, model caps, example workflows, task packs, docs, and tests to the same GPT-5.5-family posture.
+
+## Current Four-Stage Tool Posture
+
+The current successful `draft_drop_in_packet` Stage 3 uses no `tool_profile_file` in `workflows/four_stage.workflow.json`.
+
+Do not reintroduce Stage 3 web search for this current four-stage workflow unless a later approved handoff provides concrete safety evidence and explicitly reopens this decision.
+
+## Failure Policies Locked By This Pack
+
+The implementation must distinguish:
+
+- `completed_complete_artifact`
+- `failed_complete_artifact`
+- `failed_no_artifact`
+- `incomplete_output_limit`
+- `blocked_token_preflight`
+- `long_running_monitoring_anomaly`
+
+A failed stage with a complete substantive artifact is reviewable. A failed stage without a substantive artifact may be rerun as-is only after archive-before-rerun evidence. Output-limit incomplete outcomes must not auto-progress.
 
 ## Recommended Dry Run
 
@@ -88,9 +100,21 @@ python3 automation/run_responses_v2.py run \
   --wait
 ```
 
-## Review-Bundle Pattern
+## Manual Review For This Meta-Run
 
-After each review-required stage, create reviewer notes and an approved review bundle with:
+This current meta-run is still manually reviewed between stages.
+
+The future lane produced by this workflow automates those reviews with:
+
+- operator Codex;
+- Codex review agent;
+- Claude review agent;
+- consolidation;
+- operator selective acceptance.
+
+## Review-Bundle Pattern For This Meta-Run
+
+After each review-required stage in this current manual meta-run, create reviewer notes and an approved review bundle with:
 
 ```bash
 python3 automation/create_review_bundle_v2.py \
@@ -104,7 +128,7 @@ python3 automation/create_review_bundle_v2.py \
   --reviewer-notes <run_dir>/<stage_id>.reviewer_notes.md
 ```
 
-Then continue the run with:
+Then continue:
 
 ```bash
 python3 automation/run_responses_v2.py run \
@@ -116,8 +140,18 @@ python3 automation/run_responses_v2.py run \
   --wait
 ```
 
-## Manual Review For This Meta-Run
+## Validation Focus
 
-This current meta-run is still reviewed manually between stages.
+Stage reviewers should inspect:
 
-The future lane produced by this workflow must automate those reviews with the operator Codex agent, Codex review agent, and Claude review agent.
+- command contracts for `codex exec` and `claude --bare -p`;
+- reviewer read-only enforcement;
+- JSON stdout transport and schema validation;
+- consolidation separated from operator acceptance;
+- no blind reviewer acceptance;
+- accepted recommendations requiring applied-change evidence;
+- GPT-5.5 workflow posture with explicit `24h`;
+- current Stage 3 no-tools posture;
+- failure policy tests;
+- human-pause artifact completeness;
+- final inventory/file-block parity.

@@ -1,0 +1,56 @@
+{
+  "schema_version": "responses_runner_v2.supervisor_command_template.v1",
+  "agent": "consolidation_pass",
+  "canonical_command": "python3 automation/run_responses_supervisor_v2.py consolidate",
+  "argv_template": [
+    "python3",
+    "automation/run_responses_supervisor_v2.py",
+    "consolidate",
+    "--root",
+    "{workspace_root}",
+    "--session",
+    "{supervisor_session_id}",
+    "--review-cycle",
+    "{review_cycle_id}",
+    "--codex-review",
+    "{codex_review_json_path}",
+    "--claude-review",
+    "{claude_review_json_path}",
+    "--operator-review",
+    "{operator_provisional_review_path}",
+    "--output",
+    "{consolidated_review_json_path}"
+  ],
+  "cwd": "{workspace_root}",
+  "required_inputs": [
+    "{operator_provisional_review_path}",
+    "{codex_review_json_path}",
+    "{codex_review_markdown_path}",
+    "{claude_review_json_path}",
+    "{claude_review_markdown_path}",
+    "{artifact_manifest_path}"
+  ],
+  "outputs": [
+    "{consolidated_review_json_path}",
+    "{consolidated_review_markdown_path}"
+  ],
+  "constraints": [
+    "deterministic_by_default",
+    "no_reviewer_output_edits",
+    "no_source_artifact_edits",
+    "no_final_operator_acceptance"
+  ],
+  "json_contract": {
+    "schema": "automation/responses_runner_v2/schemas/review_decision.schema.json",
+    "requires_consolidation_recommendation": true,
+    "forbids_operator_decision": true
+  },
+  "failure_classifications": [
+    "missing_operator_provisional_review",
+    "missing_reviewer_json",
+    "malformed_reviewer_json",
+    "schema_invalid_reviewer_json",
+    "artifact_path_mismatch",
+    "evidence_free_recommendation"
+  ]
+}

@@ -15,8 +15,8 @@ from typing import Any, Iterable, Sequence
 RUNNER_VERSION = "responses_runner_v2.2026-03-17"
 DEFAULT_API_BASE = "https://api.openai.com/v1"
 DEFAULT_OUTPUT_ROOT = ".local/automation/responses_runner_v2/runs"
-DEFAULT_PRIMARY_MODEL = "gpt-5.4-pro"
-DEFAULT_STRUCTURAL_MODEL = "gpt-5.4"
+DEFAULT_PRIMARY_MODEL = "gpt-5.5-pro"
+DEFAULT_STRUCTURAL_MODEL = "gpt-5.5"
 DEFAULT_HTTP_TIMEOUT_SECONDS = 120.0
 DEFAULT_REQUEST_MAX_RETRIES = 5
 DEFAULT_POLL_INTERVAL = 5.0
@@ -31,6 +31,12 @@ INPUT_MANIFEST_SCHEMA_VERSION = "responses_runner_v2.input_manifest.v1"
 REVIEW_BUNDLE_SCHEMA_VERSION = "responses_runner_v2.review_bundle.v1"
 RUN_MANIFEST_SCHEMA_VERSION = "responses_runner_v2.run_manifest.v1"
 STAGE_CHECKPOINT_SCHEMA_VERSION = "responses_runner_v2.stage_checkpoint.v1"
+REVIEW_DECISION_SCHEMA_VERSION = "responses_runner_v2.review_decision.v1"
+SUPERVISOR_SESSION_SCHEMA_VERSION = "responses_runner_v2.supervisor_session.v1"
+STAGE_OUTCOME_SCHEMA_VERSION = "responses_runner_v2.stage_outcome.v1"
+HUMAN_PAUSE_SCHEMA_VERSION = "responses_runner_v2.human_pause.v1"
+SUPERVISOR_ARCHIVE_SCHEMA_VERSION = "responses_runner_v2.supervisor_archive.v1"
+FINAL_IMPLEMENTATION_BUNDLE_SCHEMA_VERSION = "responses_runner_v2.final_implementation_bundle.v1"
 
 ROLE_PRIMARY_JOB_INPUTS = "Primary Job Inputs"
 ROLE_REVIEWED_HANDOFF_INPUTS = "Reviewed Handoff Inputs"
@@ -153,15 +159,15 @@ CODE_FENCE_LANGUAGE_BY_SUFFIX = {
 }
 
 MODEL_CAPS = {
-    "gpt-5.4": {
+    "gpt-5.5": {
         "max_output_tokens": 128000,
         "structured_outputs": True,
         "extended_prompt_cache": True,
     },
-    "gpt-5.4-pro": {
+    "gpt-5.5-pro": {
         "max_output_tokens": 128000,
-        "structured_outputs": False,
-        "extended_prompt_cache": False,
+        "structured_outputs": True,
+        "extended_prompt_cache": True,
     },
 }
 
@@ -467,10 +473,10 @@ def sha256_file(path: Path) -> str:
 
 
 def base_model_name(model: str) -> str:
-    if model.startswith("gpt-5.4-pro"):
-        return "gpt-5.4-pro"
-    if model.startswith("gpt-5.4"):
-        return "gpt-5.4"
+    if model.startswith("gpt-5.5-pro"):
+        return "gpt-5.5-pro"
+    if model.startswith("gpt-5.5"):
+        return "gpt-5.5"
     return model
 
 
@@ -491,6 +497,8 @@ def validate_model_options(
     caps = MODEL_CAPS.get(base_model_name(model))
     if not caps:
         return
+    if base_model_name(model).startswith("gpt-5.5") and prompt_cache_retention == "in_memory":
+        raise SystemExit(f"{model} must use prompt_cache_retention=24h, not in_memory.")
     if max_output_tokens > int(caps["max_output_tokens"]):
         raise SystemExit(
             f"{model} supports at most {caps['max_output_tokens']} max_output_tokens, got {max_output_tokens}."

@@ -1,0 +1,42 @@
+{
+  "schema_version": "responses_runner_v2.supervisor_command_template.v1",
+  "agent": "operator_codex",
+  "canonical_command": "codex exec",
+  "argv_template": [
+    "codex",
+    "exec",
+    "{assembled_prompt_with_job_json}"
+  ],
+  "cwd": "{workspace_root}",
+  "prompt_file": "automation/task_packs/responses_runner_v2_supervisor_internal/prompts/operator_codex.md",
+  "shared_instructions_file": "automation/task_packs/responses_runner_v2_supervisor_internal/shared_instructions.md",
+  "allowed_side_effects": [
+    "{session_dir}",
+    "{scaffold_staging_dir}",
+    "{provisional_notes_path}",
+    "{operator_acceptance_path}",
+    "{final_bundle_draft_path}",
+    "{declared_package_files}"
+  ],
+  "timeout_seconds": 7200,
+  "json_transport": {
+    "mode": "stdout_json_required_supervisor_sidecar",
+    "stdout_capture": "{command_stdout_path}",
+    "stderr_capture": "{command_stderr_path}",
+    "expected_json_report_path": "{expected_json_report_path}",
+    "expected_markdown_report_path": "{expected_markdown_report_path}",
+    "schema": "automation/responses_runner_v2/schemas/review_decision.schema.json",
+    "missing_malformed_or_schema_invalid_is_failure": true
+  },
+  "failure_classifications": [
+    "nonzero_exit",
+    "timeout",
+    "missing_stdout_json",
+    "malformed_stdout_json",
+    "schema_invalid_json",
+    "unsupported_accepted_recommendation",
+    "missing_applied_change_evidence",
+    "write_outside_allowed_paths"
+  ],
+  "notes": "The supervisor parses JSON from stdout, writes the JSON sidecar, and records command metadata. Operator Codex must not create approved bundles without a valid acceptance record."
+}

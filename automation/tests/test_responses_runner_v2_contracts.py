@@ -35,6 +35,24 @@ class ResponsesRunnerV2ContractsTests(unittest.TestCase):
         self.assertEqual(contracts.normalize_prompt_cache_retention("24h"), "24h")
         self.assertIsNone(contracts.normalize_prompt_cache_retention(None))
 
+    def test_engine_defaults_are_gpt55_family(self) -> None:
+        self.assertEqual(contracts.DEFAULT_PRIMARY_MODEL, "gpt-5.5-pro")
+        self.assertEqual(contracts.DEFAULT_STRUCTURAL_MODEL, "gpt-5.5")
+
+    def test_gpt55_base_model_caps_and_prompt_cache_validation(self) -> None:
+        self.assertEqual(contracts.base_model_name("gpt-5.5-pro-2026-04-23"), "gpt-5.5-pro")
+        self.assertEqual(contracts.base_model_name("gpt-5.5-2026-04-23"), "gpt-5.5")
+        self.assertEqual(contracts.model_max_output_tokens("gpt-5.5-pro"), 128000)
+        self.assertEqual(contracts.model_max_output_tokens("gpt-5.5"), 128000)
+        contracts.validate_model_options(
+            model="gpt-5.5-pro",
+            max_output_tokens=128000,
+            prompt_cache_retention="24h",
+            text_format="text",
+        )
+        with self.assertRaises(SystemExit):
+            contracts.validate_model_options(model="gpt-5.5-pro", max_output_tokens=128000, prompt_cache_retention="in_memory", text_format="text")
+
     def test_load_one_pass_workflow_definition(self) -> None:
         workflow = load_workflow_definition(
             "automation/examples/responses_runner_v2_synthetic/workflows/one_pass.workflow.json",
@@ -67,14 +85,16 @@ class ResponsesRunnerV2ContractsTests(unittest.TestCase):
                 "defaults": {
                     "model_roles": {
                         "primary_generation": {
-                            "model": "gpt-5.4-pro",
+                            "model": "gpt-5.5-pro",
                             "reasoning_effort": "xhigh",
-                            "verbosity": "high"
+                            "verbosity": "high",
+                            "prompt_cache_retention": "24h"
                         },
                         "structural_processing": {
-                            "model": "gpt-5.4-mini",
+                            "model": "gpt-5.5",
                             "reasoning_effort": "medium",
-                            "verbosity": "medium"
+                            "verbosity": "medium",
+                            "prompt_cache_retention": "24h"
                         }
                     },
                     "request": {

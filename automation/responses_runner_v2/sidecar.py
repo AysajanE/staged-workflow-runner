@@ -61,6 +61,12 @@ def run_sidecar_processing(
     file_expiration_policy: dict[str, Any] | None,
     delete_uploaded_files_on_complete: bool,
 ) -> dict[str, Any]:
+    """Run the framework-owned structured sidecar extraction pass.
+
+    The workflow engine decides when to call this function. The sidecar keeps
+    the existing public signature and behavior, while model migration is driven
+    through DEFAULT_STRUCTURAL_MODEL and validate_model_options from contracts.
+    """
     root = root or repo_root()
     schema = load_schema_json(schema_file, root=root)
     validate_model_options(

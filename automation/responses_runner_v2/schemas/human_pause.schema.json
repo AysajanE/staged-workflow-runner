@@ -1,0 +1,86 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Responses Runner V2 Supervisor Human Pause",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "human_pause_id",
+    "created_at",
+    "severity",
+    "trigger",
+    "artifact_to_present",
+    "decision_required",
+    "safe_continuation_action",
+    "automation_may_resume",
+    "blocks_review_bundle_creation",
+    "related_outcome_id",
+    "related_review_cycle_id"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "responses_runner_v2.human_pause.v1"
+    },
+    "human_pause_id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9._-]{0,127}$"
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "severity": {
+      "enum": [
+        "blocking",
+        "critical",
+        "high",
+        "medium",
+        "low"
+      ]
+    },
+    "trigger": {
+      "type": "string",
+      "minLength": 1
+    },
+    "artifact_to_present": {
+      "type": "string",
+      "minLength": 1
+    },
+    "decision_required": {
+      "type": "string",
+      "minLength": 1
+    },
+    "safe_continuation_action": {
+      "type": "string",
+      "minLength": 1
+    },
+    "automation_may_resume": {
+      "type": "boolean"
+    },
+    "blocks_review_bundle_creation": {
+      "type": "boolean"
+    },
+    "related_outcome_id": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "related_review_cycle_id": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "schema_version": "responses_runner_v2.model_migration_allowlist.v1",
+  "allowed_references": [
+    {
+      "path": "automation/task_packs/responses_runner_v2_supervised_end_to_end/corpus/task_brief.md",
+      "pattern": "gpt-5\\.4(?:-pro)?",
+      "reason": "Authoritative task input names the legacy source family to migrate away from; it is not runtime configuration.",
+      "expires_when": "The corpus is regenerated for a future task that no longer discusses this legacy migration."
+    },
+    {
+      "path": "automation/task_packs/responses_runner_v2_supervised_end_to_end/corpus/final_deliverable_contract.md",
+      "pattern": "gpt-5\\.4(?:-pro)?",
+      "reason": "Authoritative final-deliverable contract describes migration source identifiers; it is not runtime configuration.",
+      "expires_when": "The contract is regenerated for a post-migration workflow."
+    }
+  ]
+}

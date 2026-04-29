@@ -114,6 +114,7 @@
       "task_file": "../prompts/stage4_final_drop_in_packet.md",
       "input_manifest_file": "../inputs/stage4.input_manifest.json",
       "model_role": "primary_generation",
+      "reasoning_effort": "high",
       "max_output_tokens": 128000,
       "gate": "terminal",
       "carry_forward": {

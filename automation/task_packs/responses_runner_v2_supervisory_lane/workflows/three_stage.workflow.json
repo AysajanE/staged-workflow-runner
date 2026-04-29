@@ -13,13 +13,13 @@
   "defaults": {
     "model_roles": {
       "primary_generation": {
-        "model": "gpt-5.4-pro",
+        "model": "gpt-5.5-pro",
         "reasoning_effort": "xhigh",
         "verbosity": "high",
-        "prompt_cache_retention": "in_memory"
+        "prompt_cache_retention": "24h"
       },
       "structural_processing": {
-        "model": "gpt-5.4",
+        "model": "gpt-5.5",
         "reasoning_effort": "high",
         "verbosity": "medium",
         "prompt_cache_retention": "24h"
@@ -59,7 +59,7 @@
       "input_manifest_file": "../inputs/stage1.input_manifest.json",
       "tool_profile_file": "../tools/stage1_web_search.profile.json",
       "model_role": "primary_generation",
-      "max_output_tokens": 64000,
+      "max_output_tokens": 128000,
       "gate": "review_required",
       "output": {
         "primary_format": "text"

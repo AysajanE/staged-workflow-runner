@@ -1,0 +1,49 @@
+{
+  "schema_version": "responses_runner_v2.supervisor_command_template.v1",
+  "agent": "codex_review_agent",
+  "canonical_command": "codex exec",
+  "argv_template": [
+    "codex",
+    "exec",
+    "{codex_review_prompt_plus_review_job_json}"
+  ],
+  "cwd": "{workspace_root}",
+  "prompt_file": "automation/task_packs/responses_runner_v2_supervisor_internal/prompts/codex_review.md",
+  "shared_instructions_file": "automation/task_packs/responses_runner_v2_supervisor_internal/shared_instructions.md",
+  "read_only": true,
+  "immutable_input_bundle": "{immutable_review_input_bundle_path}",
+  "allowed_side_effects": [
+    "{command_stdout_path}",
+    "{command_stderr_path}",
+    "{supervisor_written_json_report_path}",
+    "{supervisor_written_markdown_report_path}",
+    "{read_only_diff_path}"
+  ],
+  "timeout_seconds": 3600,
+  "json_transport": {
+    "mode": "stdout_json_required_supervisor_sidecar",
+    "stdout_capture": "{command_stdout_path}",
+    "stderr_capture": "{command_stderr_path}",
+    "expected_json_report_path": "{expected_json_report_path}",
+    "expected_markdown_report_path": "{expected_markdown_report_path}",
+    "schema": "automation/responses_runner_v2/schemas/review_decision.schema.json",
+    "missing_malformed_or_schema_invalid_is_failure": true
+  },
+  "read_only_enforcement": {
+    "method": "workspace_snapshot_excluding_local_artifacts",
+    "unexpected_file_modification_is_failure": true,
+    "diff_path": "{read_only_diff_path}"
+  },
+  "failure_classifications": [
+    "missing_cli",
+    "nonzero_exit",
+    "timeout",
+    "missing_stdout_json",
+    "malformed_stdout_json",
+    "schema_invalid_json",
+    "missing_approval_decision",
+    "missing_artifact_not_reported",
+    "read_only_violation"
+  ],
+  "notes": "Codex review produces a review artifact only. It must not edit repo files or emit patches."
+}

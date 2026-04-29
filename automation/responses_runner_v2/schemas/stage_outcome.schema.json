@@ -1,0 +1,161 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Responses Runner V2 Supervisor Stage Outcome",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "outcome_id",
+    "created_at",
+    "run_id",
+    "stage_id",
+    "response_id",
+    "response_status",
+    "classification",
+    "detection_signals",
+    "completeness_checklist",
+    "action",
+    "reviewable",
+    "review_bundle_allowed",
+    "rerun_allowed",
+    "rerun_requires_archive",
+    "human_pause_required",
+    "human_pause",
+    "checkpoint_path"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "responses_runner_v2.stage_outcome.v1"
+    },
+    "outcome_id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9._-]{0,127}$"
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "run_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "stage_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "response_id": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "response_status": {
+      "anyOf": [
+        {
+          "enum": [
+            "queued",
+            "in_progress",
+            "completed",
+            "failed",
+            "cancelled",
+            "incomplete"
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "classification": {
+      "enum": [
+        "completed_complete_artifact",
+        "failed_complete_artifact",
+        "failed_no_artifact",
+        "incomplete_output_limit",
+        "blocked_token_preflight",
+        "long_running_monitoring_anomaly"
+      ]
+    },
+    "detection_signals": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "completeness_checklist": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "item",
+          "passed",
+          "detail"
+        ],
+        "properties": {
+          "item": {
+            "type": "string",
+            "minLength": 1
+          },
+          "passed": {
+            "type": "boolean"
+          },
+          "detail": {
+            "type": "string",
+            "minLength": 1
+          },
+          "path": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "action": {
+      "enum": [
+        "review",
+        "review_failed_artifact",
+        "archive_before_rerun",
+        "block_and_recover",
+        "human_pause",
+        "monitor_without_duplicate_submit"
+      ]
+    },
+    "reviewable": {
+      "type": "boolean"
+    },
+    "review_bundle_allowed": {
+      "type": "boolean"
+    },
+    "rerun_allowed": {
+      "type": "boolean"
+    },
+    "rerun_requires_archive": {
+      "type": "boolean"
+    },
+    "human_pause_required": {
+      "type": "boolean"
+    },
+    "human_pause": {
+      "anyOf": [
+        {
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "checkpoint_path": {
+      "type": "string",
+      "minLength": 1
+    }
+  }
+}

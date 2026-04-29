@@ -296,7 +296,31 @@
             "24h"
           ]
         }
-      }
+      },
+      "allOf": [
+        {
+          "if": {
+            "required": [
+              "model"
+            ],
+            "properties": {
+              "model": {
+                "pattern": "^gpt-5\\.5"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "prompt_cache_retention"
+            ],
+            "properties": {
+              "prompt_cache_retention": {
+                "const": "24h"
+              }
+            }
+          }
+        }
+      ]
     },
     "carryForward": {
       "type": "object",

@@ -10,6 +10,7 @@
     "model_migration",
     "files",
     "agent_protocols",
+    "review_protocol",
     "failure_policies",
     "human_pause_conditions",
     "acceptance_checks"
@@ -31,6 +32,8 @@
       "required": [
         "primary_generation_model",
         "structural_processing_model",
+        "prompt_cache_retention",
+        "max_output_tokens",
         "surfaces_updated"
       ],
       "properties": {
@@ -39,6 +42,12 @@
         },
         "structural_processing_model": {
           "const": "gpt-5.5"
+        },
+        "prompt_cache_retention": {
+          "const": "24h"
+        },
+        "max_output_tokens": {
+          "const": 128000
         },
         "surfaces_updated": {
           "type": "array",
@@ -69,45 +78,12 @@
         }
       ],
       "items": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "path",
-          "action",
-          "category",
-          "purpose"
-        ],
-        "properties": {
-          "path": {
-            "type": "string",
-            "minLength": 1
-          },
-          "action": {
-            "enum": [
-              "create",
-              "update"
-            ]
-          },
-          "category": {
-            "enum": [
-              "engine",
-              "task_pack",
-              "docs",
-              "tests",
-              "config",
-              "ops"
-            ]
-          },
-          "purpose": {
-            "type": "string",
-            "minLength": 1
-          }
-        }
+        "$ref": "#/$defs/fileInventoryItem"
       }
     },
     "agent_protocols": {
       "type": "array",
-      "minItems": 3,
+      "minItems": 4,
       "allOf": [
         {
           "contains": {
@@ -147,44 +123,71 @@
               }
             }
           }
+        },
+        {
+          "contains": {
+            "type": "object",
+            "required": [
+              "agent"
+            ],
+            "properties": {
+              "agent": {
+                "const": "consolidation_pass"
+              }
+            }
+          }
         }
       ],
       "items": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "agent",
-          "command_shape",
-          "prompt_file",
-          "output_artifacts"
-        ],
-        "properties": {
-          "agent": {
-            "type": "string",
-            "minLength": 1
-          },
-          "command_shape": {
-            "type": "string",
-            "minLength": 1
-          },
-          "prompt_file": {
-            "type": "string",
-            "minLength": 1
-          },
-          "output_artifacts": {
-            "type": "array",
-            "minItems": 1,
-            "items": {
-              "type": "string",
-              "minLength": 1
-            }
-          }
+        "$ref": "#/$defs/agentProtocol"
+      }
+    },
+    "review_protocol": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "operator_provisional_review",
+        "codex_review",
+        "claude_review",
+        "consolidation",
+        "operator_selective_acceptance",
+        "json_transport",
+        "read_only_enforcement"
+      ],
+      "properties": {
+        "operator_provisional_review": {
+          "type": "string",
+          "minLength": 1
+        },
+        "codex_review": {
+          "type": "string",
+          "minLength": 1
+        },
+        "claude_review": {
+          "type": "string",
+          "minLength": 1
+        },
+        "consolidation": {
+          "type": "string",
+          "minLength": 1
+        },
+        "operator_selective_acceptance": {
+          "type": "string",
+          "minLength": 1
+        },
+        "json_transport": {
+          "type": "string",
+          "minLength": 1
+        },
+        "read_only_enforcement": {
+          "type": "string",
+          "minLength": 1
         }
       }
     },
     "failure_policies": {
       "type": "array",
-      "minItems": 1,
+      "minItems": 6,
       "allOf": [
         {
           "contains": {
@@ -237,46 +240,42 @@
               }
             }
           }
+        },
+        {
+          "contains": {
+            "type": "object",
+            "required": [
+              "case_id"
+            ],
+            "properties": {
+              "case_id": {
+                "const": "blocked_token_preflight"
+              }
+            }
+          }
+        },
+        {
+          "contains": {
+            "type": "object",
+            "required": [
+              "case_id"
+            ],
+            "properties": {
+              "case_id": {
+                "const": "long_running_monitoring_anomaly"
+              }
+            }
+          }
         }
       ],
       "items": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "case_id",
-          "trigger",
-          "decision_rule",
-          "automation_action",
-          "human_pause_required"
-        ],
-        "properties": {
-          "case_id": {
-            "type": "string",
-            "minLength": 1
-          },
-          "trigger": {
-            "type": "string",
-            "minLength": 1
-          },
-          "decision_rule": {
-            "type": "string",
-            "minLength": 1
-          },
-          "automation_action": {
-            "type": "string",
-            "minLength": 1
-          },
-          "human_pause_required": {
-            "type": "boolean"
-          }
-        }
+        "$ref": "#/$defs/failurePolicy"
       }
     },
     "human_pause_conditions": {
       "type": "array",
       "items": {
-        "type": "string",
-        "minLength": 1
+        "$ref": "#/$defs/humanPauseCondition"
       }
     },
     "acceptance_checks": {
@@ -285,6 +284,151 @@
       "items": {
         "type": "string",
         "minLength": 1
+      }
+    }
+  },
+  "$defs": {
+    "fileInventoryItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "action",
+        "category",
+        "purpose"
+      ],
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "action": {
+          "enum": [
+            "create",
+            "update"
+          ]
+        },
+        "category": {
+          "enum": [
+            "engine",
+            "task_pack",
+            "docs",
+            "tests",
+            "config",
+            "ops"
+          ]
+        },
+        "purpose": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "agentProtocol": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "agent",
+        "command_shape",
+        "prompt_file",
+        "output_artifacts",
+        "json_transport",
+        "failure_behavior"
+      ],
+      "properties": {
+        "agent": {
+          "type": "string",
+          "minLength": 1
+        },
+        "command_shape": {
+          "type": "string",
+          "minLength": 1
+        },
+        "prompt_file": {
+          "type": "string",
+          "minLength": 1
+        },
+        "output_artifacts": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "json_transport": {
+          "type": "string",
+          "minLength": 1
+        },
+        "failure_behavior": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "failurePolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "case_id",
+        "trigger",
+        "decision_rule",
+        "automation_action",
+        "human_pause_required"
+      ],
+      "properties": {
+        "case_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "trigger": {
+          "type": "string",
+          "minLength": 1
+        },
+        "decision_rule": {
+          "type": "string",
+          "minLength": 1
+        },
+        "automation_action": {
+          "type": "string",
+          "minLength": 1
+        },
+        "human_pause_required": {
+          "type": "boolean"
+        }
+      }
+    },
+    "humanPauseCondition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "condition",
+        "trigger",
+        "artifact_to_present",
+        "human_decision_required",
+        "safe_continuation_action"
+      ],
+      "properties": {
+        "condition": {
+          "type": "string",
+          "minLength": 1
+        },
+        "trigger": {
+          "type": "string",
+          "minLength": 1
+        },
+        "artifact_to_present": {
+          "type": "string",
+          "minLength": 1
+        },
+        "human_decision_required": {
+          "type": "string",
+          "minLength": 1
+        },
+        "safe_continuation_action": {
+          "type": "string",
+          "minLength": 1
+        }
       }
     }
   }
