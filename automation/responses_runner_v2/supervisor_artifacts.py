@@ -266,7 +266,8 @@ def _iter_files(path: Path) -> Iterable[Path]:
         return
     for child in sorted(path.rglob("*")):
         if child.is_file():
-            if any(part in DIRECTORY_SKIP_NAMES for part in child.relative_to(path.anchor if child.is_absolute() else child.parent).parts):
+            relative_parts = child.relative_to(path).parts
+            if any(part in DIRECTORY_SKIP_NAMES for part in relative_parts[:-1]):
                 continue
             yield child
 
@@ -276,7 +277,7 @@ def hash_manifest(root: Path, target: str | Path, output_path: str | Path) -> st
     records = []
     for file_path in sorted(_iter_files(resolved)):
         rel = relpath(root, file_path)
-        if any(part in DIRECTORY_SKIP_NAMES for part in Path(rel).parts):
+        if any(part in DIRECTORY_SKIP_NAMES for part in file_path.relative_to(resolved).parts[:-1]):
             continue
         records.append({"path": rel, "sha256": sha256_file(file_path), "bytes": file_path.stat().st_size})
     manifest = {
@@ -312,11 +313,26 @@ def copy_into_scaffold_version(root: Path, source: str | Path, destination: Path
 
 def snapshot_workspace(root: Path) -> dict[str, str]:
     snapshot: dict[str, str] = {}
-    for file_path in sorted(root.rglob("*")):
+
+    def walk(path: Path) -> Iterable[Path]:
+        try:
+            children = sorted(path.iterdir())
+        except FileNotFoundError:
+            return
+        for child in children:
+            try:
+                relative_parts = child.relative_to(root).parts
+                if any(part in DIRECTORY_SKIP_NAMES for part in relative_parts):
+                    continue
+                if child.is_dir():
+                    yield from walk(child)
+                elif child.is_file():
+                    yield child
+            except FileNotFoundError:
+                continue
+
+    for file_path in walk(root):
         if not file_path.is_file():
-            continue
-        relative_parts = file_path.relative_to(root).parts
-        if any(part in DIRECTORY_SKIP_NAMES for part in relative_parts):
             continue
         snapshot[file_path.relative_to(root).as_posix()] = sha256_file(file_path)
     return snapshot
