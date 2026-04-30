@@ -23,7 +23,7 @@ This file should not try to re-teach the full runner architecture every time.
 
 New operators should read these once from the runner repository:
 
-1. `<runner-checkout>/TEAM_ONBOARDING.md`
+1. `<runner-checkout>/DEVELOPING.md`
 2. `<runner-checkout>/docs/runbooks/responses-runner-v2.md`
 3. `<runner-checkout>/docs/runbooks/first-use-adaptation-example.md`
 4. `<runner-checkout>/automation/examples/responses_runner_v2_synthetic/README.md`
@@ -97,7 +97,7 @@ Dry run:
 ```bash
 cd "<target-workspace>"
 
-python3 "<runner-checkout>/automation/run_responses_v2.py" run \
+python "<runner-checkout>/automation/run_responses_v2.py" run \
   --root . \
   --workflow-file <workflow-file> \
   --dry-run
@@ -108,7 +108,7 @@ First live run:
 ```bash
 cd "<target-workspace>"
 
-python3 "<runner-checkout>/automation/run_responses_v2.py" run \
+python "<runner-checkout>/automation/run_responses_v2.py" run \
   --root . \
   --workflow-file <workflow-file> \
   --skip-token-count \
@@ -120,7 +120,7 @@ Resume a nonterminal stage:
 ```bash
 cd "<target-workspace>"
 
-python3 "<runner-checkout>/automation/run_responses_v2.py" resume \
+python "<runner-checkout>/automation/run_responses_v2.py" resume \
   --root . \
   --run-dir <run-dir> \
   --stage <stage-id> \
@@ -132,7 +132,7 @@ Refresh remote status without resubmitting:
 ```bash
 cd "<target-workspace>"
 
-python3 "<runner-checkout>/automation/run_responses_v2.py" refresh \
+python "<runner-checkout>/automation/run_responses_v2.py" refresh \
   --root . \
   --run-dir <run-dir> \
   --stage <stage-id>
@@ -141,7 +141,7 @@ python3 "<runner-checkout>/automation/run_responses_v2.py" refresh \
 If the workflow uses reviewed gates, create a review bundle:
 
 ```bash
-python3 "<runner-checkout>/automation/create_review_bundle_v2.py" \
+python "<runner-checkout>/automation/create_review_bundle_v2.py" \
   --root "<target-workspace>" \
   --output review_bundle.json \
   --workflow-id <workflow-id> \
@@ -157,7 +157,7 @@ Continue after review:
 ```bash
 cd "<target-workspace>"
 
-python3 "<runner-checkout>/automation/run_responses_v2.py" run \
+python "<runner-checkout>/automation/run_responses_v2.py" run \
   --root . \
   --workflow-file <workflow-file> \
   --run-dir <run-dir> \

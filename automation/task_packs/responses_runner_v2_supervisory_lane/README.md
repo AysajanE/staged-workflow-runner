@@ -1,5 +1,7 @@
 # Responses Runner V2 Supervisory-Lane Self-Improvement Pack
 
+This is the legacy three-stage supervisory-lane pack. It remains in the public tree as historical regression coverage. New self-improvement work should start from `automation/task_packs/responses_runner_v2_supervised_end_to_end/`, which supersedes this pack with the current four-stage protocol.
+
 This task pack is for running the current staged workflow runner against the task of improving itself.
 
 The target outcome is a drop-in-ready package for this repository that adds an integrated automation/supervisory lane around the existing `responses_runner_v2` engine.
@@ -68,7 +70,7 @@ Reviewer notes should still explicitly state:
 Dry run stage 1:
 
 ```bash
-python3 automation/run_responses_v2.py run \
+python automation/run_responses_v2.py run \
   --root . \
   --workflow-file automation/task_packs/responses_runner_v2_supervisory_lane/workflows/three_stage.workflow.json \
   --dry-run
@@ -77,7 +79,7 @@ python3 automation/run_responses_v2.py run \
 Run stage 1 live and wait:
 
 ```bash
-python3 automation/run_responses_v2.py run \
+python automation/run_responses_v2.py run \
   --root . \
   --workflow-file automation/task_packs/responses_runner_v2_supervisory_lane/workflows/three_stage.workflow.json \
   --skip-token-count \
@@ -87,7 +89,7 @@ python3 automation/run_responses_v2.py run \
 Create the approved review bundle after stage 1:
 
 ```bash
-python3 automation/create_review_bundle_v2.py \
+python automation/create_review_bundle_v2.py \
   --root . \
   --output <run_dir>/stage1.review_bundle.json \
   --workflow-id responses_runner_v2_supervisory_lane_self_improvement \
@@ -101,7 +103,7 @@ python3 automation/create_review_bundle_v2.py \
 Continue with stage 2:
 
 ```bash
-python3 automation/run_responses_v2.py run \
+python automation/run_responses_v2.py run \
   --root . \
   --workflow-file automation/task_packs/responses_runner_v2_supervisory_lane/workflows/three_stage.workflow.json \
   --run-dir <run_dir> \

@@ -83,6 +83,8 @@ def _default_model_defaults() -> dict[str, Any]:
 
 
 def create_session(*, root: Path, clarified_task_brief: str | Path, summary: str, session_id: str | None = None) -> dict[str, Any]:
+    """Create a supervisor session from an accepted clarified task brief."""
+
     brief_path = resolve_under_root(root, clarified_task_brief, must_exist=True)
     created_id, session_path = supervisor_artifacts.create_session_dir(root, session_id)
     now = runner_now().isoformat()
@@ -126,6 +128,8 @@ def create_session(*, root: Path, clarified_task_brief: str | Path, summary: str
 
 
 def stage_scaffold(*, root: Path, session_ref: str | Path, scaffold_path: str | Path, created_by: str = "operator_codex") -> dict[str, Any]:
+    """Copy a scaffold into the supervisor session and hash its contents."""
+
     session, session_path = _load_session_and_path(root, session_ref)
     version_id = normalize_slug(f"scaffold_{len(session['scaffold_versions']) + 1:03d}")
     destination = session_path / "scaffolds" / version_id / "source"
@@ -148,6 +152,8 @@ def stage_scaffold(*, root: Path, session_ref: str | Path, scaffold_path: str | 
 
 
 def dry_run_scaffold(*, root: Path, session_ref: str | Path, workflow_file: str | Path, run_name: str = "supervisor-scaffold-dry-run") -> dict[str, Any]:
+    """Run the staged scaffold in dry-run mode and record the validation result."""
+
     session, session_path = _load_session_and_path(root, session_ref)
     output_root = Path(relpath(root, session_path / "dry_runs"))
     command = ["python3", "automation/run_responses_v2.py", "run", "--root", str(root), "--workflow-file", str(workflow_file), "--dry-run"]
@@ -198,6 +204,8 @@ def dry_run_scaffold(*, root: Path, session_ref: str | Path, workflow_file: str 
 
 
 def create_review_cycle(*, root: Path, session_ref: str | Path, review_cycle_id: str, review_kind: str, artifacts_reviewed: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+    """Create a supervisor review cycle for a scaffold, stage output, final packet, or recovery path."""
+
     session, session_path = _load_session_and_path(root, session_ref)
     if any(cycle["review_cycle_id"] == review_cycle_id for cycle in session["review_cycles"]):
         raise SystemExit(f"Review cycle already exists: {review_cycle_id}")
@@ -239,6 +247,8 @@ def invoke_operator(
     job_json: str | Path,
     output_dir: str | Path | None = None,
 ) -> dict[str, Any]:
+    """Invoke the accountable operator Codex lane and record its provisional review."""
+
     session, session_path = _load_session_and_path(root, session_ref)
     if not any(cycle["review_cycle_id"] == review_cycle_id for cycle in session["review_cycles"]):
         create_review_cycle(root=root, session_ref=session_ref, review_cycle_id=review_cycle_id, review_kind=review_kind)
@@ -282,6 +292,8 @@ def invoke_reviewers(
     job_json: str | Path,
     output_dir: str | Path | None = None,
 ) -> dict[str, Any]:
+    """Invoke independent read-only Codex and Claude review agents for a review cycle."""
+
     session, session_path = _load_session_and_path(root, session_ref)
     cycle = _find_cycle(session, review_cycle_id)
     if review_kind in REVIEW_KINDS_REQUIRING_OPERATOR_PROVISIONAL:
@@ -352,6 +364,8 @@ def consolidate_reviews(
     output: str | Path,
     operator_review: str | Path | None = None,
 ) -> dict[str, Any]:
+    """Deterministically consolidate operator and independent reviewer findings."""
+
     session, session_path = _load_session_and_path(root, session_ref)
     cycle = _find_cycle(session, review_cycle_id)
     if cycle.get("review_kind") in REVIEW_KINDS_REQUIRING_OPERATOR_PROVISIONAL:
@@ -504,6 +518,8 @@ def accept_consolidated_review(
     output: str | Path,
     applied_change_evidence: str | Path | None = None,
 ) -> dict[str, Any]:
+    """Create the operator selective-acceptance record for consolidated recommendations."""
+
     session, session_path = _load_session_and_path(root, session_ref)
     consolidated = _load_decision(root, consolidated_review, "consolidated review")
     accepted = set(accepted_recommendation_ids)
@@ -600,6 +616,8 @@ def accept_consolidated_review(
 
 
 def assert_scaffold_launch_allowed(*, root: Path, session_ref: str | Path) -> None:
+    """Raise if the latest staged scaffold lacks the required accepted review cycle."""
+
     session, _session_path = _load_session_and_path(root, session_ref)
     if not session["scaffold_versions"]:
         raise SystemExit("No scaffold has been staged.")
@@ -612,6 +630,8 @@ def assert_scaffold_launch_allowed(*, root: Path, session_ref: str | Path) -> No
 
 
 def classify_stage(*, root: Path, session_ref: str | Path, run_dir: str | Path, stage_id: str, output: str | Path | None = None) -> dict[str, Any]:
+    """Classify a stage outcome and record reviewability or recovery requirements."""
+
     session, session_path = _load_session_and_path(root, session_ref)
     resolved_run_dir = resolve_under_root(root, run_dir, must_exist=True)
     run_manifest = runner_artifacts.load_run_manifest(root, resolved_run_dir)
@@ -642,6 +662,8 @@ def classify_stage(*, root: Path, session_ref: str | Path, run_dir: str | Path, 
 
 
 def monitor_stage(*, root: Path, session_ref: str | Path, run_dir: str | Path, stage_id: str, stale_after_seconds: float) -> dict[str, Any]:
+    """Record monitoring state and create a human-pause anomaly when a stage is stale."""
+
     session, session_path = _load_session_and_path(root, session_ref)
     resolved_run_dir = resolve_under_root(root, run_dir, must_exist=True)
     run_manifest = runner_artifacts.load_run_manifest(root, resolved_run_dir)
@@ -689,6 +711,8 @@ def monitor_stage(*, root: Path, session_ref: str | Path, run_dir: str | Path, s
 
 
 def archive_attempt(*, root: Path, session_ref: str | Path, run_dir: str | Path, stage_id: str, reason: str) -> dict[str, Any]:
+    """Archive a failed no-artifact attempt before permitting a controlled rerun."""
+
     session, session_path = _load_session_and_path(root, session_ref)
     before = dict(session.get("retry_budget", {}))
     budget = int(before.get("failed_no_artifact", 0))
@@ -727,6 +751,8 @@ def create_approved_review_bundle(
     approved_handoff_markdown: str | Path | None = None,
     structured_artifact_json: str | Path | None = None,
 ) -> dict[str, Any]:
+    """Create an approved review bundle only after an approving acceptance record."""
+
     session, session_path = _load_session_and_path(root, session_ref)
     acceptance = _load_decision(root, acceptance_record, "operator acceptance")
     if acceptance.get("review_kind") != "operator_acceptance" or acceptance.get("approval_decision") != "approve":
@@ -791,6 +817,8 @@ def _require_final_bundle_payload(payload: dict[str, Any]) -> None:
 
 
 def create_final_implementation_bundle(*, root: Path, session_ref: str | Path, payload: dict[str, Any], output: str | Path) -> dict[str, Any]:
+    """Validate and record the final implementation bundle for a supervisor session."""
+
     session, session_path = _load_session_and_path(root, session_ref)
     _require_final_bundle_payload(payload)
     bundle = dict(payload)
@@ -811,11 +839,15 @@ def create_final_implementation_bundle(*, root: Path, session_ref: str | Path, p
 
 
 def finalize_bundle(*, root: Path, session_ref: str | Path, packet_json: str | Path, output: str | Path) -> dict[str, Any]:
+    """Load a packet JSON file and write the validated final implementation bundle."""
+
     payload = load_json(resolve_under_root(root, packet_json, must_exist=True), "final bundle packet")
     return create_final_implementation_bundle(root=root, session_ref=session_ref, payload=payload, output=output)
 
 
 def validate_session(*, root: Path, session_ref: str | Path) -> dict[str, Any]:
+    """Validate the supervisor session manifest against its JSON schema."""
+
     session, session_path = _load_session_and_path(root, session_ref)
     supervisor_artifacts.validate_against_schema(
         {key: value for key, value in session.items() if not key.startswith("_")},

@@ -1,0 +1,35 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Show Python version
+        run: python --version
+      - name: Run tests
+        run: python -m unittest discover -s automation/tests -p 'test_*.py'
+      - name: Dry-run synthetic pack
+        run: |
+          python automation/run_responses_v2.py run \
+            --root . \
+            --workflow-file automation/examples/responses_runner_v2_synthetic/workflows/one_pass.workflow.json \
+            --dry-run
+      - name: Dry-run supervised end-to-end pack
+        run: |
+          python automation/run_responses_v2.py run \
+            --root . \
+            --workflow-file automation/task_packs/responses_runner_v2_supervised_end_to_end/workflows/four_stage.workflow.json \
+            --dry-run

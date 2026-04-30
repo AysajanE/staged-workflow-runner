@@ -22,40 +22,47 @@
   ],
   "properties": {
     "schema_version": {
-      "const": "responses_runner_v2.final_implementation_bundle.v1"
+      "const": "responses_runner_v2.final_implementation_bundle.v1",
+      "description": "Schema version identifier for this artifact contract."
     },
     "packet_version": {
       "type": "string",
-      "minLength": 1
+      "minLength": 1,
+      "description": "Version identifier for the emitted implementation packet."
     },
     "created_at": {
       "type": "string",
-      "format": "date-time"
+      "format": "date-time",
+      "description": "ISO 8601 timestamp when this artifact was created."
     },
     "summary": {
       "type": "string",
-      "minLength": 1
+      "minLength": 1,
+      "description": "Concise human-readable summary of this artifact."
     },
     "file_inventory": {
       "type": "array",
       "minItems": 1,
       "items": {
         "$ref": "#/$defs/fileInventoryItem"
-      }
+      },
+      "description": "Inventory of files expected or emitted by a final implementation packet."
     },
     "emitted_files": {
       "type": "array",
       "minItems": 1,
       "items": {
         "$ref": "#/$defs/emittedFile"
-      }
+      },
+      "description": "Files emitted by a final implementation packet."
     },
     "validation_evidence": {
       "type": "array",
       "minItems": 1,
       "items": {
         "$ref": "#/$defs/validationEvidence"
-      }
+      },
+      "description": "Evidence proving the emitted packet was validated."
     },
     "agent_reviews": {
       "type": "object",
@@ -67,21 +74,27 @@
       ],
       "properties": {
         "operator_codex": {
-          "$ref": "#/$defs/reviewRef"
+          "$ref": "#/$defs/reviewRef",
+          "description": "Describes the `operator_codex` field for this artifact contract."
         },
         "codex_review_agent": {
-          "$ref": "#/$defs/reviewRef"
+          "$ref": "#/$defs/reviewRef",
+          "description": "Describes the `codex_review_agent` field for this artifact contract."
         },
         "claude_review_agent": {
-          "$ref": "#/$defs/reviewRef"
+          "$ref": "#/$defs/reviewRef",
+          "description": "Describes the `claude_review_agent` field for this artifact contract."
         }
-      }
+      },
+      "description": "Review-agent outputs considered for the final packet."
     },
     "consolidation": {
-      "$ref": "#/$defs/reviewRef"
+      "$ref": "#/$defs/reviewRef",
+      "description": "Consolidated review findings and disposition summary."
     },
     "operator_acceptance": {
-      "$ref": "#/$defs/reviewRef"
+      "$ref": "#/$defs/reviewRef",
+      "description": "Operator selective-acceptance record for final recommendations."
     },
     "model_migration_summary": {
       "type": "object",
@@ -94,13 +107,16 @@
       ],
       "properties": {
         "primary_generation_model": {
-          "const": "gpt-5.5-pro"
+          "const": "gpt-5.5-pro",
+          "description": "Describes the `primary_generation_model` field for this artifact contract."
         },
         "structural_processing_model": {
-          "const": "gpt-5.5"
+          "const": "gpt-5.5",
+          "description": "Describes the `structural_processing_model` field for this artifact contract."
         },
         "prompt_cache_retention": {
-          "const": "24h"
+          "const": "24h",
+          "description": "Describes the `prompt_cache_retention` field for this artifact contract."
         },
         "surfaces_updated": {
           "type": "array",
@@ -108,9 +124,11 @@
           "items": {
             "type": "string",
             "minLength": 1
-          }
+          },
+          "description": "Describes the `surfaces_updated` field for this artifact contract."
         }
-      }
+      },
+      "description": "Summary of model-default and workflow posture migration."
     },
     "failure_policy_summary": {
       "type": "array",
@@ -131,14 +149,17 @@
               "incomplete_output_limit",
               "blocked_token_preflight",
               "long_running_monitoring_anomaly"
-            ]
+            ],
+            "description": "Describes the `case_id` field for this artifact contract."
           },
           "action": {
             "type": "string",
-            "minLength": 1
+            "minLength": 1,
+            "description": "Recommended recovery, review, or continuation action."
           }
         }
-      }
+      },
+      "description": "Summary of failure-classification and recovery policy behavior."
     },
     "human_pause_summary": {
       "type": "array",
@@ -151,17 +172,20 @@
           "decision_required",
           "safe_continuation_action"
         ]
-      }
+      },
+      "description": "Summary of human-pause conditions and artifacts."
     },
     "rollout_instructions": {
       "type": "string",
-      "minLength": 1
+      "minLength": 1,
+      "description": "Instructions for applying or operating the final bundle."
     },
     "residual_risks": {
       "type": "array",
       "items": {
         "type": "string"
-      }
+      },
+      "description": "Known risks that remain after validation."
     }
   },
   "$defs": {
@@ -177,13 +201,15 @@
       "properties": {
         "path": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "description": "Describes the `path` field for this artifact contract."
         },
         "action": {
           "enum": [
             "create",
             "update"
-          ]
+          ],
+          "description": "Recommended recovery, review, or continuation action."
         },
         "category": {
           "enum": [
@@ -193,11 +219,13 @@
             "tests",
             "config",
             "ops"
-          ]
+          ],
+          "description": "Describes the `category` field for this artifact contract."
         },
         "purpose": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "description": "Describes the `purpose` field for this artifact contract."
         }
       }
     },
@@ -213,23 +241,27 @@
       "properties": {
         "path": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "description": "Describes the `path` field for this artifact contract."
         },
         "action": {
           "enum": [
             "create",
             "update"
-          ]
+          ],
+          "description": "Recommended recovery, review, or continuation action."
         },
         "content_kind": {
           "enum": [
             "full_file",
             "patch"
-          ]
+          ],
+          "description": "Describes the `content_kind` field for this artifact contract."
         },
         "sha256": {
           "type": "string",
-          "pattern": "^[a-f0-9]{64}$"
+          "pattern": "^[a-f0-9]{64}$",
+          "description": "Describes the `sha256` field for this artifact contract."
         }
       }
     },
@@ -247,32 +279,38 @@
       "properties": {
         "check_id": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "description": "Describes the `check_id` field for this artifact contract."
         },
         "phase": {
           "enum": [
             "red",
             "green"
-          ]
+          ],
+          "description": "Describes the `phase` field for this artifact contract."
         },
         "command_or_method": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "description": "Describes the `command_or_method` field for this artifact contract."
         },
         "expected_result": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "description": "Describes the `expected_result` field for this artifact contract."
         },
         "actual_result": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "description": "Describes the `actual_result` field for this artifact contract."
         },
         "status": {
           "enum": [
             "passed",
             "failed",
             "blocked"
-          ]
+          ],
+          "description": "Current lifecycle status for this artifact."
         }
       }
     },
@@ -287,17 +325,21 @@
       "properties": {
         "json_path": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "description": "Describes the `json_path` field for this artifact contract."
         },
         "markdown_path": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "description": "Describes the `markdown_path` field for this artifact contract."
         },
         "decision": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "description": "Describes the `decision` field for this artifact contract."
         }
       }
     }
-  }
+  },
+  "description": "Responses Runner V2 Final Implementation Bundle JSON schema."
 }

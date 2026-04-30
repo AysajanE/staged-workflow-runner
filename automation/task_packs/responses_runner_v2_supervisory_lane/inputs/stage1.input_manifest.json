@@ -29,7 +29,7 @@
       "notes": "top-level operating contract for the standalone runner repository"
     },
     {
-      "path": "TEAM_ONBOARDING.md",
+      "path": "DEVELOPING.md",
       "kind": "file",
       "notes": "recommended reading order and core mental model for the current engine"
     },

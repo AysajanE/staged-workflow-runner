@@ -1,6 +1,6 @@
-# Team Onboarding Note
+# Developing Staged Workflow Runner
 
-This repository is the extracted standalone home for the staged workflow runner.
+This guide is for developers and automation agents working on the public `staged-workflow-runner` repository.
 
 The quickest correct mental model is:
 
@@ -21,7 +21,7 @@ The quickest correct mental model is:
 - dry run, resume, and refresh
 - optional structured sidecar extraction
 
-The first release deliberately preserves the internal `automation/...` layout and `responses_runner_v2` package path. Do not treat that as accidental leftover structure.
+The first release deliberately preserves the tested `automation/...` layout and `responses_runner_v2` package path. Do not treat that as accidental leftover structure.
 
 ## First Things To Understand
 
@@ -36,15 +36,11 @@ These are the most important operating constraints:
 4. The public repo name changed, but the tested engine contract did not.
    The internal package name, CLI names, and schema identifiers are intentionally preserved.
 
-## Read In This Order
+## Reading Order
 
-1. `README.md`
-2. `docs/runbooks/responses-runner-v2.md`
-3. `automation/responses_runner_v2/README.md`
-4. `automation/examples/responses_runner_v2_synthetic/README.md`
-5. `automation/tests/test_responses_runner_v2_workflow.py`
+Use the canonical reader path in `README.md` first.
 
-Then read the engine in this order:
+For deeper engine work, read the implementation in this order:
 
 1. `automation/responses_runner_v2/contracts.py`
 2. `automation/responses_runner_v2/pack_loader.py`
@@ -84,7 +80,7 @@ Start with the synthetic proof pack. It is intentionally the smallest bounded pa
 Dry run:
 
 ```bash
-python3 automation/run_responses_v2.py run \
+python automation/run_responses_v2.py run \
   --root . \
   --workflow-file automation/examples/responses_runner_v2_synthetic/workflows/one_pass.workflow.json \
   --dry-run
@@ -93,7 +89,7 @@ python3 automation/run_responses_v2.py run \
 Core regression suite:
 
 ```bash
-python3 -m unittest \
+python -m unittest \
   automation.tests.test_responses_runner_v2_contracts \
   automation.tests.test_responses_runner_v2_example_pack \
   automation.tests.test_responses_runner_v2_review_bundle \
@@ -104,7 +100,7 @@ python3 -m unittest \
 Eval harness smoke test:
 
 ```bash
-python3 automation/run_responses_v2_eval.py \
+python automation/run_responses_v2_eval.py \
   --dataset-file automation/evals/responses_runner_v2.eval.json \
   --list-cases
 ```

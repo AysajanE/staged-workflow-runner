@@ -28,12 +28,13 @@ The first release intentionally preserves the tested internal layout and names: 
 
 - Python 3.10 or newer.
 - `OPENAI_API_KEY` in the environment, or a `.env` file in the active workspace root for live OpenAI runs.
+- For local development, create a Python 3.10+ environment and install this checkout with `python -m pip install -e .`.
 - No mandatory third-party runtime package for the core runner; the HTTP client uses the Python standard library.
 - Optional: `jsonschema` for full JSON Schema validation. A limited fallback validator is built in for supervisor artifacts.
 - Optional for tests: `pytest`. The repository test suite also runs with standard-library `unittest`.
 - Supervisor review automation additionally requires:
-  - Codex CLI available as `codex`;
-  - Claude CLI available as `claude`;
+  - Codex CLI available as `codex`, installed and authenticated according to [OpenAI Codex CLI documentation](https://help.openai.com/en/articles/11096431-openai-codex-ci-getting-started);
+  - Claude Code CLI available as `claude`, installed according to [Anthropic Claude Code documentation](https://docs.anthropic.com/en/docs/claude-code/overview) and authenticated once before use;
   - non-interactive command execution available in the current shell.
 
 ## Model Defaults
@@ -52,13 +53,13 @@ Runtime and committed workflow defaults use the GPT-5.5 family:
 Run the full local test suite:
 
 ```bash
-python3 -m unittest discover -s automation/tests -p 'test_*.py'
+python -m unittest discover -s automation/tests -p 'test_*.py'
 ```
 
 Dry-run the bundled synthetic proof pack:
 
 ```bash
-python3 automation/run_responses_v2.py run \
+python automation/run_responses_v2.py run \
   --root . \
   --workflow-file automation/examples/responses_runner_v2_synthetic/workflows/one_pass.workflow.json \
   --dry-run
@@ -67,7 +68,7 @@ python3 automation/run_responses_v2.py run \
 Run the same proof pack live and wait for completion:
 
 ```bash
-python3 automation/run_responses_v2.py run \
+python automation/run_responses_v2.py run \
   --root . \
   --workflow-file automation/examples/responses_runner_v2_synthetic/workflows/one_pass.workflow.json \
   --skip-token-count \
@@ -77,7 +78,7 @@ python3 automation/run_responses_v2.py run \
 Use this checkout against an external target workspace:
 
 ```bash
-python3 /path/to/staged-workflow-runner/automation/run_responses_v2.py run \
+python /path/to/staged-workflow-runner/automation/run_responses_v2.py run \
   --root /path/to/target-workspace \
   --workflow-file task_packs/example/workflows/example.workflow.json \
   --skip-token-count \
@@ -93,7 +94,7 @@ The supervisor owns session state, scaffold staging, dry-run gating, review-agen
 Initialize a session after a human has accepted a clarified task brief:
 
 ```bash
-python3 automation/run_responses_supervisor_v2.py init-session \
+python automation/run_responses_supervisor_v2.py init-session \
   --root . \
   --clarified-task-brief docs/clarified_task_brief.md \
   --summary "One-sentence accepted task summary"
@@ -102,12 +103,12 @@ python3 automation/run_responses_supervisor_v2.py init-session \
 Stage and dry-run a scaffold:
 
 ```bash
-python3 automation/run_responses_supervisor_v2.py stage-scaffold \
+python automation/run_responses_supervisor_v2.py stage-scaffold \
   --root . \
   --session <supervisor_session_id> \
   --scaffold-path automation/task_packs/example_task
 
-python3 automation/run_responses_supervisor_v2.py dry-run-scaffold \
+python automation/run_responses_supervisor_v2.py dry-run-scaffold \
   --root . \
   --session <supervisor_session_id> \
   --workflow-file automation/task_packs/example_task/workflows/workflow.json
@@ -125,7 +126,7 @@ For every scaffold and non-terminal stage, the required supervisor review loop i
 ## Repository Layout
 
 - `AGENTS.md` — repository-level automation-agent instructions.
-- `TEAM_ONBOARDING.md` — team onboarding guide.
+- `DEVELOPING.md` — developer guide and architecture guardrails.
 - `automation/responses_runner_v2/` — core engine package.
 - `automation/run_responses_v2.py` — generic runner CLI.
 - `automation/create_review_bundle_v2.py` — approved review-bundle CLI.
@@ -137,14 +138,15 @@ For every scaffold and non-terminal stage, the required supervisor review loop i
 - `automation/task_packs/responses_runner_v2_supervisory_lane/` — legacy three-stage supervisory-lane pack kept as historical regression coverage.
 - `automation/tests/` — regression tests.
 - `docs/runbooks/` — operator-facing runbooks.
-- `docs/fresh_self_improvement_task_pack.md` — design provenance for the current supervised self-improvement pack.
+- `docs/design/supervised-self-improvement-pack.md` — public design summary for the current supervised self-improvement pack.
+- `pyproject.toml` — packaging metadata and console-script entry points.
 
 ## Publication Boundary
 
 Push these to GitHub:
 
 - core runner code, CLIs, schemas, tests, eval fixtures, synthetic examples, runbooks, and task-pack definitions;
-- `AGENTS.md`, `TEAM_ONBOARDING.md`, and this `README.md`;
+- `AGENTS.md`, `DEVELOPING.md`, `CONTRIBUTING.md`, `SECURITY.md`, `CODE_OF_CONDUCT.md`, `CHANGELOG.md`, `LICENSE`, and this `README.md`;
 - supervisor internal prompt and command-template assets, because the supervisor CLI depends on them.
 
 Do not push these:
@@ -152,7 +154,8 @@ Do not push these:
 - `.env` or any environment-specific secret file;
 - `.local/` run outputs, response artifacts, supervisor sessions, archives, extracted packets, or internal handoffs;
 - `.pytest_cache/`, `__pycache__/`, `*.pyc`, `.DS_Store`, and scratch directories such as `inspect_live.*`;
-- project-specific handoff material for unrelated target repositories.
+- project-specific handoff material for unrelated target repositories;
+- local design-provenance drafts that are archived under ignored `.local/internal_archive/`.
 
 Project-specific handoff runbooks that were useful during local development have been moved out of the publishable tree and preserved under ignored `.local/internal_archive/`.
 
@@ -161,24 +164,24 @@ Project-specific handoff runbooks that were useful during local development have
 Baseline validation:
 
 ```bash
-python3 -m unittest discover -s automation/tests -p 'test_*.py'
+python -m unittest discover -s automation/tests -p 'test_*.py'
 ```
 
 Optional pytest validation:
 
 ```bash
-PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python3 -m pytest automation/tests -q
+PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest automation/tests -q
 ```
 
 Dry-run validation:
 
 ```bash
-python3 automation/run_responses_v2.py run \
+python automation/run_responses_v2.py run \
   --root . \
   --workflow-file automation/examples/responses_runner_v2_synthetic/workflows/one_pass.workflow.json \
   --dry-run
 
-python3 automation/run_responses_v2.py run \
+python automation/run_responses_v2.py run \
   --root . \
   --workflow-file automation/task_packs/responses_runner_v2_supervised_end_to_end/workflows/four_stage.workflow.json \
   --dry-run
@@ -187,15 +190,21 @@ python3 automation/run_responses_v2.py run \
 Supervisor smoke:
 
 ```bash
-python3 automation/run_responses_supervisor_v2.py validate-session \
+python automation/run_responses_supervisor_v2.py validate-session \
   --root . \
   --session <supervisor_session_id>
 ```
 
+CI runs the `unittest` suite and both dry-run smokes on Python 3.10, 3.11, and 3.12.
+
+## License
+
+This project is licensed under the MIT License. See `LICENSE`.
+
 ## Start Here
 
 1. `AGENTS.md`
-2. `TEAM_ONBOARDING.md`
+2. `DEVELOPING.md`
 3. `docs/runbooks/responses-runner-v2.md`
 4. `automation/responses_runner_v2/README.md`
 5. `automation/examples/responses_runner_v2_synthetic/README.md`

@@ -14,14 +14,17 @@
   ],
   "properties": {
     "schema_version": {
-      "const": "responses_runner_v2.workflow_manifest.v1"
+      "const": "responses_runner_v2.workflow_manifest.v1",
+      "description": "Schema version identifier for this artifact contract."
     },
     "workflow_id": {
-      "$ref": "#/$defs/idString"
+      "$ref": "#/$defs/idString",
+      "description": "Stable identifier for the workflow that owns this artifact."
     },
     "workflow_name": {
       "type": "string",
-      "minLength": 1
+      "minLength": 1,
+      "description": "Human-readable workflow name."
     },
     "workflow_mode": {
       "enum": [
@@ -29,14 +32,17 @@
         "two_pass",
         "reviewed_three_stage",
         "custom_ordered"
-      ]
+      ],
+      "description": "Execution mode used to interpret stage ordering and gates."
     },
     "description": {
       "type": "string",
-      "minLength": 1
+      "minLength": 1,
+      "description": "Human-readable description of this artifact or workflow."
     },
     "shared_instructions_file": {
-      "$ref": "#/$defs/pathString"
+      "$ref": "#/$defs/pathString",
+      "description": "Path to shared instructions included in every stage request."
     },
     "operator_requirements": {
       "type": "object",
@@ -44,16 +50,20 @@
       "properties": {
         "minimum_primary_job_inputs": {
           "type": "integer",
-          "minimum": 0
+          "minimum": 0,
+          "description": "Describes the `minimum_primary_job_inputs` field for this artifact contract."
         },
         "maximum_primary_job_inputs": {
           "type": "integer",
-          "minimum": 0
+          "minimum": 0,
+          "description": "Describes the `maximum_primary_job_inputs` field for this artifact contract."
         },
         "allow_reference_context": {
-          "type": "boolean"
+          "type": "boolean",
+          "description": "Describes the `allow_reference_context` field for this artifact contract."
         }
-      }
+      },
+      "description": "Runtime input requirements enforced for this workflow."
     },
     "defaults": {
       "type": "object",
@@ -72,12 +82,15 @@
           ],
           "properties": {
             "primary_generation": {
-              "$ref": "#/$defs/modelRoleProfile"
+              "$ref": "#/$defs/modelRoleProfile",
+              "description": "Describes the `primary_generation` field for this artifact contract."
             },
             "structural_processing": {
-              "$ref": "#/$defs/modelRoleProfile"
+              "$ref": "#/$defs/modelRoleProfile",
+              "description": "Describes the `structural_processing` field for this artifact contract."
             }
-          }
+          },
+          "description": "Describes the `model_roles` field for this artifact contract."
         },
         "request": {
           "type": "object",
@@ -92,22 +105,27 @@
           ],
           "properties": {
             "background": {
-              "type": "boolean"
+              "type": "boolean",
+              "description": "Describes the `background` field for this artifact contract."
             },
             "store": {
-              "type": "boolean"
+              "type": "boolean",
+              "description": "Describes the `store` field for this artifact contract."
             },
             "parallel_tool_calls": {
-              "type": "boolean"
+              "type": "boolean",
+              "description": "Describes the `parallel_tool_calls` field for this artifact contract."
             },
             "max_tool_calls": {
               "type": "integer",
-              "minimum": 1
+              "minimum": 1,
+              "description": "Describes the `max_tool_calls` field for this artifact contract."
             },
             "temperature": {
               "type": "number",
               "minimum": 0,
-              "maximum": 2
+              "maximum": 2,
+              "description": "Describes the `temperature` field for this artifact contract."
             },
             "service_tier": {
               "enum": [
@@ -116,11 +134,13 @@
                 "flex",
                 "priority",
                 "scale"
-              ]
+              ],
+              "description": "Describes the `service_tier` field for this artifact contract."
             },
             "safety_identifier": {
               "type": "string",
-              "minLength": 1
+              "minLength": 1,
+              "description": "Describes the `safety_identifier` field for this artifact contract."
             },
             "token_preflight": {
               "type": "object",
@@ -133,11 +153,13 @@
               ],
               "properties": {
                 "enabled": {
-                  "type": "boolean"
+                  "type": "boolean",
+                  "description": "Describes the `enabled` field for this artifact contract."
                 },
                 "max_retries": {
                   "type": "integer",
-                  "minimum": 1
+                  "minimum": 1,
+                  "description": "Describes the `max_retries` field for this artifact contract."
                 },
                 "retryable_http_status_codes": {
                   "type": "array",
@@ -147,15 +169,18 @@
                     "maximum": 599
                   },
                   "minItems": 1,
-                  "uniqueItems": true
+                  "uniqueItems": true,
+                  "description": "Describes the `retryable_http_status_codes` field for this artifact contract."
                 },
                 "on_retryable_service_failure": {
                   "enum": [
                     "continue_without_token_count",
                     "fail_closed"
-                  ]
+                  ],
+                  "description": "Describes the `on_retryable_service_failure` field for this artifact contract."
                 }
-              }
+              },
+              "description": "Token-count preflight result and diagnostics for this stage."
             },
             "file_uploads": {
               "type": "object",
@@ -166,27 +191,34 @@
               ],
               "properties": {
                 "purpose": {
-                  "const": "user_data"
+                  "const": "user_data",
+                  "description": "Describes the `purpose` field for this artifact contract."
                 },
                 "delete_on_completion": {
-                  "type": "boolean"
+                  "type": "boolean",
+                  "description": "Describes the `delete_on_completion` field for this artifact contract."
                 },
                 "expires_after_seconds": {
                   "type": "integer",
-                  "minimum": 1
+                  "minimum": 1,
+                  "description": "Describes the `expires_after_seconds` field for this artifact contract."
                 }
-              }
+              },
+              "description": "Describes the `file_uploads` field for this artifact contract."
             }
-          }
+          },
+          "description": "Describes the `request` field for this artifact contract."
         }
-      }
+      },
+      "description": "Default model-role, request, token-preflight, and upload settings."
     },
     "stages": {
       "type": "array",
       "minItems": 1,
       "items": {
         "$ref": "#/$defs/stage"
-      }
+      },
+      "description": "Per-stage run summaries recorded in execution order."
     }
   },
   "allOf": [
@@ -194,7 +226,8 @@
       "if": {
         "properties": {
           "workflow_mode": {
-            "const": "one_pass"
+            "const": "one_pass",
+            "description": "Execution mode used to interpret stage ordering and gates."
           }
         }
       },
@@ -202,7 +235,8 @@
         "properties": {
           "stages": {
             "minItems": 1,
-            "maxItems": 1
+            "maxItems": 1,
+            "description": "Per-stage run summaries recorded in execution order."
           }
         }
       }
@@ -211,7 +245,8 @@
       "if": {
         "properties": {
           "workflow_mode": {
-            "const": "two_pass"
+            "const": "two_pass",
+            "description": "Execution mode used to interpret stage ordering and gates."
           }
         }
       },
@@ -219,7 +254,8 @@
         "properties": {
           "stages": {
             "minItems": 2,
-            "maxItems": 2
+            "maxItems": 2,
+            "description": "Per-stage run summaries recorded in execution order."
           }
         }
       }
@@ -228,7 +264,8 @@
       "if": {
         "properties": {
           "workflow_mode": {
-            "const": "reviewed_three_stage"
+            "const": "reviewed_three_stage",
+            "description": "Execution mode used to interpret stage ordering and gates."
           }
         }
       },
@@ -236,7 +273,8 @@
         "properties": {
           "stages": {
             "minItems": 3,
-            "maxItems": 3
+            "maxItems": 3,
+            "description": "Per-stage run summaries recorded in execution order."
           }
         }
       }
@@ -282,19 +320,23 @@
       "properties": {
         "model": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "description": "Describes the `model` field for this artifact contract."
         },
         "reasoning_effort": {
-          "$ref": "#/$defs/reasoningEffort"
+          "$ref": "#/$defs/reasoningEffort",
+          "description": "Describes the `reasoning_effort` field for this artifact contract."
         },
         "verbosity": {
-          "$ref": "#/$defs/verbosity"
+          "$ref": "#/$defs/verbosity",
+          "description": "Describes the `verbosity` field for this artifact contract."
         },
         "prompt_cache_retention": {
           "enum": [
             "in_memory",
             "24h"
-          ]
+          ],
+          "description": "Describes the `prompt_cache_retention` field for this artifact contract."
         }
       },
       "allOf": [
@@ -305,7 +347,8 @@
             ],
             "properties": {
               "model": {
-                "pattern": "^gpt-5\\.5"
+                "pattern": "^gpt-5\\.5",
+                "description": "Describes the `model` field for this artifact contract."
               }
             }
           },
@@ -315,7 +358,8 @@
             ],
             "properties": {
               "prompt_cache_retention": {
-                "const": "24h"
+                "const": "24h",
+                "description": "Describes the `prompt_cache_retention` field for this artifact contract."
               }
             }
           }
@@ -331,13 +375,16 @@
           "items": {
             "$ref": "#/$defs/idString"
           },
-          "uniqueItems": true
+          "uniqueItems": true,
+          "description": "Describes the `reference_context_from_stage_ids` field for this artifact contract."
         },
         "review_bundle_from_stage_id": {
-          "$ref": "#/$defs/idString"
+          "$ref": "#/$defs/idString",
+          "description": "Describes the `review_bundle_from_stage_id` field for this artifact contract."
         },
         "review_bundle_include_response_artifact_json": {
-          "type": "boolean"
+          "type": "boolean",
+          "description": "Describes the `review_bundle_include_response_artifact_json` field for this artifact contract."
         }
       }
     },
@@ -352,13 +399,16 @@
           "enum": [
             "text",
             "json_schema"
-          ]
+          ],
+          "description": "Describes the `primary_format` field for this artifact contract."
         },
         "schema_file": {
-          "$ref": "#/$defs/pathString"
+          "$ref": "#/$defs/pathString",
+          "description": "Describes the `schema_file` field for this artifact contract."
         },
         "schema_name": {
-          "$ref": "#/$defs/schemaName"
+          "$ref": "#/$defs/schemaName",
+          "description": "Describes the `schema_name` field for this artifact contract."
         },
         "sidecar": {
           "type": "object",
@@ -369,12 +419,15 @@
           ],
           "properties": {
             "schema_file": {
-              "$ref": "#/$defs/pathString"
+              "$ref": "#/$defs/pathString",
+              "description": "Describes the `schema_file` field for this artifact contract."
             },
             "schema_name": {
-              "$ref": "#/$defs/schemaName"
+              "$ref": "#/$defs/schemaName",
+              "description": "Describes the `schema_name` field for this artifact contract."
             }
-          }
+          },
+          "description": "Describes the `sidecar` field for this artifact contract."
         }
       },
       "allOf": [
@@ -382,7 +435,8 @@
           "if": {
             "properties": {
               "primary_format": {
-                "const": "json_schema"
+                "const": "json_schema",
+                "description": "Describes the `primary_format` field for this artifact contract."
               }
             }
           },
@@ -402,7 +456,8 @@
           "then": {
             "properties": {
               "primary_format": {
-                "const": "text"
+                "const": "text",
+                "description": "Describes the `primary_format` field for this artifact contract."
               }
             }
           }
@@ -424,62 +479,78 @@
       ],
       "properties": {
         "stage_id": {
-          "$ref": "#/$defs/idString"
+          "$ref": "#/$defs/idString",
+          "description": "Stable identifier for the workflow stage."
         },
         "stage_number": {
           "type": "integer",
-          "minimum": 1
+          "minimum": 1,
+          "description": "One-based stage number within the workflow."
         },
         "title": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "description": "Describes the `title` field for this artifact contract."
         },
         "task_file": {
-          "$ref": "#/$defs/pathString"
+          "$ref": "#/$defs/pathString",
+          "description": "Describes the `task_file` field for this artifact contract."
         },
         "stage_instructions_file": {
-          "$ref": "#/$defs/pathString"
+          "$ref": "#/$defs/pathString",
+          "description": "Describes the `stage_instructions_file` field for this artifact contract."
         },
         "input_manifest_file": {
-          "$ref": "#/$defs/pathString"
+          "$ref": "#/$defs/pathString",
+          "description": "Describes the `input_manifest_file` field for this artifact contract."
         },
         "tool_profile_file": {
-          "$ref": "#/$defs/pathString"
+          "$ref": "#/$defs/pathString",
+          "description": "Describes the `tool_profile_file` field for this artifact contract."
         },
         "model_role": {
           "enum": [
             "primary_generation",
             "structural_processing"
-          ]
+          ],
+          "description": "Describes the `model_role` field for this artifact contract."
         },
         "reasoning_effort": {
-          "$ref": "#/$defs/reasoningEffort"
+          "$ref": "#/$defs/reasoningEffort",
+          "description": "Describes the `reasoning_effort` field for this artifact contract."
         },
         "verbosity": {
-          "$ref": "#/$defs/verbosity"
+          "$ref": "#/$defs/verbosity",
+          "description": "Describes the `verbosity` field for this artifact contract."
         },
         "max_input_tokens": {
           "type": "integer",
-          "minimum": 1
+          "minimum": 1,
+          "description": "Describes the `max_input_tokens` field for this artifact contract."
         },
         "max_output_tokens": {
           "type": "integer",
-          "minimum": 1
+          "minimum": 1,
+          "description": "Describes the `max_output_tokens` field for this artifact contract."
         },
         "gate": {
           "enum": [
             "auto",
             "review_required",
             "terminal"
-          ]
+          ],
+          "description": "Describes the `gate` field for this artifact contract."
         },
         "carry_forward": {
-          "$ref": "#/$defs/carryForward"
+          "$ref": "#/$defs/carryForward",
+          "description": "Describes the `carry_forward` field for this artifact contract."
         },
         "output": {
-          "$ref": "#/$defs/outputConfig"
+          "$ref": "#/$defs/outputConfig",
+          "description": "Describes the `output` field for this artifact contract."
         }
       }
     }
-  }
+  },
+  "description": "Responses Runner V2 Workflow Manifest JSON schema."
 }

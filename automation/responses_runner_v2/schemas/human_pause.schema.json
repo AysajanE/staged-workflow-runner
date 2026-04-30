@@ -19,15 +19,18 @@
   ],
   "properties": {
     "schema_version": {
-      "const": "responses_runner_v2.human_pause.v1"
+      "const": "responses_runner_v2.human_pause.v1",
+      "description": "Schema version identifier for this artifact contract."
     },
     "human_pause_id": {
       "type": "string",
-      "pattern": "^[a-z0-9][a-z0-9._-]{0,127}$"
+      "pattern": "^[a-z0-9][a-z0-9._-]{0,127}$",
+      "description": "Stable identifier for a human-pause artifact."
     },
     "created_at": {
       "type": "string",
-      "format": "date-time"
+      "format": "date-time",
+      "description": "ISO 8601 timestamp when this artifact was created."
     },
     "severity": {
       "enum": [
@@ -36,29 +39,36 @@
         "high",
         "medium",
         "low"
-      ]
+      ],
+      "description": "Severity level for a pause, issue, or recommendation."
     },
     "trigger": {
       "type": "string",
-      "minLength": 1
+      "minLength": 1,
+      "description": "Condition that triggered this human pause."
     },
     "artifact_to_present": {
       "type": "string",
-      "minLength": 1
+      "minLength": 1,
+      "description": "Artifact that should be shown to the human decision maker."
     },
     "decision_required": {
       "type": "string",
-      "minLength": 1
+      "minLength": 1,
+      "description": "Decision the human must make before continuation."
     },
     "safe_continuation_action": {
       "type": "string",
-      "minLength": 1
+      "minLength": 1,
+      "description": "Action that is safe after the required decision is made."
     },
     "automation_may_resume": {
-      "type": "boolean"
+      "type": "boolean",
+      "description": "Whether automation may resume after the pause is resolved."
     },
     "blocks_review_bundle_creation": {
-      "type": "boolean"
+      "type": "boolean",
+      "description": "Whether this pause blocks approved review-bundle creation."
     },
     "related_outcome_id": {
       "anyOf": [
@@ -69,7 +79,8 @@
         {
           "type": "null"
         }
-      ]
+      ],
+      "description": "Related stage outcome identifier, when applicable."
     },
     "related_review_cycle_id": {
       "anyOf": [
@@ -80,7 +91,9 @@
         {
           "type": "null"
         }
-      ]
+      ],
+      "description": "Related review-cycle identifier, when applicable."
     }
-  }
+  },
+  "description": "Responses Runner V2 Supervisor Human Pause JSON schema."
 }

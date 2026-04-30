@@ -10,6 +10,9 @@
 __pycache__/
 *.py[cod]
 .pytest_cache/
+build/
+dist/
+*.egg-info/
 
 # Editor, OS, and scratch artifacts.
 .DS_Store

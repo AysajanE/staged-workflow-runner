@@ -25,23 +25,28 @@
   ],
   "properties": {
     "schema_version": {
-      "const": "responses_runner_v2.stage_outcome.v1"
+      "const": "responses_runner_v2.stage_outcome.v1",
+      "description": "Schema version identifier for this artifact contract."
     },
     "outcome_id": {
       "type": "string",
-      "pattern": "^[a-z0-9][a-z0-9._-]{0,127}$"
+      "pattern": "^[a-z0-9][a-z0-9._-]{0,127}$",
+      "description": "Stable identifier for a classified stage outcome."
     },
     "created_at": {
       "type": "string",
-      "format": "date-time"
+      "format": "date-time",
+      "description": "ISO 8601 timestamp when this artifact was created."
     },
     "run_id": {
       "type": "string",
-      "minLength": 1
+      "minLength": 1,
+      "description": "Stable identifier for one workflow run."
     },
     "stage_id": {
       "type": "string",
-      "minLength": 1
+      "minLength": 1,
+      "description": "Stable identifier for the workflow stage."
     },
     "response_id": {
       "anyOf": [
@@ -52,7 +57,8 @@
         {
           "type": "null"
         }
-      ]
+      ],
+      "description": "Remote Responses API response identifier."
     },
     "response_status": {
       "anyOf": [
@@ -69,7 +75,8 @@
         {
           "type": "null"
         }
-      ]
+      ],
+      "description": "Remote Responses API response status."
     },
     "classification": {
       "enum": [
@@ -79,7 +86,8 @@
         "incomplete_output_limit",
         "blocked_token_preflight",
         "long_running_monitoring_anomaly"
-      ]
+      ],
+      "description": "Supervisor classification for the stage outcome."
     },
     "detection_signals": {
       "type": "array",
@@ -87,7 +95,8 @@
       "items": {
         "type": "string",
         "minLength": 1
-      }
+      },
+      "description": "Signals used to classify this stage outcome."
     },
     "completeness_checklist": {
       "type": "array",
@@ -103,20 +112,25 @@
         "properties": {
           "item": {
             "type": "string",
-            "minLength": 1
+            "minLength": 1,
+            "description": "Describes the `item` field for this artifact contract."
           },
           "passed": {
-            "type": "boolean"
+            "type": "boolean",
+            "description": "Describes the `passed` field for this artifact contract."
           },
           "detail": {
             "type": "string",
-            "minLength": 1
+            "minLength": 1,
+            "description": "Describes the `detail` field for this artifact contract."
           },
           "path": {
-            "type": "string"
+            "type": "string",
+            "description": "Describes the `path` field for this artifact contract."
           }
         }
-      }
+      },
+      "description": "Checks used to determine whether artifacts are complete and reviewable."
     },
     "action": {
       "enum": [
@@ -126,22 +140,28 @@
         "block_and_recover",
         "human_pause",
         "monitor_without_duplicate_submit"
-      ]
+      ],
+      "description": "Recommended recovery, review, or continuation action."
     },
     "reviewable": {
-      "type": "boolean"
+      "type": "boolean",
+      "description": "Whether the stage artifact is eligible for substantive review."
     },
     "review_bundle_allowed": {
-      "type": "boolean"
+      "type": "boolean",
+      "description": "Whether an approved review bundle may be created from this outcome."
     },
     "rerun_allowed": {
-      "type": "boolean"
+      "type": "boolean",
+      "description": "Whether the supervisor permits a rerun for this outcome."
     },
     "rerun_requires_archive": {
-      "type": "boolean"
+      "type": "boolean",
+      "description": "Whether rerun requires archive-before-rerun evidence."
     },
     "human_pause_required": {
-      "type": "boolean"
+      "type": "boolean",
+      "description": "Whether this outcome requires a human-pause artifact."
     },
     "human_pause": {
       "anyOf": [
@@ -151,11 +171,14 @@
         {
           "type": "null"
         }
-      ]
+      ],
+      "description": "Human-pause artifact associated with this outcome, if any."
     },
     "checkpoint_path": {
       "type": "string",
-      "minLength": 1
+      "minLength": 1,
+      "description": "Repository-relative path to the stage checkpoint used for classification."
     }
-  }
+  },
+  "description": "Responses Runner V2 Supervisor Stage Outcome JSON schema."
 }

@@ -19,39 +19,48 @@
   ],
   "properties": {
     "schema_version": {
-      "const": "responses_runner_v2.run_manifest.v1"
+      "const": "responses_runner_v2.run_manifest.v1",
+      "description": "Schema version identifier for this artifact contract."
     },
     "run_id": {
       "type": "string",
-      "pattern": "^[a-z0-9][a-z0-9._-]{0,127}$"
+      "pattern": "^[a-z0-9][a-z0-9._-]{0,127}$",
+      "description": "Stable identifier for one workflow run."
     },
     "run_name": {
       "type": "string",
-      "minLength": 1
+      "minLength": 1,
+      "description": "Human-readable run name used in local artifact paths."
     },
     "workflow_id": {
       "type": "string",
-      "pattern": "^[a-z0-9][a-z0-9._-]{0,127}$"
+      "pattern": "^[a-z0-9][a-z0-9._-]{0,127}$",
+      "description": "Stable identifier for the workflow that owns this artifact."
     },
     "workflow_manifest_path": {
       "type": "string",
-      "minLength": 1
+      "minLength": 1,
+      "description": "Repository-relative path to the workflow manifest used for this run."
     },
     "workflow_manifest_sha256": {
       "type": "string",
-      "pattern": "^[a-f0-9]{64}$"
+      "pattern": "^[a-f0-9]{64}$",
+      "description": "SHA-256 digest of the workflow manifest used for this run."
     },
     "run_dir": {
       "type": "string",
-      "minLength": 1
+      "minLength": 1,
+      "description": "Repository-relative path to the local run directory."
     },
     "started_at": {
       "type": "string",
-      "format": "date-time"
+      "format": "date-time",
+      "description": "Describes the `started_at` field for this artifact contract."
     },
     "updated_at": {
       "type": "string",
-      "format": "date-time"
+      "format": "date-time",
+      "description": "ISO 8601 timestamp when this artifact was last updated."
     },
     "status": {
       "enum": [
@@ -62,11 +71,13 @@
         "failed",
         "cancelled",
         "blocked"
-      ]
+      ],
+      "description": "Current lifecycle status for this artifact."
     },
     "current_stage_id": {
       "type": "string",
-      "pattern": "^[a-z0-9][a-z0-9._-]{0,127}$"
+      "pattern": "^[a-z0-9][a-z0-9._-]{0,127}$",
+      "description": "Stage currently active or most recently processed."
     },
     "stage_order": {
       "type": "array",
@@ -75,7 +86,8 @@
         "pattern": "^[a-z0-9][a-z0-9._-]{0,127}$"
       },
       "minItems": 1,
-      "uniqueItems": true
+      "uniqueItems": true,
+      "description": "Ordered list of stage identifiers in the workflow."
     },
     "operator_overrides": {
       "type": "object",
@@ -86,33 +98,39 @@
           "items": {
             "type": "string",
             "minLength": 1
-          }
+          },
+          "description": "Highest-authority task inputs supplied by the workflow or operator."
         },
         "reference_context": {
           "type": "array",
           "items": {
             "type": "string",
             "minLength": 1
-          }
+          },
+          "description": "Lower-authority contextual files attached to aid interpretation."
         },
         "review_bundles": {
           "type": "array",
           "items": {
             "type": "string",
             "minLength": 1
-          }
+          },
+          "description": "Describes the `review_bundles` field for this artifact contract."
         },
         "skip_token_count": {
-          "type": "boolean"
+          "type": "boolean",
+          "description": "Describes the `skip_token_count` field for this artifact contract."
         }
-      }
+      },
+      "description": "Runtime inputs or overrides supplied by the operator."
     },
     "stages": {
       "type": "array",
       "minItems": 1,
       "items": {
         "$ref": "#/$defs/stageSummary"
-      }
+      },
+      "description": "Per-stage run summaries recorded in execution order."
     }
   },
   "$defs": {
@@ -152,80 +170,100 @@
       "properties": {
         "stage_id": {
           "type": "string",
-          "pattern": "^[a-z0-9][a-z0-9._-]{0,127}$"
+          "pattern": "^[a-z0-9][a-z0-9._-]{0,127}$",
+          "description": "Stable identifier for the workflow stage."
         },
         "stage_number": {
           "type": "integer",
-          "minimum": 1
+          "minimum": 1,
+          "description": "One-based stage number within the workflow."
         },
         "gate": {
           "enum": [
             "auto",
             "review_required",
             "terminal"
-          ]
+          ],
+          "description": "Describes the `gate` field for this artifact contract."
         },
         "stage_dir": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "description": "Describes the `stage_dir` field for this artifact contract."
         },
         "status": {
-          "$ref": "#/$defs/stageStatus"
+          "$ref": "#/$defs/stageStatus",
+          "description": "Current lifecycle status for this artifact."
         },
         "response_id": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "description": "Remote Responses API response identifier."
         },
         "response_status": {
-          "$ref": "#/$defs/responseStatus"
+          "$ref": "#/$defs/responseStatus",
+          "description": "Remote Responses API response status."
         },
         "checkpoint_path": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "description": "Repository-relative path to the stage checkpoint used for classification."
         },
         "input_manifest_json_path": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "description": "Repository-relative path to the resolved stage input manifest JSON."
         },
         "response_markdown_path": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "description": "Describes the `response_markdown_path` field for this artifact contract."
         },
         "response_markdown_sha256": {
           "type": "string",
-          "pattern": "^[a-f0-9]{64}$"
+          "pattern": "^[a-f0-9]{64}$",
+          "description": "Describes the `response_markdown_sha256` field for this artifact contract."
         },
         "response_json_path": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "description": "Describes the `response_json_path` field for this artifact contract."
         },
         "response_json_sha256": {
           "type": "string",
-          "pattern": "^[a-f0-9]{64}$"
+          "pattern": "^[a-f0-9]{64}$",
+          "description": "Describes the `response_json_sha256` field for this artifact contract."
         },
         "structured_output_path": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "description": "Describes the `structured_output_path` field for this artifact contract."
         },
         "structured_output_sha256": {
           "type": "string",
-          "pattern": "^[a-f0-9]{64}$"
+          "pattern": "^[a-f0-9]{64}$",
+          "description": "Describes the `structured_output_sha256` field for this artifact contract."
         },
         "review_bundle_path": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "description": "Repository-relative path to an approved review bundle."
         },
         "review_approved": {
-          "type": "boolean"
+          "type": "boolean",
+          "description": "Describes the `review_approved` field for this artifact contract."
         },
         "approved_from_status": {
-          "$ref": "#/$defs/stageStatus"
+          "$ref": "#/$defs/stageStatus",
+          "description": "Describes the `approved_from_status` field for this artifact contract."
         },
         "token_preflight_path": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "description": "Describes the `token_preflight_path` field for this artifact contract."
         }
       }
     }
-  }
+  },
+  "description": "Responses Runner V2 Run Manifest JSON schema."
 }

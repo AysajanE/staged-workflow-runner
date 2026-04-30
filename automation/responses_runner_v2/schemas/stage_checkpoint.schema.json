@@ -20,23 +20,28 @@
   ],
   "properties": {
     "schema_version": {
-      "const": "responses_runner_v2.stage_checkpoint.v1"
+      "const": "responses_runner_v2.stage_checkpoint.v1",
+      "description": "Schema version identifier for this artifact contract."
     },
     "run_id": {
       "type": "string",
-      "pattern": "^[a-z0-9][a-z0-9._-]{0,127}$"
+      "pattern": "^[a-z0-9][a-z0-9._-]{0,127}$",
+      "description": "Stable identifier for one workflow run."
     },
     "stage_id": {
       "type": "string",
-      "pattern": "^[a-z0-9][a-z0-9._-]{0,127}$"
+      "pattern": "^[a-z0-9][a-z0-9._-]{0,127}$",
+      "description": "Stable identifier for the workflow stage."
     },
     "stage_number": {
       "type": "integer",
-      "minimum": 1
+      "minimum": 1,
+      "description": "One-based stage number within the workflow."
     },
     "updated_at": {
       "type": "string",
-      "format": "date-time"
+      "format": "date-time",
+      "description": "ISO 8601 timestamp when this artifact was last updated."
     },
     "status": {
       "enum": [
@@ -49,36 +54,44 @@
         "cancelled",
         "incomplete",
         "blocked"
-      ]
+      ],
+      "description": "Current lifecycle status for this artifact."
     },
     "terminal": {
-      "type": "boolean"
+      "type": "boolean",
+      "description": "Whether this checkpoint represents a terminal stage state."
     },
     "resume_mode": {
       "enum": [
         "fresh_submit",
         "resume_response_id",
         "refresh_status_only"
-      ]
+      ],
+      "description": "How the runner reached or refreshed this checkpoint."
     },
     "review_checkpoint_required": {
-      "type": "boolean"
+      "type": "boolean",
+      "description": "Whether this stage requires an approved review handoff before progression."
     },
     "review_bundle_path": {
       "type": "string",
-      "minLength": 1
+      "minLength": 1,
+      "description": "Repository-relative path to an approved review bundle."
     },
     "request_payload_path": {
       "type": "string",
-      "minLength": 1
+      "minLength": 1,
+      "description": "Repository-relative path to the Responses API request payload."
     },
     "input_manifest_json_path": {
       "type": "string",
-      "minLength": 1
+      "minLength": 1,
+      "description": "Repository-relative path to the resolved stage input manifest JSON."
     },
     "input_manifest_markdown_path": {
       "type": "string",
-      "minLength": 1
+      "minLength": 1,
+      "description": "Repository-relative path to the rendered human-readable input manifest."
     },
     "token_preflight": {
       "type": "object",
@@ -94,24 +107,30 @@
             "skipped_by_operator",
             "continued_after_retryable_service_failure",
             "failed_closed"
-          ]
+          ],
+          "description": "Current lifecycle status for this artifact."
         },
         "attempts": {
           "type": "integer",
-          "minimum": 0
+          "minimum": 0,
+          "description": "Describes the `attempts` field for this artifact contract."
         },
         "input_tokens": {
           "type": "integer",
-          "minimum": 0
+          "minimum": 0,
+          "description": "Describes the `input_tokens` field for this artifact contract."
         },
         "error_message": {
-          "type": "string"
+          "type": "string",
+          "description": "Describes the `error_message` field for this artifact contract."
         },
         "diagnostics_path": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "description": "Describes the `diagnostics_path` field for this artifact contract."
         }
-      }
+      },
+      "description": "Token-count preflight result and diagnostics for this stage."
     },
     "response": {
       "type": "object",
@@ -126,7 +145,8 @@
       "properties": {
         "id": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "description": "Describes the `id` field for this artifact contract."
         },
         "status": {
           "enum": [
@@ -136,27 +156,34 @@
             "failed",
             "cancelled",
             "incomplete"
-          ]
+          ],
+          "description": "Current lifecycle status for this artifact."
         },
         "model": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "description": "Describes the `model` field for this artifact contract."
         },
         "background": {
-          "type": "boolean"
+          "type": "boolean",
+          "description": "Describes the `background` field for this artifact contract."
         },
         "store": {
-          "type": "boolean"
+          "type": "boolean",
+          "description": "Describes the `store` field for this artifact contract."
         },
         "created_at": {
           "type": "integer",
-          "minimum": 0
+          "minimum": 0,
+          "description": "ISO 8601 timestamp when this artifact was created."
         },
         "completed_at": {
           "type": "integer",
-          "minimum": 0
+          "minimum": 0,
+          "description": "Describes the `completed_at` field for this artifact contract."
         }
-      }
+      },
+      "description": "Remote Responses API status summary for this stage."
     },
     "artifacts": {
       "type": "object",
@@ -167,43 +194,55 @@
       "properties": {
         "stage_dir": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "description": "Describes the `stage_dir` field for this artifact contract."
         },
         "response_latest_json_path": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "description": "Describes the `response_latest_json_path` field for this artifact contract."
         },
         "response_final_json_path": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "description": "Describes the `response_final_json_path` field for this artifact contract."
         },
         "response_final_markdown_path": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "description": "Describes the `response_final_markdown_path` field for this artifact contract."
         },
         "structured_output_path": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "description": "Describes the `structured_output_path` field for this artifact contract."
         },
         "sidecar_response_json_path": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "description": "Describes the `sidecar_response_json_path` field for this artifact contract."
         },
         "sidecar_response_markdown_path": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "description": "Describes the `sidecar_response_markdown_path` field for this artifact contract."
         },
         "uploads_json_path": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "description": "Describes the `uploads_json_path` field for this artifact contract."
         }
-      }
+      },
+      "description": "Repository-relative paths to local artifacts produced for this stage."
     },
     "error": {
-      "type": "object"
+      "type": "object",
+      "description": "Error payload recorded for failed or blocked execution."
     },
     "incomplete_details": {
-      "type": "object"
+      "type": "object",
+      "description": "Remote incomplete-response details when a response stops before completion."
     }
-  }
+  },
+  "description": "Responses Runner V2 Stage Checkpoint JSON schema."
 }

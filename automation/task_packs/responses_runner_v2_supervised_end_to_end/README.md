@@ -84,7 +84,7 @@ A failed stage with a complete substantive artifact is reviewable. A failed stag
 ## Recommended Dry Run
 
 ```bash
-python3 automation/run_responses_v2.py run \
+python automation/run_responses_v2.py run \
   --root . \
   --workflow-file automation/task_packs/responses_runner_v2_supervised_end_to_end/workflows/four_stage.workflow.json \
   --dry-run
@@ -93,7 +93,7 @@ python3 automation/run_responses_v2.py run \
 ## Recommended Live Stage 1 Run
 
 ```bash
-python3 automation/run_responses_v2.py run \
+python automation/run_responses_v2.py run \
   --root . \
   --workflow-file automation/task_packs/responses_runner_v2_supervised_end_to_end/workflows/four_stage.workflow.json \
   --skip-token-count \
@@ -117,7 +117,7 @@ The future lane produced by this workflow automates those reviews with:
 After each review-required stage in this current manual meta-run, create reviewer notes and an approved review bundle with:
 
 ```bash
-python3 automation/create_review_bundle_v2.py \
+python automation/create_review_bundle_v2.py \
   --root . \
   --output <run_dir>/<stage_id>.review_bundle.json \
   --workflow-id responses_runner_v2_supervised_end_to_end_self_improvement \
@@ -131,7 +131,7 @@ python3 automation/create_review_bundle_v2.py \
 Then continue:
 
 ```bash
-python3 automation/run_responses_v2.py run \
+python automation/run_responses_v2.py run \
   --root . \
   --workflow-file automation/task_packs/responses_runner_v2_supervised_end_to_end/workflows/four_stage.workflow.json \
   --run-dir <run_dir> \

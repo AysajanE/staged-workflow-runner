@@ -185,17 +185,23 @@ Primary Job Inputs -> Reviewed Handoff Inputs -> Attached Repository Files -> Re
 
 
 class GateType(str, Enum):
+    """Stage progression gate categories understood by the workflow engine."""
+
     AUTO = "auto"
     REVIEW_REQUIRED = "review_required"
     TERMINAL = "terminal"
 
 
 class ModelRole(str, Enum):
+    """Model role categories used to resolve workflow model profiles."""
+
     PRIMARY_GENERATION = "primary_generation"
     STRUCTURAL_PROCESSING = "structural_processing"
 
 
 class RunStatus(str, Enum):
+    """Durable run-manifest lifecycle states."""
+
     CREATED = "created"
     RUNNING = "running"
     WAITING_FOR_REVIEW = "waiting_for_review"
@@ -206,6 +212,8 @@ class RunStatus(str, Enum):
 
 
 class StageStatus(str, Enum):
+    """Durable per-stage lifecycle states."""
+
     PREPARED = "prepared"
     SUBMITTED = "submitted"
     IN_PROGRESS = "in_progress"
@@ -218,6 +226,8 @@ class StageStatus(str, Enum):
 
 
 class ResumeMode(str, Enum):
+    """How a checkpoint was produced or refreshed."""
+
     FRESH_SUBMIT = "fresh_submit"
     RESUME_RESPONSE_ID = "resume_response_id"
     REFRESH_STATUS_ONLY = "refresh_status_only"
@@ -225,6 +235,8 @@ class ResumeMode(str, Enum):
 
 @dataclass(frozen=True)
 class ModelRoleProfile:
+    """Model, reasoning, verbosity, and cache posture for a workflow role."""
+
     model: str
     reasoning_effort: str
     verbosity: str
@@ -233,6 +245,8 @@ class ModelRoleProfile:
 
 @dataclass(frozen=True)
 class TokenPreflightPolicy:
+    """Token-count preflight behavior before live Responses submission."""
+
     enabled: bool
     max_retries: int
     retryable_http_status_codes: tuple[int, ...]
@@ -241,6 +255,8 @@ class TokenPreflightPolicy:
 
 @dataclass(frozen=True)
 class FileUploadPolicy:
+    """File upload purpose, cleanup, and optional expiration policy."""
+
     purpose: str
     delete_on_completion: bool
     expires_after_seconds: int | None = None
@@ -248,6 +264,8 @@ class FileUploadPolicy:
 
 @dataclass(frozen=True)
 class RequestDefaults:
+    """Workflow-level defaults applied to each Responses API request."""
+
     background: bool
     store: bool
     parallel_tool_calls: bool
@@ -261,6 +279,8 @@ class RequestDefaults:
 
 @dataclass(frozen=True)
 class CarryForwardConfig:
+    """Rules for carrying prior-stage artifacts into a later stage."""
+
     reference_context_from_stage_ids: tuple[str, ...] = ()
     review_bundle_from_stage_id: str | None = None
     review_bundle_include_response_artifact_json: bool = True
@@ -268,6 +288,8 @@ class CarryForwardConfig:
 
 @dataclass(frozen=True)
 class OutputSidecarConfig:
+    """Structured sidecar extraction schema configuration."""
+
     schema_file: str
     schema_name: str
     schema_path: Path
@@ -275,6 +297,8 @@ class OutputSidecarConfig:
 
 @dataclass(frozen=True)
 class OutputConfig:
+    """Primary output format and optional sidecar configuration for a stage."""
+
     primary_format: str
     schema_file: str | None
     schema_name: str | None
@@ -284,6 +308,8 @@ class OutputConfig:
 
 @dataclass(frozen=True)
 class StageDefinition:
+    """Loaded workflow-stage definition with resolved repo-local asset paths."""
+
     stage_id: str
     stage_number: int
     title: str
@@ -307,6 +333,8 @@ class StageDefinition:
 
 @dataclass(frozen=True)
 class WorkflowDefinition:
+    """Loaded workflow manifest with resolved defaults and stage definitions."""
+
     schema_version: str
     workflow_id: str
     workflow_name: str
@@ -338,6 +366,8 @@ class WorkflowDefinition:
 
 @dataclass(frozen=True)
 class AttachmentEntry:
+    """Declarative attachment target from a stage input manifest."""
+
     path: str
     kind: str
     required: bool = True
@@ -347,6 +377,8 @@ class AttachmentEntry:
 
 @dataclass
 class RuntimeOptions:
+    """Operator-supplied runtime options for run, resume, and dry-run flows."""
+
     run_name: str | None = None
     run_dir: Path | None = None
     stage_id: str | None = None

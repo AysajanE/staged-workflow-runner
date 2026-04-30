@@ -27,13 +27,13 @@ It is intentionally synthetic and small so operators can verify the engine witho
 Run the proof-pack unit tests:
 
 ```bash
-python3 -m unittest automation.tests.test_responses_runner_v2_example_pack
+python -m unittest automation.tests.test_responses_runner_v2_example_pack
 ```
 
 Dry-run the one-pass workflow:
 
 ```bash
-python3 automation/run_responses_v2.py run \
+python automation/run_responses_v2.py run \
   --root . \
   --workflow-file automation/examples/responses_runner_v2_synthetic/workflows/one_pass.workflow.json \
   --dry-run
@@ -42,7 +42,7 @@ python3 automation/run_responses_v2.py run \
 Dry-run the two-pass workflow:
 
 ```bash
-python3 automation/run_responses_v2.py run \
+python automation/run_responses_v2.py run \
   --root . \
   --workflow-file automation/examples/responses_runner_v2_synthetic/workflows/two_pass.workflow.json \
   --dry-run
@@ -51,7 +51,7 @@ python3 automation/run_responses_v2.py run \
 Dry-run the reviewed workflow:
 
 ```bash
-python3 automation/run_responses_v2.py run \
+python automation/run_responses_v2.py run \
   --root . \
   --workflow-file automation/examples/responses_runner_v2_synthetic/workflows/reviewed_three_stage.workflow.json \
   --dry-run

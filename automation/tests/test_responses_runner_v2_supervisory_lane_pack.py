@@ -174,9 +174,9 @@ class ResponsesRunnerV2SupervisoryLanePackTests(unittest.TestCase):
         self.assertGreater(len(stage1_reference), len(stage2_reference))
         self.assertGreater(len(stage2_reference), len(stage3_reference))
 
-        self.assertIn("TEAM_ONBOARDING.md", stage1_attached)
-        self.assertNotIn("TEAM_ONBOARDING.md", stage2_attached)
-        self.assertNotIn("TEAM_ONBOARDING.md", stage3_attached)
+        self.assertIn("DEVELOPING.md", stage1_attached)
+        self.assertNotIn("DEVELOPING.md", stage2_attached)
+        self.assertNotIn("DEVELOPING.md", stage3_attached)
 
         self.assertIn(
             "automation/task_packs/responses_runner_v2_supervisory_lane/prompts/stage1_architecture_blueprint.md",

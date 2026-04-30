@@ -54,7 +54,7 @@ The workflow loader rejects GPT-5.5-family committed profiles that omit `24h` or
 From the repository root:
 
 ```bash
-python3 automation/run_responses_v2.py run \
+python automation/run_responses_v2.py run \
   --root . \
   --workflow-file automation/examples/responses_runner_v2_synthetic/workflows/one_pass.workflow.json \
   --dry-run
@@ -72,7 +72,7 @@ That command should create a run directory under `.local/automation/responses_ru
 To submit the same synthetic workflow live and wait for completion:
 
 ```bash
-python3 automation/run_responses_v2.py run \
+python automation/run_responses_v2.py run \
   --root . \
   --workflow-file automation/examples/responses_runner_v2_synthetic/workflows/one_pass.workflow.json \
   --skip-token-count \
@@ -84,7 +84,7 @@ python3 automation/run_responses_v2.py run \
 If the runner checkout is separate from the target project:
 
 ```bash
-python3 /path/to/staged-workflow-runner/automation/run_responses_v2.py run \
+python /path/to/staged-workflow-runner/automation/run_responses_v2.py run \
   --root /path/to/target-workspace \
   --workflow-file task_packs/example/workflows/example.workflow.json \
   --primary-job-input docs/approved_brief.md \
@@ -111,7 +111,7 @@ When a workflow stage requires review:
 Bundle creation example:
 
 ```bash
-python3 automation/create_review_bundle_v2.py \
+python automation/create_review_bundle_v2.py \
   --root . \
   --output review_bundle.json \
   --workflow-id synthetic_reviewed_three_stage \
@@ -125,7 +125,7 @@ python3 automation/create_review_bundle_v2.py \
 Then continue:
 
 ```bash
-python3 automation/run_responses_v2.py run \
+python automation/run_responses_v2.py run \
   --root . \
   --workflow-file automation/examples/responses_runner_v2_synthetic/workflows/reviewed_three_stage.workflow.json \
   --run-dir <run_dir> \
@@ -139,7 +139,7 @@ python3 automation/run_responses_v2.py run \
 Resume a nonterminal stage:
 
 ```bash
-python3 automation/run_responses_v2.py resume \
+python automation/run_responses_v2.py resume \
   --root . \
   --run-dir <run_dir> \
   --stage <stage_id> \
@@ -149,7 +149,7 @@ python3 automation/run_responses_v2.py resume \
 Refresh remote status without resubmitting work:
 
 ```bash
-python3 automation/run_responses_v2.py refresh \
+python automation/run_responses_v2.py refresh \
   --root . \
   --run-dir <run_dir> \
   --stage <stage_id>
@@ -185,7 +185,7 @@ The supervisor review sequence for every scaffold and non-terminal stage is:
 Initialize a session:
 
 ```bash
-python3 automation/run_responses_supervisor_v2.py init-session \
+python automation/run_responses_supervisor_v2.py init-session \
   --root . \
   --clarified-task-brief docs/clarified_task_brief.md \
   --summary "Accepted task summary"
@@ -194,7 +194,7 @@ python3 automation/run_responses_supervisor_v2.py init-session \
 Stage a scaffold:
 
 ```bash
-python3 automation/run_responses_supervisor_v2.py stage-scaffold \
+python automation/run_responses_supervisor_v2.py stage-scaffold \
   --root . \
   --session <session_id> \
   --scaffold-path automation/task_packs/<task_pack>
@@ -203,7 +203,7 @@ python3 automation/run_responses_supervisor_v2.py stage-scaffold \
 Dry-run a scaffold:
 
 ```bash
-python3 automation/run_responses_supervisor_v2.py dry-run-scaffold \
+python automation/run_responses_supervisor_v2.py dry-run-scaffold \
   --root . \
   --session <session_id> \
   --workflow-file automation/task_packs/<task_pack>/workflows/<workflow>.json
@@ -212,7 +212,7 @@ python3 automation/run_responses_supervisor_v2.py dry-run-scaffold \
 Invoke operator Codex provisional review:
 
 ```bash
-python3 automation/run_responses_supervisor_v2.py invoke-operator \
+python automation/run_responses_supervisor_v2.py invoke-operator \
   --root . \
   --session <session_id> \
   --review-cycle <cycle_id> \
@@ -223,7 +223,7 @@ python3 automation/run_responses_supervisor_v2.py invoke-operator \
 Invoke independent reviewers:
 
 ```bash
-python3 automation/run_responses_supervisor_v2.py invoke-reviewers \
+python automation/run_responses_supervisor_v2.py invoke-reviewers \
   --root . \
   --session <session_id> \
   --review-cycle <cycle_id> \
@@ -234,7 +234,7 @@ python3 automation/run_responses_supervisor_v2.py invoke-reviewers \
 Consolidate:
 
 ```bash
-python3 automation/run_responses_supervisor_v2.py consolidate \
+python automation/run_responses_supervisor_v2.py consolidate \
   --root . \
   --session <session_id> \
   --review-cycle <cycle_id> \
@@ -247,7 +247,7 @@ python3 automation/run_responses_supervisor_v2.py consolidate \
 Create operator acceptance:
 
 ```bash
-python3 automation/run_responses_supervisor_v2.py accept \
+python automation/run_responses_supervisor_v2.py accept \
   --root . \
   --session <session_id> \
   --review-cycle <cycle_id> \
@@ -260,7 +260,7 @@ python3 automation/run_responses_supervisor_v2.py accept \
 Classify stage outcome:
 
 ```bash
-python3 automation/run_responses_supervisor_v2.py classify \
+python automation/run_responses_supervisor_v2.py classify \
   --root . \
   --session <session_id> \
   --run-dir <run_dir> \
@@ -270,7 +270,7 @@ python3 automation/run_responses_supervisor_v2.py classify \
 Archive a failed no-artifact attempt before rerun:
 
 ```bash
-python3 automation/run_responses_supervisor_v2.py archive-attempt \
+python automation/run_responses_supervisor_v2.py archive-attempt \
   --root . \
   --session <session_id> \
   --run-dir <run_dir> \
@@ -281,7 +281,7 @@ python3 automation/run_responses_supervisor_v2.py archive-attempt \
 Validate a session:
 
 ```bash
-python3 automation/run_responses_supervisor_v2.py validate-session \
+python automation/run_responses_supervisor_v2.py validate-session \
   --root . \
   --session <session_id>
 ```
@@ -355,7 +355,7 @@ Typical triggers:
 Run focused supervisor and migration tests:
 
 ```bash
-python3 -m pytest \
+python -m pytest \
   automation/tests/test_responses_runner_v2_model_migration.py \
   automation/tests/test_responses_runner_v2_supervisor.py
 ```
@@ -363,7 +363,7 @@ python3 -m pytest \
 Run broader runner regression tests:
 
 ```bash
-python3 -m pytest \
+python -m pytest \
   automation/tests/test_responses_runner_v2_contracts.py \
   automation/tests/test_responses_runner_v2_workflow.py \
   automation/tests/test_responses_runner_v2_review_bundle.py

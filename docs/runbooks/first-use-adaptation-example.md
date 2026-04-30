@@ -80,7 +80,7 @@ That shape mirrors the reviewed staged pattern already exercised by the bundled 
 Dry-run the external task pack from the runner checkout:
 
 ```bash
-python3 /path/to/staged-workflow-runner/automation/run_responses_v2.py run \
+python /path/to/staged-workflow-runner/automation/run_responses_v2.py run \
   --root /path/to/target-workspace \
   --workflow-file task_packs/architecture_review/workflows/architecture_review.workflow.json \
   --primary-job-input docs/architecture_brief.md \
@@ -90,7 +90,7 @@ python3 /path/to/staged-workflow-runner/automation/run_responses_v2.py run \
 Then run the first live stage:
 
 ```bash
-python3 /path/to/staged-workflow-runner/automation/run_responses_v2.py run \
+python /path/to/staged-workflow-runner/automation/run_responses_v2.py run \
   --root /path/to/target-workspace \
   --workflow-file task_packs/architecture_review/workflows/architecture_review.workflow.json \
   --primary-job-input docs/architecture_brief.md \

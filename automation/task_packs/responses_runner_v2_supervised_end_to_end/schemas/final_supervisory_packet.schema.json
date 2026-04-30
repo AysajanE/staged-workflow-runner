@@ -18,15 +18,18 @@
   "properties": {
     "packet_version": {
       "type": "string",
-      "const": "responses_runner_v2.supervised_end_to_end.packet.v1"
+      "const": "responses_runner_v2.supervised_end_to_end.packet.v1",
+      "description": "Version identifier for the emitted implementation packet."
     },
     "workflow_id": {
       "type": "string",
-      "const": "responses_runner_v2_supervised_end_to_end_self_improvement"
+      "const": "responses_runner_v2_supervised_end_to_end_self_improvement",
+      "description": "Stable identifier for the workflow that owns this artifact."
     },
     "summary": {
       "type": "string",
-      "minLength": 1
+      "minLength": 1,
+      "description": "Concise human-readable summary of this artifact."
     },
     "model_migration": {
       "type": "object",
@@ -41,19 +44,23 @@
       "properties": {
         "primary_generation_model": {
           "type": "string",
-          "const": "gpt-5.5-pro"
+          "const": "gpt-5.5-pro",
+          "description": "Describes the `primary_generation_model` field for this artifact contract."
         },
         "structural_processing_model": {
           "type": "string",
-          "const": "gpt-5.5"
+          "const": "gpt-5.5",
+          "description": "Describes the `structural_processing_model` field for this artifact contract."
         },
         "prompt_cache_retention": {
           "type": "string",
-          "const": "24h"
+          "const": "24h",
+          "description": "Describes the `prompt_cache_retention` field for this artifact contract."
         },
         "max_output_tokens": {
           "type": "integer",
-          "const": 128000
+          "const": 128000,
+          "description": "Describes the `max_output_tokens` field for this artifact contract."
         },
         "surfaces_updated": {
           "type": "array",
@@ -61,9 +68,11 @@
           "items": {
             "type": "string",
             "minLength": 1
-          }
+          },
+          "description": "Describes the `surfaces_updated` field for this artifact contract."
         }
-      }
+      },
+      "description": "Required model-default and workflow migration content in the final packet."
     },
     "files": {
       "type": "array",
@@ -78,7 +87,8 @@
             "properties": {
               "path": {
                 "type": "string",
-                "const": "AGENTS.md"
+                "const": "AGENTS.md",
+                "description": "Describes the `path` field for this artifact contract."
               }
             }
           }
@@ -86,7 +96,8 @@
       ],
       "items": {
         "$ref": "#/$defs/fileInventoryItem"
-      }
+      },
+      "description": "Files included in the final supervisory packet."
     },
     "agent_protocols": {
       "type": "array",
@@ -101,7 +112,8 @@
             "properties": {
               "agent": {
                 "type": "string",
-                "const": "operator_codex"
+                "const": "operator_codex",
+                "description": "Describes the `agent` field for this artifact contract."
               }
             }
           }
@@ -115,7 +127,8 @@
             "properties": {
               "agent": {
                 "type": "string",
-                "const": "codex_review_agent"
+                "const": "codex_review_agent",
+                "description": "Describes the `agent` field for this artifact contract."
               }
             }
           }
@@ -129,7 +142,8 @@
             "properties": {
               "agent": {
                 "type": "string",
-                "const": "claude_review_agent"
+                "const": "claude_review_agent",
+                "description": "Describes the `agent` field for this artifact contract."
               }
             }
           }
@@ -143,7 +157,8 @@
             "properties": {
               "agent": {
                 "type": "string",
-                "const": "consolidation_pass"
+                "const": "consolidation_pass",
+                "description": "Describes the `agent` field for this artifact contract."
               }
             }
           }
@@ -151,7 +166,8 @@
       ],
       "items": {
         "$ref": "#/$defs/agentProtocol"
-      }
+      },
+      "description": "Agent command and review protocol definitions in the final packet."
     },
     "review_protocol": {
       "type": "object",
@@ -168,33 +184,41 @@
       "properties": {
         "operator_provisional_review": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "description": "Describes the `operator_provisional_review` field for this artifact contract."
         },
         "codex_review": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "description": "Describes the `codex_review` field for this artifact contract."
         },
         "claude_review": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "description": "Describes the `claude_review` field for this artifact contract."
         },
         "consolidation": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "description": "Consolidated review findings and disposition summary."
         },
         "operator_selective_acceptance": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "description": "Describes the `operator_selective_acceptance` field for this artifact contract."
         },
         "json_transport": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "description": "Describes the `json_transport` field for this artifact contract."
         },
         "read_only_enforcement": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "description": "Describes the `read_only_enforcement` field for this artifact contract."
         }
-      }
+      },
+      "description": "Protocol for independent review, consolidation, and operator acceptance."
     },
     "failure_policies": {
       "type": "array",
@@ -209,7 +233,8 @@
             "properties": {
               "case_id": {
                 "type": "string",
-                "const": "completed_complete_artifact"
+                "const": "completed_complete_artifact",
+                "description": "Describes the `case_id` field for this artifact contract."
               }
             }
           }
@@ -223,7 +248,8 @@
             "properties": {
               "case_id": {
                 "type": "string",
-                "const": "failed_complete_artifact"
+                "const": "failed_complete_artifact",
+                "description": "Describes the `case_id` field for this artifact contract."
               }
             }
           }
@@ -237,7 +263,8 @@
             "properties": {
               "case_id": {
                 "type": "string",
-                "const": "failed_no_artifact"
+                "const": "failed_no_artifact",
+                "description": "Describes the `case_id` field for this artifact contract."
               }
             }
           }
@@ -251,7 +278,8 @@
             "properties": {
               "case_id": {
                 "type": "string",
-                "const": "incomplete_output_limit"
+                "const": "incomplete_output_limit",
+                "description": "Describes the `case_id` field for this artifact contract."
               }
             }
           }
@@ -265,7 +293,8 @@
             "properties": {
               "case_id": {
                 "type": "string",
-                "const": "blocked_token_preflight"
+                "const": "blocked_token_preflight",
+                "description": "Describes the `case_id` field for this artifact contract."
               }
             }
           }
@@ -279,7 +308,8 @@
             "properties": {
               "case_id": {
                 "type": "string",
-                "const": "long_running_monitoring_anomaly"
+                "const": "long_running_monitoring_anomaly",
+                "description": "Describes the `case_id` field for this artifact contract."
               }
             }
           }
@@ -287,13 +317,15 @@
       ],
       "items": {
         "$ref": "#/$defs/failurePolicy"
-      }
+      },
+      "description": "Failure classification and recovery policies required by the final packet."
     },
     "human_pause_conditions": {
       "type": "array",
       "items": {
         "$ref": "#/$defs/humanPauseCondition"
-      }
+      },
+      "description": "Conditions under which automation must pause for a human decision."
     },
     "acceptance_checks": {
       "type": "array",
@@ -301,7 +333,8 @@
       "items": {
         "type": "string",
         "minLength": 1
-      }
+      },
+      "description": "Checks required before the final packet can be accepted."
     }
   },
   "$defs": {
@@ -317,14 +350,16 @@
       "properties": {
         "path": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "description": "Describes the `path` field for this artifact contract."
         },
         "action": {
           "type": "string",
           "enum": [
             "create",
             "update"
-          ]
+          ],
+          "description": "Recommended recovery, review, or continuation action."
         },
         "category": {
           "type": "string",
@@ -335,11 +370,13 @@
             "tests",
             "config",
             "ops"
-          ]
+          ],
+          "description": "Describes the `category` field for this artifact contract."
         },
         "purpose": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "description": "Describes the `purpose` field for this artifact contract."
         }
       }
     },
@@ -357,15 +394,18 @@
       "properties": {
         "agent": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "description": "Describes the `agent` field for this artifact contract."
         },
         "command_shape": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "description": "Describes the `command_shape` field for this artifact contract."
         },
         "prompt_file": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "description": "Describes the `prompt_file` field for this artifact contract."
         },
         "output_artifacts": {
           "type": "array",
@@ -373,15 +413,18 @@
           "items": {
             "type": "string",
             "minLength": 1
-          }
+          },
+          "description": "Describes the `output_artifacts` field for this artifact contract."
         },
         "json_transport": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "description": "Describes the `json_transport` field for this artifact contract."
         },
         "failure_behavior": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "description": "Describes the `failure_behavior` field for this artifact contract."
         }
       }
     },
@@ -398,22 +441,27 @@
       "properties": {
         "case_id": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "description": "Describes the `case_id` field for this artifact contract."
         },
         "trigger": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "description": "Condition that triggered this human pause."
         },
         "decision_rule": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "description": "Describes the `decision_rule` field for this artifact contract."
         },
         "automation_action": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "description": "Describes the `automation_action` field for this artifact contract."
         },
         "human_pause_required": {
-          "type": "boolean"
+          "type": "boolean",
+          "description": "Whether this outcome requires a human-pause artifact."
         }
       }
     },
@@ -430,25 +478,31 @@
       "properties": {
         "condition": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "description": "Describes the `condition` field for this artifact contract."
         },
         "trigger": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "description": "Condition that triggered this human pause."
         },
         "artifact_to_present": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "description": "Artifact that should be shown to the human decision maker."
         },
         "human_decision_required": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "description": "Describes the `human_decision_required` field for this artifact contract."
         },
         "safe_continuation_action": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "description": "Action that is safe after the required decision is made."
         }
       }
     }
-  }
+  },
+  "description": "Responses Runner V2 Supervised End To End Final Packet JSON schema."
 }

@@ -1,0 +1,49 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "staged-workflow-runner"
+version = "0.1.0"
+description = "Manifest-driven runner for staged OpenAI Responses workflows."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { file = "LICENSE" }
+authors = [{ name = "staged-workflow-runner contributors" }]
+dependencies = []
+keywords = ["openai", "responses-api", "workflow", "automation", "supervisor"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Software Development :: Build Tools",
+]
+
+[project.optional-dependencies]
+schema = ["jsonschema>=4.0"]
+test = ["pytest>=7.0"]
+dev = ["jsonschema>=4.0", "pytest>=7.0"]
+
+[project.scripts]
+staged-workflow-run = "automation.run_responses_v2:main"
+staged-workflow-supervisor = "automation.run_responses_supervisor_v2:main"
+staged-workflow-create-bundle = "automation.create_review_bundle_v2:main"
+staged-workflow-eval = "automation.run_responses_v2_eval:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["automation*"]
+namespaces = false
+
+[tool.setuptools.package-data]
+automation = [
+  "evals/*.json",
+  "examples/**/*",
+  "responses_runner_v2/prompts/*.md",
+  "responses_runner_v2/schemas/*.json",
+  "task_packs/**/*",
+]

@@ -34,17 +34,21 @@
   ],
   "properties": {
     "schema_version": {
-      "const": "responses_runner_v2.review_decision.v1"
+      "const": "responses_runner_v2.review_decision.v1",
+      "description": "Schema version identifier for this artifact contract."
     },
     "decision_id": {
-      "$ref": "#/$defs/idString"
+      "$ref": "#/$defs/idString",
+      "description": "Stable identifier for one review decision record."
     },
     "created_at": {
       "type": "string",
-      "format": "date-time"
+      "format": "date-time",
+      "description": "ISO 8601 timestamp when this artifact was created."
     },
     "supervisor_session_id": {
-      "$ref": "#/$defs/idString"
+      "$ref": "#/$defs/idString",
+      "description": "Stable identifier for the supervisor session."
     },
     "workflow_id": {
       "anyOf": [
@@ -54,7 +58,8 @@
         {
           "type": "null"
         }
-      ]
+      ],
+      "description": "Stable identifier for the workflow that owns this artifact."
     },
     "run_id": {
       "anyOf": [
@@ -64,7 +69,8 @@
         {
           "type": "null"
         }
-      ]
+      ],
+      "description": "Stable identifier for one workflow run."
     },
     "stage_id": {
       "anyOf": [
@@ -74,10 +80,12 @@
         {
           "type": "null"
         }
-      ]
+      ],
+      "description": "Stable identifier for the workflow stage."
     },
     "review_cycle_id": {
-      "$ref": "#/$defs/idString"
+      "$ref": "#/$defs/idString",
+      "description": "Stable identifier for the supervisor review cycle."
     },
     "review_kind": {
       "enum": [
@@ -87,7 +95,8 @@
         "recovery",
         "operator_acceptance",
         "consolidation"
-      ]
+      ],
+      "description": "Kind of artifact being reviewed by this decision."
     },
     "actor_role": {
       "enum": [
@@ -95,7 +104,8 @@
         "codex_review_agent",
         "claude_review_agent",
         "consolidation_pass"
-      ]
+      ],
+      "description": "Role of the actor that produced this decision."
     },
     "agent_command_id": {
       "anyOf": [
@@ -105,7 +115,8 @@
         {
           "type": "null"
         }
-      ]
+      ],
+      "description": "Identifier for the concrete agent command invocation."
     },
     "status": {
       "enum": [
@@ -115,7 +126,8 @@
         "malformed_output",
         "read_only_violation",
         "timeout"
-      ]
+      ],
+      "description": "Current lifecycle status for this artifact."
     },
     "approval_decision": {
       "enum": [
@@ -124,61 +136,72 @@
         "do_not_approve",
         "blocked",
         "not_applicable"
-      ]
+      ],
+      "description": "Overall approval, rejection, or blocking decision."
     },
     "summary": {
       "type": "string",
-      "minLength": 1
+      "minLength": 1,
+      "description": "Concise human-readable summary of this artifact."
     },
     "markdown_report_path": {
       "type": "string",
-      "minLength": 1
+      "minLength": 1,
+      "description": "Repository-relative path to the markdown report for this decision."
     },
     "json_report_path": {
       "type": "string",
-      "minLength": 1
+      "minLength": 1,
+      "description": "Repository-relative path to the JSON report for this decision."
     },
     "reviewed_artifacts": {
       "type": "array",
       "items": {
         "$ref": "#/$defs/artifactRef"
-      }
+      },
+      "description": "Artifacts inspected while producing this review decision."
     },
     "missing_artifacts": {
       "type": "array",
       "items": {
         "$ref": "#/$defs/missingArtifact"
-      }
+      },
+      "description": "Required artifacts that were unavailable during review."
     },
     "blocking_issues": {
       "type": "array",
       "items": {
         "$ref": "#/$defs/issue"
-      }
+      },
+      "description": "Issues that block approval or progression."
     },
     "non_blocking_improvements": {
       "type": "array",
       "items": {
         "$ref": "#/$defs/improvement"
-      }
+      },
+      "description": "Improvement suggestions that do not block progression."
     },
     "recommendations": {
       "type": "array",
       "items": {
         "$ref": "#/$defs/recommendation"
-      }
+      },
+      "description": "Actionable review recommendations with evidence and disposition."
     },
     "unsupported_claims": {
       "type": "array",
       "items": {
         "$ref": "#/$defs/unsupportedClaim"
-      }
+      },
+      "description": "Claims found during review that lacked sufficient evidence."
     },
     "evidence": {
       "type": "array",
       "items": {
         "$ref": "#/$defs/evidence"
-      }
+      },
+      "description": "Evidence entries supporting this artifact or decision."
     },
     "command": {
       "anyOf": [
@@ -188,7 +211,8 @@
         {
           "type": "null"
         }
-      ]
+      ],
+      "description": "Command metadata for the agent invocation that produced this artifact."
     },
     "read_only_check": {
       "anyOf": [
@@ -198,13 +222,15 @@
         {
           "type": "null"
         }
-      ]
+      ],
+      "description": "Workspace snapshot check proving whether a reviewer stayed read-only."
     },
     "validation_errors": {
       "type": "array",
       "items": {
         "type": "string"
-      }
+      },
+      "description": "Validation errors found while parsing or checking this artifact."
     },
     "next_action": {
       "enum": [
@@ -215,7 +241,8 @@
         "rerun_after_archive",
         "human_pause",
         "blocked"
-      ]
+      ],
+      "description": "Recommended next supervisor or operator action."
     }
   },
   "$defs": {
@@ -233,19 +260,23 @@
       "properties": {
         "path": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "description": "Describes the `path` field for this artifact contract."
         },
         "role": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "description": "Describes the `role` field for this artifact contract."
         },
         "sha256": {
           "type": "string",
-          "pattern": "^[a-f0-9]{64}$"
+          "pattern": "^[a-f0-9]{64}$",
+          "description": "Describes the `sha256` field for this artifact contract."
         },
         "bytes": {
           "type": "integer",
-          "minimum": 0
+          "minimum": 0,
+          "description": "Describes the `bytes` field for this artifact contract."
         }
       }
     },
@@ -260,14 +291,17 @@
       "properties": {
         "path": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "description": "Describes the `path` field for this artifact contract."
         },
         "required": {
-          "type": "boolean"
+          "type": "boolean",
+          "description": "Describes the `required` field for this artifact contract."
         },
         "reason": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "description": "Reason this attempt was archived."
         }
       }
     },
@@ -283,7 +317,8 @@
       ],
       "properties": {
         "issue_id": {
-          "$ref": "#/$defs/idString"
+          "$ref": "#/$defs/idString",
+          "description": "Describes the `issue_id` field for this artifact contract."
         },
         "severity": {
           "enum": [
@@ -292,25 +327,29 @@
             "high",
             "medium",
             "low"
-          ]
+          ],
+          "description": "Severity level for a pause, issue, or recommendation."
         },
         "description": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "description": "Human-readable description of this artifact or workflow."
         },
         "evidence": {
           "type": "array",
           "items": {
             "type": "string",
             "minLength": 1
-          }
+          },
+          "description": "Evidence entries supporting this artifact or decision."
         },
         "affected_artifacts": {
           "type": "array",
           "items": {
             "type": "string",
             "minLength": 1
-          }
+          },
+          "description": "Describes the `affected_artifacts` field for this artifact contract."
         }
       }
     },
@@ -325,25 +364,29 @@
       ],
       "properties": {
         "issue_id": {
-          "$ref": "#/$defs/idString"
+          "$ref": "#/$defs/idString",
+          "description": "Describes the `issue_id` field for this artifact contract."
         },
         "description": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "description": "Human-readable description of this artifact or workflow."
         },
         "evidence": {
           "type": "array",
           "items": {
             "type": "string",
             "minLength": 1
-          }
+          },
+          "description": "Evidence entries supporting this artifact or decision."
         },
         "affected_artifacts": {
           "type": "array",
           "items": {
             "type": "string",
             "minLength": 1
-          }
+          },
+          "description": "Describes the `affected_artifacts` field for this artifact contract."
         }
       }
     },
@@ -360,11 +403,13 @@
       ],
       "properties": {
         "recommendation_id": {
-          "$ref": "#/$defs/idString"
+          "$ref": "#/$defs/idString",
+          "description": "Describes the `recommendation_id` field for this artifact contract."
         },
         "source_agent": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "description": "Describes the `source_agent` field for this artifact contract."
         },
         "severity": {
           "enum": [
@@ -373,17 +418,20 @@
             "high",
             "medium",
             "low"
-          ]
+          ],
+          "description": "Severity level for a pause, issue, or recommendation."
         },
         "recommendation": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "description": "Describes the `recommendation` field for this artifact contract."
         },
         "evidence": {
           "type": "array",
           "items": {
             "$ref": "#/$defs/evidence"
-          }
+          },
+          "description": "Evidence entries supporting this artifact or decision."
         },
         "affected_artifacts": {
           "type": "array",
@@ -397,15 +445,18 @@
                 "$ref": "#/$defs/artifactRef"
               }
             ]
-          }
+          },
+          "description": "Describes the `affected_artifacts` field for this artifact contract."
         },
         "exact_change_needed": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "description": "Describes the `exact_change_needed` field for this artifact contract."
         },
         "rationale_for_no_change": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "description": "Describes the `rationale_for_no_change` field for this artifact contract."
         },
         "consolidation_recommendation": {
           "enum": [
@@ -415,7 +466,8 @@
             "duplicate",
             "already_satisfied",
             "out_of_scope"
-          ]
+          ],
+          "description": "Describes the `consolidation_recommendation` field for this artifact contract."
         },
         "operator_decision": {
           "enum": [
@@ -424,26 +476,31 @@
             "deferred",
             "already_satisfied",
             "out_of_scope"
-          ]
+          ],
+          "description": "Describes the `operator_decision` field for this artifact contract."
         },
         "decision_rationale": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "description": "Describes the `decision_rationale` field for this artifact contract."
         },
         "changes_applied": {
           "type": "array",
           "items": {
             "$ref": "#/$defs/changeApplied"
-          }
+          },
+          "description": "Describes the `changes_applied` field for this artifact contract."
         },
         "validation_evidence": {
           "type": "array",
           "items": {
             "$ref": "#/$defs/evidence"
-          }
+          },
+          "description": "Evidence proving the emitted packet was validated."
         },
         "rejected_reason": {
-          "type": "string"
+          "type": "string",
+          "description": "Describes the `rejected_reason` field for this artifact contract."
         }
       },
       "anyOf": [
@@ -470,24 +527,29 @@
       "properties": {
         "path": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "description": "Describes the `path` field for this artifact contract."
         },
         "summary": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "description": "Concise human-readable summary of this artifact."
         },
         "evidence": {
           "type": "array",
           "minItems": 1,
           "items": {
             "$ref": "#/$defs/evidence"
-          }
+          },
+          "description": "Evidence entries supporting this artifact or decision."
         },
         "before_sha256": {
-          "type": "string"
+          "type": "string",
+          "description": "Describes the `before_sha256` field for this artifact contract."
         },
         "after_sha256": {
-          "type": "string"
+          "type": "string",
+          "description": "Describes the `after_sha256` field for this artifact contract."
         }
       }
     },
@@ -502,15 +564,18 @@
       "properties": {
         "claim": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "description": "Describes the `claim` field for this artifact contract."
         },
         "source": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "description": "Source run and stage metadata for an archived attempt."
         },
         "reason": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "description": "Reason this attempt was archived."
         }
       }
     },
@@ -523,15 +588,18 @@
       "properties": {
         "artifact_path": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "description": "Describes the `artifact_path` field for this artifact contract."
         },
         "source": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "description": "Source run and stage metadata for an archived attempt."
         },
         "quote_or_summary": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "description": "Describes the `quote_or_summary` field for this artifact contract."
         }
       },
       "anyOf": [
@@ -565,30 +633,37 @@
           "items": {
             "type": "string"
           },
-          "minItems": 1
+          "minItems": 1,
+          "description": "Describes the `argv` field for this artifact contract."
         },
         "cwd": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "description": "Describes the `cwd` field for this artifact contract."
         },
         "started_at": {
           "type": "string",
-          "format": "date-time"
+          "format": "date-time",
+          "description": "Describes the `started_at` field for this artifact contract."
         },
         "completed_at": {
           "type": "string",
-          "format": "date-time"
+          "format": "date-time",
+          "description": "Describes the `completed_at` field for this artifact contract."
         },
         "exit_code": {
-          "type": "integer"
+          "type": "integer",
+          "description": "Describes the `exit_code` field for this artifact contract."
         },
         "stdout_path": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "description": "Describes the `stdout_path` field for this artifact contract."
         },
         "stderr_path": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "description": "Describes the `stderr_path` field for this artifact contract."
         }
       }
     },
@@ -605,27 +680,33 @@
       "properties": {
         "method": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "description": "Describes the `method` field for this artifact contract."
         },
         "before_hash": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "description": "Describes the `before_hash` field for this artifact contract."
         },
         "after_hash": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "description": "Describes the `after_hash` field for this artifact contract."
         },
         "diff_path": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "description": "Describes the `diff_path` field for this artifact contract."
         },
         "status": {
           "enum": [
             "passed",
             "failed"
-          ]
+          ],
+          "description": "Current lifecycle status for this artifact."
         }
       }
     }
-  }
+  },
+  "description": "Responses Runner V2 Review Decision JSON schema."
 }

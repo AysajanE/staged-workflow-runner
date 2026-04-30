@@ -7,13 +7,13 @@ The synthetic pack is the bounded proof pack for the core runner. Use it to vali
 Run the proof-pack unit tests:
 
 ```bash
-python3 -m unittest automation.tests.test_responses_runner_v2_example_pack
+python -m unittest automation.tests.test_responses_runner_v2_example_pack
 ```
 
 Dry-run the one-pass workflow:
 
 ```bash
-python3 automation/run_responses_v2.py run \
+python automation/run_responses_v2.py run \
   --root . \
   --workflow-file automation/examples/responses_runner_v2_synthetic/workflows/one_pass.workflow.json \
   --dry-run
@@ -24,7 +24,7 @@ python3 automation/run_responses_v2.py run \
 Run the one-pass workflow live and wait for completion:
 
 ```bash
-python3 automation/run_responses_v2.py run \
+python automation/run_responses_v2.py run \
   --root . \
   --workflow-file automation/examples/responses_runner_v2_synthetic/workflows/one_pass.workflow.json \
   --wait

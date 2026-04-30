@@ -38,7 +38,7 @@ They should complete this once before running high-stakes workflows in any targe
 
 Read these files in order:
 
-1. `<runner-checkout>/TEAM_ONBOARDING.md`
+1. `<runner-checkout>/DEVELOPING.md`
 2. `<runner-checkout>/docs/runbooks/responses-runner-v2.md`
 3. `<runner-checkout>/docs/runbooks/first-use-adaptation-example.md`
 4. `<runner-checkout>/automation/examples/responses_runner_v2_synthetic/README.md`
@@ -73,7 +73,7 @@ Run the example-pack unit test:
 ```bash
 cd <runner-checkout>
 
-python3 -m unittest automation.tests.test_responses_runner_v2_example_pack
+python -m unittest automation.tests.test_responses_runner_v2_example_pack
 ```
 
 Dry-run the synthetic one-pass workflow:
@@ -81,7 +81,7 @@ Dry-run the synthetic one-pass workflow:
 ```bash
 cd <runner-checkout>
 
-python3 automation/run_responses_v2.py run \
+python automation/run_responses_v2.py run \
   --root . \
   --workflow-file automation/examples/responses_runner_v2_synthetic/workflows/one_pass.workflow.json \
   --dry-run
@@ -337,7 +337,7 @@ Run the dry run from inside the target workspace:
 ```bash
 cd "<target-workspace>"
 
-python3 "<runner-checkout>/automation/run_responses_v2.py" run \
+python "<runner-checkout>/automation/run_responses_v2.py" run \
   --root . \
   --workflow-file task_packs/<task-name>/workflows/<workflow-id>.workflow.json \
   --dry-run
@@ -375,7 +375,7 @@ Only after the dry run looks correct:
 ```bash
 cd "<target-workspace>"
 
-python3 "<runner-checkout>/automation/run_responses_v2.py" run \
+python "<runner-checkout>/automation/run_responses_v2.py" run \
   --root . \
   --workflow-file task_packs/<task-name>/workflows/<workflow-id>.workflow.json \
   --skip-token-count \

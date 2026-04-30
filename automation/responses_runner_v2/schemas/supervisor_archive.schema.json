@@ -21,19 +21,23 @@
   ],
   "properties": {
     "schema_version": {
-      "const": "responses_runner_v2.supervisor_archive.v1"
+      "const": "responses_runner_v2.supervisor_archive.v1",
+      "description": "Schema version identifier for this artifact contract."
     },
     "archive_id": {
       "type": "string",
-      "pattern": "^[a-z0-9][a-z0-9._-]{0,127}$"
+      "pattern": "^[a-z0-9][a-z0-9._-]{0,127}$",
+      "description": "Stable identifier for a supervisor archive record."
     },
     "archived_at": {
       "type": "string",
-      "format": "date-time"
+      "format": "date-time",
+      "description": "ISO 8601 timestamp when this attempt was archived."
     },
     "reason": {
       "type": "string",
-      "minLength": 1
+      "minLength": 1,
+      "description": "Reason this attempt was archived."
     },
     "source": {
       "type": "object",
@@ -45,31 +49,37 @@
       "properties": {
         "run_dir": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "description": "Repository-relative path to the local run directory."
         },
         "run_id": {
           "type": [
             "string",
             "null"
-          ]
+          ],
+          "description": "Stable identifier for one workflow run."
         },
         "workflow_id": {
           "type": [
             "string",
             "null"
-          ]
+          ],
+          "description": "Stable identifier for the workflow that owns this artifact."
         },
         "stage_id": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "description": "Stable identifier for the workflow stage."
         },
         "response_id": {
           "type": [
             "string",
             "null"
-          ]
+          ],
+          "description": "Remote Responses API response identifier."
         }
-      }
+      },
+      "description": "Source run and stage metadata for an archived attempt."
     },
     "included_artifacts": {
       "type": "array",
@@ -86,29 +96,36 @@
         "properties": {
           "source_path": {
             "type": "string",
-            "minLength": 1
+            "minLength": 1,
+            "description": "Describes the `source_path` field for this artifact contract."
           },
           "archive_path": {
             "type": "string",
-            "minLength": 1
+            "minLength": 1,
+            "description": "Describes the `archive_path` field for this artifact contract."
           },
           "sha256": {
             "type": "string",
-            "pattern": "^[a-f0-9]{64}$"
+            "pattern": "^[a-f0-9]{64}$",
+            "description": "Describes the `sha256` field for this artifact contract."
           },
           "bytes": {
             "type": "integer",
-            "minimum": 0
+            "minimum": 0,
+            "description": "Describes the `bytes` field for this artifact contract."
           }
         }
-      }
+      },
+      "description": "Artifacts copied into the archive."
     },
     "request_hash": {
       "type": "string",
-      "minLength": 1
+      "minLength": 1,
+      "description": "Digest binding the request evidence used for this attempt."
     },
     "scaffold_hash": {
-      "type": "string"
+      "type": "string",
+      "description": "Digest binding the staged scaffold used for this attempt."
     },
     "request_evidence": {
       "type": "object",
@@ -118,7 +135,8 @@
         "request_hash",
         "evidence_files",
         "model_tool_settings"
-      ]
+      ],
+      "description": "Evidence describing the request payload and run context."
     },
     "scaffold_evidence": {
       "type": "object",
@@ -126,7 +144,8 @@
       "required": [
         "status",
         "scaffold_hash"
-      ]
+      ],
+      "description": "Evidence describing the staged scaffold used for the attempt."
     },
     "unchanged_input_evidence": {
       "type": "object",
@@ -139,24 +158,32 @@
       "properties": {
         "request_hash_before": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "description": "Describes the `request_hash_before` field for this artifact contract."
         },
         "scaffold_hash_before": {
-          "type": "string"
+          "type": "string",
+          "description": "Describes the `scaffold_hash_before` field for this artifact contract."
         },
         "rerun_requires_same_hashes": {
-          "const": true
+          "const": true,
+          "description": "Describes the `rerun_requires_same_hashes` field for this artifact contract."
         }
-      }
+      },
+      "description": "Evidence that rerun inputs match the archived attempt."
     },
     "retry_budget_before": {
-      "type": "object"
+      "type": "object",
+      "description": "Retry budget before applying this archive or recovery action."
     },
     "retry_budget_after": {
-      "type": "object"
+      "type": "object",
+      "description": "Retry budget after applying this archive or recovery action."
     },
     "rerun_as_is_eligible": {
-      "type": "boolean"
+      "type": "boolean",
+      "description": "Whether the archived attempt may be rerun without changing inputs."
     }
-  }
+  },
+  "description": "Responses Runner V2 Supervisor Archive JSON schema."
 }

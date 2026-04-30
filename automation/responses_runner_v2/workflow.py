@@ -875,6 +875,8 @@ def run_workflow(
     client: OpenAIClient | None = None,
     root: Path | None = None,
 ) -> dict[str, Any]:
+    """Launch the next eligible workflow stage or dry-run request construction."""
+
     root = root or repo_root()
     workflow = load_workflow_definition(
         workflow_file,
@@ -1201,6 +1203,8 @@ def resume_stage(
     root: Path | None = None,
     refresh_status_only: bool = False,
 ) -> dict[str, Any]:
+    """Resume or finalize a previously submitted stage from its stored response id."""
+
     root = root or repo_root()
     resolved_run_dir = resolve_under_root(root, run_dir, must_exist=True)
     run_manifest = artifacts.load_run_manifest(root, resolved_run_dir)
@@ -1323,6 +1327,8 @@ def refresh_stage(
     client: OpenAIClient,
     root: Path | None = None,
 ) -> dict[str, Any]:
+    """Refresh remote status for a stage without performing local finalization."""
+
     return resume_stage(
         run_dir=run_dir,
         stage_id=stage_id,

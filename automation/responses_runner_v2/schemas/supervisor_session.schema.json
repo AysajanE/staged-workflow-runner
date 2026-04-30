@@ -36,25 +36,31 @@
   ],
   "properties": {
     "schema_version": {
-      "const": "responses_runner_v2.supervisor_session.v1"
+      "const": "responses_runner_v2.supervisor_session.v1",
+      "description": "Schema version identifier for this artifact contract."
     },
     "supervisor_session_id": {
-      "$ref": "#/$defs/idString"
+      "$ref": "#/$defs/idString",
+      "description": "Stable identifier for the supervisor session."
     },
     "created_at": {
       "type": "string",
-      "format": "date-time"
+      "format": "date-time",
+      "description": "ISO 8601 timestamp when this artifact was created."
     },
     "updated_at": {
       "type": "string",
-      "format": "date-time"
+      "format": "date-time",
+      "description": "ISO 8601 timestamp when this artifact was last updated."
     },
     "workspace_root": {
       "type": "string",
-      "minLength": 1
+      "minLength": 1,
+      "description": "Absolute workspace root recorded for local supervisor auditability."
     },
     "operator_boundary": {
-      "const": "headless_discrete_codex_exec_with_deterministic_supervisor_cli"
+      "const": "headless_discrete_codex_exec_with_deterministic_supervisor_cli",
+      "description": "Named boundary separating operator-agent work from deterministic supervisor logic."
     },
     "status": {
       "enum": [
@@ -68,7 +74,8 @@
         "blocked",
         "completed",
         "failed"
-      ]
+      ],
+      "description": "Current lifecycle status for this artifact."
     },
     "current_phase": {
       "enum": [
@@ -83,7 +90,8 @@
         "bundle_creation",
         "finalization",
         "recovery"
-      ]
+      ],
+      "description": "Current supervisor phase for this session."
     },
     "clarified_task_brief": {
       "type": "object",
@@ -96,20 +104,25 @@
       ],
       "properties": {
         "path": {
-          "$ref": "#/$defs/pathString"
+          "$ref": "#/$defs/pathString",
+          "description": "Describes the `path` field for this artifact contract."
         },
         "sha256": {
-          "$ref": "#/$defs/sha256"
+          "$ref": "#/$defs/sha256",
+          "description": "Describes the `sha256` field for this artifact contract."
         },
         "accepted_at": {
           "type": "string",
-          "format": "date-time"
+          "format": "date-time",
+          "description": "Describes the `accepted_at` field for this artifact contract."
         },
         "summary": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "description": "Concise human-readable summary of this artifact."
         }
-      }
+      },
+      "description": "Accepted clarified task brief that authorizes the supervisor session."
     },
     "policy": {
       "type": "object",
@@ -120,7 +133,8 @@
         "monitoring",
         "human_pause_rules",
         "read_only_enforcement_method"
-      ]
+      ],
+      "description": "Supervisor policy settings for review, monitoring, retry, and pause behavior."
     },
     "model_defaults": {
       "type": "object",
@@ -133,45 +147,55 @@
       ],
       "properties": {
         "primary": {
-          "const": "gpt-5.5-pro"
+          "const": "gpt-5.5-pro",
+          "description": "Describes the `primary` field for this artifact contract."
         },
         "structural": {
-          "const": "gpt-5.5"
+          "const": "gpt-5.5",
+          "description": "Describes the `structural` field for this artifact contract."
         },
         "prompt_cache_retention": {
-          "const": "24h"
+          "const": "24h",
+          "description": "Describes the `prompt_cache_retention` field for this artifact contract."
         },
         "max_output_tokens": {
-          "const": 128000
+          "const": 128000,
+          "description": "Describes the `max_output_tokens` field for this artifact contract."
         },
         "primary_reasoning_effort": {
           "enum": [
             "xhigh"
-          ]
+          ],
+          "description": "Describes the `primary_reasoning_effort` field for this artifact contract."
         },
         "structural_reasoning_effort": {
           "enum": [
             "medium",
             "high",
             "xhigh"
-          ]
+          ],
+          "description": "Describes the `structural_reasoning_effort` field for this artifact contract."
         },
         "primary_verbosity": {
           "enum": [
             "high"
-          ]
+          ],
+          "description": "Describes the `primary_verbosity` field for this artifact contract."
         },
         "structural_verbosity": {
           "enum": [
             "medium",
             "high"
-          ]
+          ],
+          "description": "Describes the `structural_verbosity` field for this artifact contract."
         }
-      }
+      },
+      "description": "Model defaults the supervisor expects generated workflows to follow."
     },
     "retry_budget": {
       "type": "object",
-      "additionalProperties": true
+      "additionalProperties": true,
+      "description": "Remaining retry budget for controlled recovery paths."
     },
     "monitoring_policy": {
       "type": "object",
@@ -182,79 +206,92 @@
         "max_refresh_attempts",
         "max_resume_attempts",
         "no_duplicate_submit"
-      ]
+      ],
+      "description": "Policy controlling live-run monitoring and stale-run anomaly handling."
     },
     "scaffold_versions": {
       "type": "array",
       "items": {
         "$ref": "#/$defs/scaffoldVersion"
-      }
+      },
+      "description": "Scaffold versions staged for dry-run and review."
     },
     "dry_run_validations": {
       "type": "array",
       "items": {
         "$ref": "#/$defs/dryRunValidation"
-      }
+      },
+      "description": "Dry-run validation records for staged scaffolds."
     },
     "runs": {
       "type": "array",
       "items": {
         "$ref": "#/$defs/runRef"
-      }
+      },
+      "description": "Describes the `runs` field for this artifact contract."
     },
     "stage_outcomes": {
       "type": "array",
       "items": {
         "$ref": "#/$defs/stageOutcomeRef"
-      }
+      },
+      "description": "Classified outcomes for supervised workflow stages."
     },
     "monitoring_events": {
       "type": "array",
       "items": {
         "$ref": "#/$defs/monitoringEvent"
-      }
+      },
+      "description": "Monitoring events and anomalies recorded by the supervisor."
     },
     "review_cycles": {
       "type": "array",
       "items": {
         "$ref": "#/$defs/reviewCycle"
-      }
+      },
+      "description": "Review cycles created for scaffolds, stages, final packets, or recovery."
     },
     "review_agent_invocations": {
       "type": "array",
       "items": {
         "$ref": "#/$defs/agentInvocation"
-      }
+      },
+      "description": "Agent invocation records captured by the supervisor."
     },
     "consolidations": {
       "type": "array",
       "items": {
         "$ref": "#/$defs/consolidationRef"
-      }
+      },
+      "description": "Deterministic consolidation records for reviewer outputs."
     },
     "operator_acceptance_records": {
       "type": "array",
       "items": {
         "$ref": "#/$defs/pathString"
-      }
+      },
+      "description": "Operator selective-acceptance records with applied-change evidence."
     },
     "human_pauses": {
       "type": "array",
       "items": {
         "type": "object"
-      }
+      },
+      "description": "Human-pause artifacts created by the supervisor."
     },
     "archives": {
       "type": "array",
       "items": {
         "$ref": "#/$defs/archiveRef"
-      }
+      },
+      "description": "Archive records for failed attempts or recovery evidence."
     },
     "approved_review_bundles": {
       "type": "array",
       "items": {
         "$ref": "#/$defs/reviewBundleRef"
-      }
+      },
+      "description": "Approved review bundles created by this supervisor session."
     },
     "final_bundle": {
       "anyOf": [
@@ -264,25 +301,29 @@
         {
           "type": "null"
         }
-      ]
+      ],
+      "description": "Final implementation bundle emitted by the supervisor, when available."
     },
     "validation_results": {
       "type": "array",
       "items": {
         "$ref": "#/$defs/validationResult"
-      }
+      },
+      "description": "Validation results recorded against this supervisor session."
     },
     "command_log": {
       "type": "array",
       "items": {
         "$ref": "#/$defs/commandLogEntry"
-      }
+      },
+      "description": "Deterministic command log entries for supervisor operations."
     },
     "errors": {
       "type": "array",
       "items": {
         "$ref": "#/$defs/errorEntry"
-      }
+      },
+      "description": "Supervisor errors that require attention or recovery."
     }
   },
   "$defs": {
@@ -311,20 +352,25 @@
       ],
       "properties": {
         "version_id": {
-          "$ref": "#/$defs/idString"
+          "$ref": "#/$defs/idString",
+          "description": "Describes the `version_id` field for this artifact contract."
         },
         "path": {
-          "$ref": "#/$defs/pathString"
+          "$ref": "#/$defs/pathString",
+          "description": "Describes the `path` field for this artifact contract."
         },
         "hash_manifest_path": {
-          "$ref": "#/$defs/pathString"
+          "$ref": "#/$defs/pathString",
+          "description": "Describes the `hash_manifest_path` field for this artifact contract."
         },
         "created_by": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "description": "Describes the `created_by` field for this artifact contract."
         },
         "dry_run_artifacts": {
-          "type": "array"
+          "type": "array",
+          "description": "Describes the `dry_run_artifacts` field for this artifact contract."
         },
         "approval_status": {
           "enum": [
@@ -334,7 +380,8 @@
             "accepted",
             "blocked",
             "rejected"
-          ]
+          ],
+          "description": "Describes the `approval_status` field for this artifact contract."
         }
       }
     },
@@ -351,16 +398,19 @@
           "type": "array",
           "items": {
             "type": "string"
-          }
+          },
+          "description": "Command metadata for the agent invocation that produced this artifact."
         },
         "exit_code": {
-          "type": "integer"
+          "type": "integer",
+          "description": "Describes the `exit_code` field for this artifact contract."
         },
         "status": {
           "enum": [
             "passed",
             "failed"
-          ]
+          ],
+          "description": "Current lifecycle status for this artifact."
         }
       }
     },
@@ -465,18 +515,22 @@
       ],
       "properties": {
         "bundle_path": {
-          "$ref": "#/$defs/pathString"
+          "$ref": "#/$defs/pathString",
+          "description": "Describes the `bundle_path` field for this artifact contract."
         },
         "schema_validation_status": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "description": "Describes the `schema_validation_status` field for this artifact contract."
         },
         "file_inventory_hash": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "description": "Describes the `file_inventory_hash` field for this artifact contract."
         },
         "acceptance_record_id": {
-          "type": "string"
+          "type": "string",
+          "description": "Describes the `acceptance_record_id` field for this artifact contract."
         }
       }
     },
@@ -520,7 +574,8 @@
       ],
       "properties": {
         "error_id": {
-          "$ref": "#/$defs/idString"
+          "$ref": "#/$defs/idString",
+          "description": "Describes the `error_id` field for this artifact contract."
         },
         "severity": {
           "enum": [
@@ -529,20 +584,25 @@
             "high",
             "medium",
             "low"
-          ]
+          ],
+          "description": "Severity level for a pause, issue, or recommendation."
         },
         "message": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "description": "Describes the `message` field for this artifact contract."
         },
         "related_artifact": {
-          "type": "string"
+          "type": "string",
+          "description": "Describes the `related_artifact` field for this artifact contract."
         },
         "recovery_action": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "description": "Describes the `recovery_action` field for this artifact contract."
         }
       }
     }
-  }
+  },
+  "description": "Responses Runner V2 Supervisor Session JSON schema."
 }

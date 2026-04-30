@@ -13,54 +13,65 @@
   ],
   "properties": {
     "schema_version": {
-      "const": "responses_runner_v2.input_manifest.v1"
+      "const": "responses_runner_v2.input_manifest.v1",
+      "description": "Schema version identifier for this artifact contract."
     },
     "manifest_id": {
       "type": "string",
-      "pattern": "^[a-z0-9][a-z0-9._-]{0,127}$"
+      "pattern": "^[a-z0-9][a-z0-9._-]{0,127}$",
+      "description": "Stable identifier for a resolved stage input manifest."
     },
     "workflow_id": {
       "type": "string",
-      "pattern": "^[a-z0-9][a-z0-9._-]{0,127}$"
+      "pattern": "^[a-z0-9][a-z0-9._-]{0,127}$",
+      "description": "Stable identifier for the workflow that owns this artifact."
     },
     "stage_id": {
       "type": "string",
-      "pattern": "^[a-z0-9][a-z0-9._-]{0,127}$"
+      "pattern": "^[a-z0-9][a-z0-9._-]{0,127}$",
+      "description": "Stable identifier for the workflow stage."
     },
     "run_id": {
       "type": "string",
-      "pattern": "^[a-z0-9][a-z0-9._-]{0,127}$"
+      "pattern": "^[a-z0-9][a-z0-9._-]{0,127}$",
+      "description": "Stable identifier for one workflow run."
     },
     "generated_at": {
       "type": "string",
-      "format": "date-time"
+      "format": "date-time",
+      "description": "ISO 8601 timestamp when this runtime manifest was generated."
     },
     "description": {
-      "type": "string"
+      "type": "string",
+      "description": "Human-readable description of this artifact or workflow."
     },
     "primary_job_inputs": {
       "type": "array",
       "items": {
         "$ref": "#/$defs/attachmentEntry"
-      }
+      },
+      "description": "Highest-authority task inputs supplied by the workflow or operator."
     },
     "reviewed_handoff_inputs": {
       "type": "array",
       "items": {
         "$ref": "#/$defs/attachmentEntry"
-      }
+      },
+      "description": "Approved handoff artifacts from earlier reviewed stages."
     },
     "attached_repository_files": {
       "type": "array",
       "items": {
         "$ref": "#/$defs/attachmentEntry"
-      }
+      },
+      "description": "Repository files attached as source evidence for the stage."
     },
     "reference_context": {
       "type": "array",
       "items": {
         "$ref": "#/$defs/attachmentEntry"
-      }
+      },
+      "description": "Lower-authority contextual files attached to aid interpretation."
     }
   },
   "$defs": {
@@ -76,30 +87,37 @@
       "properties": {
         "path": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "description": "Describes the `path` field for this artifact contract."
         },
         "sha256": {
           "type": "string",
-          "pattern": "^[a-f0-9]{64}$"
+          "pattern": "^[a-f0-9]{64}$",
+          "description": "Describes the `sha256` field for this artifact contract."
         },
         "bytes": {
           "type": "integer",
-          "minimum": 0
+          "minimum": 0,
+          "description": "Describes the `bytes` field for this artifact contract."
         },
         "wrapped_as_markdown": {
-          "type": "boolean"
+          "type": "boolean",
+          "description": "Describes the `wrapped_as_markdown` field for this artifact contract."
         },
         "uploaded_file_id": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "description": "Describes the `uploaded_file_id` field for this artifact contract."
         },
         "purpose": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "description": "Describes the `purpose` field for this artifact contract."
         },
         "expires_at": {
           "type": "integer",
-          "minimum": 0
+          "minimum": 0,
+          "description": "Describes the `expires_at` field for this artifact contract."
         }
       }
     },
@@ -116,15 +134,18 @@
           "type": "array",
           "items": {
             "$ref": "#/$defs/resolvedExpandedPath"
-          }
+          },
+          "description": "Describes the `expanded_paths` field for this artifact contract."
         },
         "aggregate_file_count": {
           "type": "integer",
-          "minimum": 0
+          "minimum": 0,
+          "description": "Describes the `aggregate_file_count` field for this artifact contract."
         },
         "aggregate_bytes": {
           "type": "integer",
-          "minimum": 0
+          "minimum": 0,
+          "description": "Describes the `aggregate_bytes` field for this artifact contract."
         }
       }
     },
@@ -138,16 +159,19 @@
       "properties": {
         "path": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "description": "Describes the `path` field for this artifact contract."
         },
         "kind": {
           "enum": [
             "file",
             "directory"
-          ]
+          ],
+          "description": "Describes the `kind` field for this artifact contract."
         },
         "required": {
-          "type": "boolean"
+          "type": "boolean",
+          "description": "Describes the `required` field for this artifact contract."
         },
         "exclude_globs": {
           "type": "array",
@@ -155,15 +179,19 @@
             "type": "string",
             "minLength": 1
           },
-          "uniqueItems": true
+          "uniqueItems": true,
+          "description": "Describes the `exclude_globs` field for this artifact contract."
         },
         "notes": {
-          "type": "string"
+          "type": "string",
+          "description": "Additional free-form notes attached to this artifact."
         },
         "resolved": {
-          "$ref": "#/$defs/resolvedAttachment"
+          "$ref": "#/$defs/resolvedAttachment",
+          "description": "Describes the `resolved` field for this artifact contract."
         }
       }
     }
-  }
+  },
+  "description": "Responses Runner V2 Stage Input Manifest JSON schema."
 }
