@@ -1,5 +1,7 @@
 # staged-workflow-runner
 
+[![CI](https://github.com/AysajanE/staged-workflow-runner/actions/workflows/ci.yml/badge.svg)](https://github.com/AysajanE/staged-workflow-runner/actions/workflows/ci.yml)
+
 A manifest-driven runner for high-stakes staged OpenAI Responses workflows. The runner is designed to execute complex tasks from explicit task packs, preserve durable local evidence, support reviewed handoffs between stages, and optionally operate through an additive supervisor lane.
 
 ## Current Status
