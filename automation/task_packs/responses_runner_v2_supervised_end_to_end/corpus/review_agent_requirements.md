@@ -43,13 +43,28 @@ The Claude review agent runs non-interactively.
 Canonical command pattern:
 
 ```bash
-claude --bare -p \
+env -u ANTHROPIC_API_KEY \
+    -u ANTHROPIC_AUTH_TOKEN \
+    -u CLAUDE_CODE_OAUTH_TOKEN \
+    -u CLAUDE_CODE_USE_BEDROCK \
+    -u CLAUDE_CODE_USE_VERTEX \
+    -u CLAUDE_CODE_USE_FOUNDRY \
+  claude -p \
   --model opus \
   --effort max \
   --output-format json \
+  --tools Read \
+  --permission-mode dontAsk \
+  --no-session-persistence \
+  --setting-sources user \
   --append-system-prompt-file <prompt_file> \
-  "<review job>"
+  < "<review_job_json>"
 ```
+
+Do not use `--bare` for the subscription-authenticated audit lane because bare
+mode skips OAuth/keychain credentials and requires API-key-style credentials.
+The supervisor must remove higher-precedence API/provider environment variables
+before invocation so Claude Code uses the local subscription login.
 
 If local Claude Code does not support `--effort max` for the configured Opus model, the final implementation may fall back to `--effort xhigh`, but the fallback must be explicit and logged.
 

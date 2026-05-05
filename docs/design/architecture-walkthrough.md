@@ -187,7 +187,7 @@ Three independent agents review every gated stage and the final packet:
 |---|---|---|---|
 | **operator_codex** | `codex exec ...` | No (accountable, can apply changes) | `review_decision.v1` |
 | **codex_review_agent** | `codex exec ...` | **Yes**, snapshot-enforced | `review_decision.v1` |
-| **claude_review_agent** | `claude --bare -p --model opus --effort max --output-format json ...` | **Yes**, snapshot-enforced | `review_decision.v1` |
+| **claude_review_agent** | `claude -p --model opus --effort max --output-format json ...` | **Yes**, snapshot-enforced | `review_decision.v1` |
 
 The flow (`supervisor.py:invoke_operator → invoke_reviewers → consolidate_reviews → accept_consolidated_review → create_approved_review_bundle`):
 

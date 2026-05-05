@@ -314,8 +314,14 @@ class ResponsesRunnerV2SupervisorTests(unittest.TestCase):
             calls: list[list[str]] = []
             decision = _review_decision(actor_role="claude_review_agent", review_cycle_id="cycle2")
 
-            def runner(argv, **_kwargs):
+            def runner(argv, **kwargs):
                 calls.append(list(argv))
+                if argv[0] == "claude":
+                    self.assertIn("input", kwargs)
+                    self.assertIn('"review_job_id": "job2"', kwargs["input"])
+                    self.assertNotIn("ANTHROPIC_API_KEY", kwargs["env"])
+                    self.assertNotIn("ANTHROPIC_AUTH_TOKEN", kwargs["env"])
+                    self.assertNotIn("CLAUDE_CODE_OAUTH_TOKEN", kwargs["env"])
                 if "--effort" in argv and argv[argv.index("--effort") + 1] == "max":
                     return SimpleNamespace(returncode=2, stdout="", stderr="unsupported effort max")
                 return SimpleNamespace(returncode=0, stdout=json.dumps(decision), stderr="")
@@ -329,7 +335,12 @@ class ResponsesRunnerV2SupervisorTests(unittest.TestCase):
                 output_dir=Path(tmp).relative_to(ROOT),
                 runner=runner,
             )
-            self.assertEqual(calls[0][0:3], ["claude", "--bare", "-p"])
+            self.assertEqual(calls[0][0:2], ["claude", "-p"])
+            self.assertNotIn("--bare", calls[0])
+            self.assertIn("--tools", calls[0])
+            self.assertEqual(calls[0][calls[0].index("--tools") + 1], "Read")
+            self.assertIn("--no-session-persistence", calls[0])
+            self.assertEqual(calls[0][calls[0].index("--setting-sources") + 1], "user")
             self.assertEqual(calls[1][calls[1].index("--effort") + 1], "xhigh")
             self.assertTrue(result.fallback_used)
             self.assertEqual(result.status, "succeeded")

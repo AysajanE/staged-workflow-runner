@@ -11,7 +11,7 @@ The final stage must output a complete drop-in-ready implementation packet that 
 The requirements add a second high-stakes design axis: independent non-interactive review by:
 
 - a Codex review agent via `codex exec`
-- a Claude review agent via `claude --bare -p`
+- a Claude review agent via subscription-authenticated `claude -p`
 - an operator Codex agent that consolidates recommendations and accepts only supported changes
 
 That review-and-agent protocol is too important to bury inside a generic draft stage. The workflow therefore has four material stages:
@@ -144,7 +144,7 @@ python automation/run_responses_v2.py run \
 
 Stage reviewers should inspect:
 
-- command contracts for `codex exec` and `claude --bare -p`;
+- command contracts for `codex exec` and subscription-authenticated `claude -p`;
 - reviewer read-only enforcement;
 - JSON stdout transport and schema validation;
 - consolidation separated from operator acceptance;

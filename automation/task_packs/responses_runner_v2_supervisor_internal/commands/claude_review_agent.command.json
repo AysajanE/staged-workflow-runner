@@ -1,10 +1,9 @@
 {
   "schema_version": "responses_runner_v2.supervisor_command_template.v1",
   "agent": "claude_review_agent",
-  "canonical_command": "claude --bare -p",
+  "canonical_command": "claude -p",
   "primary_argv_template": [
     "claude",
-    "--bare",
     "-p",
     "--model",
     "opus",
@@ -12,13 +11,18 @@
     "max",
     "--output-format",
     "json",
+    "--tools",
+    "Read",
+    "--permission-mode",
+    "dontAsk",
+    "--no-session-persistence",
+    "--setting-sources",
+    "user",
     "--append-system-prompt-file",
-    "automation/task_packs/responses_runner_v2_supervisor_internal/prompts/claude_review.md",
-    "{review_job_json}"
+    "automation/task_packs/responses_runner_v2_supervisor_internal/prompts/claude_review.md"
   ],
   "fallback_argv_template": [
     "claude",
-    "--bare",
     "-p",
     "--model",
     "opus",
@@ -26,13 +30,32 @@
     "xhigh",
     "--output-format",
     "json",
+    "--tools",
+    "Read",
+    "--permission-mode",
+    "dontAsk",
+    "--no-session-persistence",
+    "--setting-sources",
+    "user",
     "--append-system-prompt-file",
-    "automation/task_packs/responses_runner_v2_supervisor_internal/prompts/claude_review.md",
-    "{review_job_json}"
+    "automation/task_packs/responses_runner_v2_supervisor_internal/prompts/claude_review.md"
   ],
   "fallback_rule": "Retry once with --effort xhigh only when stderr/stdout indicates that --effort max is unsupported or invalid. Log fallback_used=true.",
   "cwd": "{workspace_root}",
   "prompt_file": "automation/task_packs/responses_runner_v2_supervisor_internal/prompts/claude_review.md",
+  "stdin": "{review_job_json}",
+  "auth_strategy": {
+    "mode": "subscription_oauth",
+    "rationale": "Do not use --bare because bare mode skips OAuth and keychain reads. The supervisor unsets API and provider credential environment variables before invocation so Claude Code falls back to subscription OAuth from login.",
+    "env_unset": [
+      "ANTHROPIC_API_KEY",
+      "ANTHROPIC_AUTH_TOKEN",
+      "CLAUDE_CODE_OAUTH_TOKEN",
+      "CLAUDE_CODE_USE_BEDROCK",
+      "CLAUDE_CODE_USE_VERTEX",
+      "CLAUDE_CODE_USE_FOUNDRY"
+    ]
+  },
   "read_only": true,
   "immutable_input_bundle": "{immutable_review_input_bundle_path}",
   "allowed_side_effects": [

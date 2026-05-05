@@ -29,7 +29,7 @@ The target supervisor protocol uses:
 
 - accountable operator Codex lane;
 - independent read-only Codex review lane through `codex exec`;
-- independent read-only Claude review lane through `claude --bare -p`;
+- independent read-only Claude review lane through subscription-authenticated `claude -p`;
 - deterministic consolidation;
 - separate operator selective acceptance with applied-change evidence.
 

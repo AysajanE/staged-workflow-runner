@@ -35,7 +35,7 @@ Supervisor-generated workflows and scaffolds use:
 - `prompts/final_packet_review.md` — final packet review guidance.
 - `commands/operator_codex.command.json` — canonical `codex exec` operator template.
 - `commands/codex_review_agent.command.json` — canonical read-only `codex exec` reviewer template.
-- `commands/claude_review_agent.command.json` — canonical `claude --bare -p` reviewer template.
+- `commands/claude_review_agent.command.json` — canonical subscription-authenticated `claude -p` reviewer template.
 - `commands/consolidation.command.json` — deterministic supervisor consolidation command template.
 
 ## JSON Transport
@@ -46,7 +46,7 @@ Missing stdout JSON, malformed JSON, schema-invalid JSON, mismatched output path
 
 ## Read-Only Review Enforcement
 
-Codex and Claude review agents are review-only. They may not edit repository files or produce patches. The supervisor takes a workspace snapshot before and after each reviewer command, excluding `.local` supervisor-owned artifacts, and fails the review if source files change.
+Codex and Claude review agents are review-only. They may not edit repository files or produce patches. The supervisor takes a workspace snapshot before and after each reviewer command, excluding `.local` supervisor-owned artifacts, and fails the review if source files change. The Claude lane intentionally does not use `--bare`, because bare mode skips OAuth/keychain reads; the supervisor strips higher-precedence API credential environment variables so subscription OAuth from local `claude` login is used.
 
 ## Review Sequence
 

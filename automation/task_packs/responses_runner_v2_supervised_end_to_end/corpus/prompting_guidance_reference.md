@@ -37,7 +37,7 @@ Design implications for this task:
 - Use XML tags to separate instructions, context, inputs, and output contract.
 - Give Claude a role.
 - For non-interactive automation, use `claude -p` or `claude --print`.
-- Prefer `--bare` for scripted calls when deterministic context loading is important.
+- Do not use `--bare` for subscription-authenticated automation because bare mode skips OAuth/keychain credentials.
 - Use `--output-format json` and `--json-schema` when machine-ingestible output is required.
 - Use `--append-system-prompt-file` for additional role/task instructions while preserving Claude Code's built-in behavior, unless the implementation has a strong reason to replace the system prompt.
 - Use `--effort max` for the highest available Opus reasoning mode when supported; otherwise fall back explicitly to `--effort xhigh`.

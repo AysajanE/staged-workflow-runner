@@ -232,7 +232,7 @@ class ResponsesRunnerV2ModelMigrationTests(unittest.TestCase):
             "agent_protocols": [
                 {"agent": "operator_codex", "command_shape": "codex exec", "prompt_file": "p", "output_artifacts": ["o"], "json_transport": "stdout", "failure_behavior": "fail"},
                 {"agent": "codex_review_agent", "command_shape": "codex exec", "prompt_file": "p", "output_artifacts": ["o"], "json_transport": "stdout", "failure_behavior": "fail"},
-                {"agent": "claude_review_agent", "command_shape": "claude --bare -p", "prompt_file": "p", "output_artifacts": ["o"], "json_transport": "stdout", "failure_behavior": "fail"},
+                {"agent": "claude_review_agent", "command_shape": "claude -p", "prompt_file": "p", "output_artifacts": ["o"], "json_transport": "stdout", "failure_behavior": "fail"},
             ],
             "review_protocol": {
                 "operator_provisional_review": "yes",

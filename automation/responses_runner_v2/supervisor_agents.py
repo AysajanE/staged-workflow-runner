@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
@@ -305,9 +306,39 @@ def _write_validated_decision(
     return decision
 
 
-def _run_subprocess(argv: list[str], *, root: Path, timeout_seconds: int, runner: Callable[..., Any] | None) -> Any:
+def _claude_subscription_env() -> dict[str, str]:
+    env = dict(os.environ)
+    for key in (
+        "ANTHROPIC_API_KEY",
+        "ANTHROPIC_AUTH_TOKEN",
+        "CLAUDE_CODE_OAUTH_TOKEN",
+        "CLAUDE_CODE_USE_BEDROCK",
+        "CLAUDE_CODE_USE_VERTEX",
+        "CLAUDE_CODE_USE_FOUNDRY",
+    ):
+        env.pop(key, None)
+    return env
+
+
+def _run_subprocess(
+    argv: list[str],
+    *,
+    root: Path,
+    timeout_seconds: int,
+    runner: Callable[..., Any] | None,
+    input_text: str | None = None,
+    env: dict[str, str] | None = None,
+) -> Any:
     runner = runner or subprocess.run
-    return runner(argv, cwd=str(root), text=True, capture_output=True, timeout=timeout_seconds)
+    return runner(
+        argv,
+        cwd=str(root),
+        text=True,
+        capture_output=True,
+        timeout=timeout_seconds,
+        input=input_text,
+        env=env,
+    )
 
 
 def _unsupported_effort(stderr: str, stdout: str) -> bool:
@@ -336,13 +367,14 @@ def _invoke_agent(
     job_payload, job_text = _jsonable_job(job, root=root)
 
     fallback_used = False
+    input_text = None
+    env = None
     if actor_role in {"operator_codex", "codex_review_agent"}:
         argv = ["codex", "exec", _prompt_with_job(prompt_text, job_text)]
     elif actor_role == "claude_review_agent":
         prompt_path = resolve_under_root(root, prompt_rel, must_exist=True)
         argv = [
             "claude",
-            "--bare",
             "-p",
             "--model",
             "opus",
@@ -350,17 +382,32 @@ def _invoke_agent(
             "max",
             "--output-format",
             "json",
+            "--tools",
+            "Read",
+            "--permission-mode",
+            "dontAsk",
+            "--no-session-persistence",
+            "--setting-sources",
+            "user",
             "--append-system-prompt-file",
             str(prompt_path),
-            job_text,
         ]
+        input_text = job_text
+        env = _claude_subscription_env()
     else:
         raise SystemExit(f"Unsupported actor_role for agent invocation: {actor_role}")
 
     read_only_before = snapshot_workspace(root) if actor_role in {"codex_review_agent", "claude_review_agent"} else None
     started_at = runner_now().isoformat()
     try:
-        completed = _run_subprocess(argv, root=root, timeout_seconds=timeout, runner=runner)
+        completed = _run_subprocess(
+            argv,
+            root=root,
+            timeout_seconds=timeout,
+            runner=runner,
+            input_text=input_text,
+            env=env,
+        )
     except subprocess.TimeoutExpired as exc:
         completed = SimpleNamespace(returncode=124, stdout=exc.stdout or "", stderr=exc.stderr or "timeout")
     completed_at = runner_now().isoformat()
@@ -372,7 +419,14 @@ def _invoke_agent(
         fallback_argv[effort_index] = "xhigh"
         started_at = runner_now().isoformat()
         try:
-            completed = _run_subprocess(fallback_argv, root=root, timeout_seconds=timeout, runner=runner)
+            completed = _run_subprocess(
+                fallback_argv,
+                root=root,
+                timeout_seconds=timeout,
+                runner=runner,
+                input_text=input_text,
+                env=env,
+            )
         except subprocess.TimeoutExpired as exc:
             completed = SimpleNamespace(returncode=124, stdout=exc.stdout or "", stderr=exc.stderr or "timeout")
         completed_at = runner_now().isoformat()
@@ -433,6 +487,23 @@ def _invoke_agent(
         "prompt_file": prompt_rel,
         "fallback_used": fallback_used,
         "job_keys": sorted(job_payload.keys()),
+        **(
+            {
+                "stdin_mode": "review_job_json",
+                "auth_strategy": "subscription_oauth",
+                "tools": ["Read"],
+                "env_unset_for_subscription_oauth": [
+                    "ANTHROPIC_API_KEY",
+                    "ANTHROPIC_AUTH_TOKEN",
+                    "CLAUDE_CODE_OAUTH_TOKEN",
+                    "CLAUDE_CODE_USE_BEDROCK",
+                    "CLAUDE_CODE_USE_VERTEX",
+                    "CLAUDE_CODE_USE_FOUNDRY",
+                ],
+            }
+            if actor_role == "claude_review_agent"
+            else {}
+        ),
     }
 
     validation_errors: list[str] = []

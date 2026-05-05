@@ -78,7 +78,7 @@ The Codex review agent is independent and read-only. It runs through canonical `
 
 ### Claude Review Agent
 
-The Claude review agent is independent and read-only. It runs through canonical `claude --bare -p` with JSON output. It must use the configured prompt file and must not edit files, request interactive clarification, silently skip missing artifacts, or override the operator.
+The Claude review agent is independent and read-only. It runs through canonical subscription-authenticated `claude -p` with JSON output, not `--bare`, because bare mode skips OAuth/keychain credentials. It must use the configured prompt file and must not edit files, request interactive clarification, silently skip missing artifacts, or override the operator.
 
 ## Review Loop
 

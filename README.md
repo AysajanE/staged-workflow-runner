@@ -36,7 +36,7 @@ The first release intentionally preserves the tested internal layout and names: 
 - Optional for tests: `pytest`. The repository test suite also runs with standard-library `unittest`.
 - Supervisor review automation additionally requires:
   - Codex CLI available as `codex`, installed and authenticated according to [OpenAI Codex CLI documentation](https://help.openai.com/en/articles/11096431-openai-codex-ci-getting-started);
-  - Claude Code CLI available as `claude`, installed according to [Anthropic Claude Code documentation](https://docs.anthropic.com/en/docs/claude-code/overview) and authenticated once before use;
+  - Claude Code CLI available as `claude`, installed according to [Anthropic Claude Code documentation](https://docs.anthropic.com/en/docs/claude-code/overview) and authenticated once before use. Subscription-authenticated review uses non-bare `claude -p` because `--bare` skips OAuth/keychain credentials;
   - non-interactive command execution available in the current shell.
 
 ## Model Defaults
@@ -120,7 +120,7 @@ For every scaffold and non-terminal stage, the required supervisor review loop i
 
 1. operator Codex provisional review through `codex exec`;
 2. independent read-only Codex review through `codex exec`;
-3. independent read-only Claude review through `claude --bare -p`;
+3. independent read-only Claude review through subscription-authenticated `claude -p`;
 4. deterministic consolidation;
 5. operator selective acceptance with applied-change evidence;
 6. approved review-bundle creation only after acceptance.

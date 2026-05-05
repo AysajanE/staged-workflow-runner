@@ -175,7 +175,7 @@ The supervisor review sequence for every scaffold and non-terminal stage is:
 
 1. operator Codex prepares provisional review and bundle;
 2. Codex review agent independently reviews via `codex exec`;
-3. Claude review agent independently reviews via `claude --bare -p`;
+3. Claude review agent independently reviews via subscription-authenticated `claude -p`;
 4. deterministic consolidation merges findings;
 5. operator Codex accepts only supported recommendations with applied-change evidence;
 6. supervisor creates the approved bundle or blocks progression.
@@ -297,13 +297,29 @@ codex exec "<prompt_plus_job_json>"
 Canonical Claude review command shape:
 
 ```bash
-claude --bare -p \
+env -u ANTHROPIC_API_KEY \
+    -u ANTHROPIC_AUTH_TOKEN \
+    -u CLAUDE_CODE_OAUTH_TOKEN \
+    -u CLAUDE_CODE_USE_BEDROCK \
+    -u CLAUDE_CODE_USE_VERTEX \
+    -u CLAUDE_CODE_USE_FOUNDRY \
+  claude -p \
   --model opus \
   --effort max \
   --output-format json \
+  --tools Read \
+  --permission-mode dontAsk \
+  --no-session-persistence \
+  --setting-sources user \
   --append-system-prompt-file automation/task_packs/responses_runner_v2_supervisor_internal/prompts/claude_review.md \
-  "<review_job_json>"
+  < "<review_job_json>"
 ```
+
+Do not use `--bare` for the subscription-authenticated Claude audit lane:
+Claude Code bare mode skips OAuth/keychain reads and requires API-key-style
+credentials. The supervisor removes higher-precedence API and provider
+credential environment variables before invoking Claude so local subscription
+OAuth from `claude` login is selected.
 
 If `--effort max` is unsupported locally, the supervisor retries once with `--effort xhigh` and records `fallback_used=true`.
 

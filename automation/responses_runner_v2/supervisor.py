@@ -46,7 +46,7 @@ def _default_policy() -> dict[str, Any]:
         "review_agents": {
             "operator_codex": {"command": "codex exec", "required": True},
             "codex_review_agent": {"command": "codex exec", "required": True, "read_only": True},
-            "claude_review_agent": {"command": "claude --bare -p", "required": True, "read_only": True},
+            "claude_review_agent": {"command": "claude -p", "required": True, "read_only": True},
         },
         "retry_budgets": {
             "failed_no_artifact": 1,
