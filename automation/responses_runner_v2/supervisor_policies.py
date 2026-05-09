@@ -80,6 +80,19 @@ def _has_substantive_markdown(root: Path, checkpoint: dict[str, Any]) -> tuple[b
     return True, "response markdown contains substantive assistant text", path_value
 
 
+def _checklist_item(
+    *,
+    item: str,
+    passed: bool,
+    detail: str,
+    path: str | None = None,
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {"item": item, "passed": passed, "detail": detail}
+    if path is not None:
+        payload["path"] = path
+    return payload
+
+
 def _sidecar_required_and_missing(root: Path, checkpoint: dict[str, Any]) -> bool:
     artifacts_payload = checkpoint.get("artifacts")
     if not isinstance(artifacts_payload, dict):
@@ -211,9 +224,22 @@ def classify_stage_outcome(
     final_json_present = bool(response_payload)
     sidecar_missing = _sidecar_required_and_missing(root, checkpoint)
     checklist = [
-        {"item": "response_final_json", "passed": final_json_present, "detail": "response JSON exists" if final_json_present else "response JSON missing"},
-        {"item": "response_final_markdown", "passed": substantive, "detail": substantive_reason, "path": markdown_path},
-        {"item": "required_sidecar", "passed": not sidecar_missing, "detail": "required sidecar present or not configured"},
+        _checklist_item(
+            item="response_final_json",
+            passed=final_json_present,
+            detail="response JSON exists" if final_json_present else "response JSON missing",
+        ),
+        _checklist_item(
+            item="response_final_markdown",
+            passed=substantive,
+            detail=substantive_reason,
+            path=markdown_path,
+        ),
+        _checklist_item(
+            item="required_sidecar",
+            passed=not sidecar_missing,
+            detail="required sidecar present or not configured",
+        ),
     ]
 
     if response_status == "completed" and substantive and final_json_present and not sidecar_missing:

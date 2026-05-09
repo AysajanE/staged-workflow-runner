@@ -21,6 +21,14 @@ from .contracts import (
     write_text,
 )
 
+MAX_RESPONSE_INPUT_FILES = 100
+BUNDLE_ROLE_PRIORITY = (
+    "Attached Repository Files",
+    "Reference Context",
+    "Reviewed Handoff Inputs",
+    "Primary Job Inputs",
+)
+
 
 def is_probably_utf8_text(path: Path) -> bool:
     sample = path.read_bytes()[:4096]
@@ -60,6 +68,55 @@ def build_context_wrapper(root: Path, source_path: Path, staging_dir: Path) -> P
     )
     write_text(wrapped_path, wrapped)
     return wrapped_path
+
+
+def _fence_for_path(path: Path) -> str:
+    language = CODE_FENCE_LANGUAGE_BY_SUFFIX.get(path.suffix.lower(), "")
+    return f"```{language}" if language else "```"
+
+
+def _safe_bundle_name(role_label: str) -> str:
+    return role_label.lower().replace(" ", "_") + ".attachment_bundle.md"
+
+
+def build_attachment_bundle(
+    *,
+    root: Path,
+    role_label: str,
+    bundle_items: list[dict[str, Any]],
+    staging_dir: Path,
+) -> Path:
+    bundle_path = staging_dir / _safe_bundle_name(role_label)
+    lines = [
+        f"# Attachment Role Bundle: {role_label}",
+        "",
+        "This deterministic bundle preserves repo-relative source paths for a large attachment role.",
+        "Cite only repo-relative source paths listed in input_manifest.md.",
+        "",
+    ]
+    for index, item in enumerate(bundle_items, start=1):
+        source_path = item["source_path"]
+        rel = relpath(root, source_path)
+        fence = _fence_for_path(source_path)
+        lines.extend(
+            [
+                f"## File {index:03d}: {rel}",
+                "",
+                f"- source_path: {rel}",
+                f"- sha256: {sha256_file(source_path)}",
+                f"- bytes: {source_path.stat().st_size}",
+                f"- originally_wrapped_as_markdown: {str(bool(item.get('wrapped_as_markdown'))).lower()}",
+                "",
+                fence,
+                source_path.read_text(encoding="utf-8", errors="replace"),
+                "```",
+                "",
+            ]
+        )
+    write_text(bundle_path, "\n".join(lines).rstrip() + "\n")
+    if bundle_path.stat().st_size > MAX_SINGLE_FILE_BYTES:
+        raise SystemExit(f"Attachment role bundle exceeds 50MB limit: {bundle_path}")
+    return bundle_path
 
 
 def matches_exclude_globs(relative_path: str, exclude_globs: tuple[str, ...]) -> bool:
@@ -234,18 +291,17 @@ def prepare_upload_plan(
     staging_dir: Path,
 ) -> list[dict[str, Any]]:
     root = root or repo_root()
-    prepared = [
-        {
-            "role_label": "Stage Input Manifest",
-            "field_name": None,
-            "attachment_index": None,
-            "expanded_index": None,
-            "display_name": "input_manifest.md",
-            "source_path": input_manifest_markdown_path,
-            "upload_path": input_manifest_markdown_path,
-            "wrapped_as_markdown": False,
-        }
-    ]
+    manifest_upload = {
+        "role_label": "Stage Input Manifest",
+        "field_name": None,
+        "attachment_index": None,
+        "expanded_index": None,
+        "display_name": "input_manifest.md",
+        "source_path": input_manifest_markdown_path,
+        "upload_path": input_manifest_markdown_path,
+        "wrapped_as_markdown": False,
+    }
+    role_uploads: dict[str, list[dict[str, Any]]] = {role: [] for role in ROLE_TO_FIELD}
     for field_name in ROLE_TO_FIELD.values():
         role_label = FIELD_TO_ROLE[field_name]
         for attachment_index, entry in enumerate(resolved_manifest.get(field_name, [])):
@@ -254,7 +310,7 @@ def prepare_upload_plan(
                 upload_path = source_path
                 if expanded.get("wrapped_as_markdown"):
                     upload_path = build_context_wrapper(root, source_path, staging_dir)
-                prepared.append(
+                role_uploads[role_label].append(
                     {
                         "role_label": role_label,
                         "field_name": field_name,
@@ -266,6 +322,55 @@ def prepare_upload_plan(
                         "wrapped_as_markdown": bool(expanded.get("wrapped_as_markdown")),
                     }
                 )
+
+    direct_count = 1 + sum(len(items) for items in role_uploads.values())
+    bundled_roles: set[str] = set()
+    if direct_count > MAX_RESPONSE_INPUT_FILES:
+        for role_label in BUNDLE_ROLE_PRIORITY:
+            items = role_uploads.get(role_label, [])
+            bundleable = [item for item in items if is_probably_utf8_text(item["source_path"])]
+            if len(bundleable) <= 1:
+                continue
+            direct_count = direct_count - len(bundleable) + 1
+            bundled_roles.add(role_label)
+            if direct_count <= MAX_RESPONSE_INPUT_FILES:
+                break
+    if direct_count > MAX_RESPONSE_INPUT_FILES:
+        raise SystemExit(
+            f"Stage would attach {direct_count} response input files after bundling; "
+            f"maximum supported is {MAX_RESPONSE_INPUT_FILES}. Reduce input manifest scope."
+        )
+
+    prepared = [manifest_upload]
+    for role_label in ROLE_TO_FIELD:
+        items = role_uploads[role_label]
+        if role_label not in bundled_roles:
+            prepared.extend(items)
+            continue
+        bundleable = [item for item in items if is_probably_utf8_text(item["source_path"])]
+        direct_items = [item for item in items if not is_probably_utf8_text(item["source_path"])]
+        prepared.extend(direct_items)
+        if bundleable:
+            bundle_path = build_attachment_bundle(
+                root=root,
+                role_label=role_label,
+                bundle_items=bundleable,
+                staging_dir=staging_dir,
+            )
+            prepared.append(
+                {
+                    "role_label": role_label,
+                    "field_name": None,
+                    "attachment_index": None,
+                    "expanded_index": None,
+                    "display_name": f"{role_label} attachment bundle",
+                    "source_path_display": f"generated_bundle:{role_label}",
+                    "source_path": bundle_path,
+                    "upload_path": bundle_path,
+                    "wrapped_as_markdown": False,
+                    "bundle_items": bundleable,
+                }
+            )
     return prepared
 
 
@@ -295,7 +400,16 @@ def upload_prepared_attachments(
         )
         file_id = str(response["id"])
         role_to_file_ids.setdefault(prepared["role_label"], []).append(file_id)
-        if prepared["field_name"] is None:
+        if prepared.get("bundle_items"):
+            for bundle_item in prepared["bundle_items"]:
+                expanded = resolved_manifest[bundle_item["field_name"]][bundle_item["attachment_index"]]["resolved"][
+                    "expanded_paths"
+                ][bundle_item["expanded_index"]]
+                expanded["uploaded_file_id"] = file_id
+                expanded["purpose"] = response.get("purpose", purpose)
+                if response.get("expires_at") is not None:
+                    expanded["expires_at"] = int(response["expires_at"])
+        elif prepared["field_name"] is None:
             manifest_file_id = file_id
         else:
             expanded = resolved_manifest[prepared["field_name"]][prepared["attachment_index"]]["resolved"][
@@ -309,7 +423,7 @@ def upload_prepared_attachments(
             {
                 "attachment_role": prepared["role_label"],
                 "display_name": prepared["display_name"],
-                "source_path": relpath(root, prepared["source_path"]),
+                "source_path": prepared.get("source_path_display") or relpath(root, prepared["source_path"]),
                 "upload_filename": prepared["upload_path"].name,
                 "wrapped_as_markdown": prepared["wrapped_as_markdown"],
                 "bytes": prepared["upload_path"].stat().st_size,
@@ -317,6 +431,14 @@ def upload_prepared_attachments(
                 "purpose": response.get("purpose", purpose),
                 "created_at": response.get("created_at"),
                 "expires_at": response.get("expires_at"),
+                **(
+                    {
+                        "bundled_file_count": len(prepared["bundle_items"]),
+                        "bundled_source_paths": [relpath(root, item["source_path"]) for item in prepared["bundle_items"]],
+                    }
+                    if prepared.get("bundle_items")
+                    else {}
+                ),
             }
         )
     if not manifest_file_id:
