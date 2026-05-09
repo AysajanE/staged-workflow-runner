@@ -690,6 +690,12 @@ def _sync_stage_summary(
     if stage_paths["structured_output"].exists():
         summary["structured_output_path"] = relpath(root, stage_paths["structured_output"])
         summary["structured_output_sha256"] = sha256_file(stage_paths["structured_output"])
+    if stage_paths["sidecar_response_json"].exists():
+        summary["sidecar_response_json_path"] = relpath(root, stage_paths["sidecar_response_json"])
+        summary["sidecar_response_json_sha256"] = sha256_file(stage_paths["sidecar_response_json"])
+    if stage_paths["sidecar_response_md"].exists():
+        summary["sidecar_response_markdown_path"] = relpath(root, stage_paths["sidecar_response_md"])
+        summary["sidecar_response_markdown_sha256"] = sha256_file(stage_paths["sidecar_response_md"])
     if token_preflight_path is not None and token_preflight_path.exists():
         summary["token_preflight_path"] = relpath(root, token_preflight_path)
     if review_bundle_path is not None:

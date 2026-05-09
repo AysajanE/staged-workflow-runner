@@ -83,6 +83,7 @@ class FakeClient:
         self.completed = completed
         self.upload_count = 0
         self.upload_requests: list[dict] = []
+        self.create_requests: list[dict] = []
         self.delete_calls: list[str] = []
 
     def upload_file(self, path, purpose, file_expiration_policy=None):
@@ -100,13 +101,15 @@ class FakeClient:
         return response
 
     def create_response(self, payload):
+        self.create_requests.append(payload)
         if payload["text"]["format"]["type"] == "json_schema":
             return {
                 "id": "resp_sidecar",
                 "status": "completed",
                 "model": "gpt-5.5",
-                "background": False,
+                "background": payload.get("background"),
                 "store": True,
+                "max_output_tokens": payload.get("max_output_tokens"),
                 "output_parsed": {
                     "summary_version": "responses_runner_v2.synthetic_summary.v1",
                     "workflow_id": payload["metadata"]["workflow_id"],
@@ -583,6 +586,190 @@ class ResponsesRunnerV2WorkflowTests(unittest.TestCase):
             self.assertTrue((stage_dir / "output.structured.json").exists())
             self.assertTrue((stage_dir / "sidecar.response.json").exists())
             self.assertTrue((stage_dir / "sidecar.response.md").exists())
+
+    def test_sidecar_uses_background_high_budget_and_persists_recovery_state(self) -> None:
+        with tempfile.TemporaryDirectory(dir=ROOT) as tmp:
+            runtime = RuntimeOptions(
+                run_name="synthetic-sidecar-state",
+                output_root=Path(tmp).relative_to(ROOT),
+                wait=True,
+            )
+            client = FakeClient()
+            result = run_workflow(
+                workflow_file="automation/examples/responses_runner_v2_synthetic/workflows/one_pass.workflow.json",
+                runtime=runtime,
+                client=client,
+                root=ROOT,
+            )
+            run_manifest = json.loads((ROOT / result["run_manifest_path"]).read_text(encoding="utf-8"))
+            stage_dir = ROOT / run_manifest["stages"][0]["stage_dir"]
+            stage_summary = run_manifest["stages"][0]
+            sidecar_requests = [
+                request
+                for request in client.create_requests
+                if request.get("metadata", {}).get("kind") == "sidecar"
+            ]
+
+            self.assertEqual(len(sidecar_requests), 1)
+            self.assertTrue(sidecar_requests[0]["background"])
+            self.assertEqual(sidecar_requests[0]["max_output_tokens"], 128000)
+            self.assertTrue((stage_dir / "sidecar.response.request.json").exists())
+            self.assertTrue((stage_dir / "sidecar.response.latest.json").exists())
+            self.assertTrue((stage_dir / "sidecar.response.raw.json").exists())
+            request_payload = json.loads((stage_dir / "sidecar.response.request.json").read_text(encoding="utf-8"))
+            self.assertTrue(request_payload["background"])
+            self.assertEqual(request_payload["max_output_tokens"], 128000)
+            self.assertEqual(
+                stage_summary["sidecar_response_json_path"],
+                (stage_dir / "sidecar.response.json").relative_to(ROOT).as_posix(),
+            )
+            self.assertEqual(
+                stage_summary["sidecar_response_markdown_path"],
+                (stage_dir / "sidecar.response.md").relative_to(ROOT).as_posix(),
+            )
+
+    def test_resume_does_not_duplicate_completed_sidecar_processing(self) -> None:
+        with tempfile.TemporaryDirectory(dir=ROOT) as tmp:
+            runtime = RuntimeOptions(
+                run_name="synthetic-sidecar-idempotent",
+                output_root=Path(tmp).relative_to(ROOT),
+                wait=True,
+            )
+            client = FakeClient()
+            result = run_workflow(
+                workflow_file="automation/examples/responses_runner_v2_synthetic/workflows/one_pass.workflow.json",
+                runtime=runtime,
+                client=client,
+                root=ROOT,
+            )
+            run_dir = ROOT / result["run_dir"]
+            upload_count = client.upload_count
+            create_count = len(client.create_requests)
+
+            resumed = resume_stage(
+                run_dir=run_dir.relative_to(ROOT),
+                stage_id="draft_summary",
+                wait=False,
+                poll_interval=0.1,
+                max_wait_seconds=10.0,
+                client=client,
+                root=ROOT,
+            )
+
+            self.assertEqual(resumed["status"], "completed")
+            self.assertEqual(client.upload_count, upload_count)
+            self.assertEqual(len(client.create_requests), create_count)
+
+    def test_resume_retries_legacy_output_limited_sidecar_with_current_budget(self) -> None:
+        with tempfile.TemporaryDirectory(dir=ROOT) as tmp:
+            runtime = RuntimeOptions(
+                run_name="synthetic-sidecar-output-limit-retry",
+                output_root=Path(tmp).relative_to(ROOT),
+                wait=False,
+            )
+            result = run_workflow(
+                workflow_file="automation/examples/responses_runner_v2_synthetic/workflows/one_pass.workflow.json",
+                runtime=runtime,
+                client=FakeClient(completed=False),
+                root=ROOT,
+            )
+            run_dir = ROOT / result["run_dir"]
+            stage_dir = run_dir / "stages/01_draft_summary"
+            (stage_dir / "sidecar.response.latest.json").write_text(
+                json.dumps(
+                    {
+                        "id": "resp_legacy_sidecar",
+                        "status": "incomplete",
+                        "max_output_tokens": 16000,
+                        "incomplete_details": {"reason": "max_output_tokens"},
+                        "output": [],
+                    },
+                    indent=2,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            (stage_dir / "sidecar.response.request.json").write_text(
+                json.dumps({"max_output_tokens": 16000}, indent=2) + "\n",
+                encoding="utf-8",
+            )
+            client = FakeClient()
+
+            resumed = resume_stage(
+                run_dir=run_dir.relative_to(ROOT),
+                stage_id="draft_summary",
+                wait=False,
+                poll_interval=0.1,
+                max_wait_seconds=10.0,
+                client=client,
+                root=ROOT,
+            )
+            sidecar_requests = [
+                request
+                for request in client.create_requests
+                if request.get("metadata", {}).get("kind") == "sidecar"
+            ]
+
+            self.assertEqual(resumed["status"], "completed")
+            self.assertEqual(len(sidecar_requests), 1)
+            self.assertEqual(sidecar_requests[0]["max_output_tokens"], 128000)
+            latest = json.loads((stage_dir / "sidecar.response.latest.json").read_text(encoding="utf-8"))
+            self.assertEqual(latest["id"], "resp_sidecar")
+            self.assertTrue((stage_dir / "sidecar.response.json").exists())
+            self.assertTrue((stage_dir / "output.structured.json").exists())
+
+    def test_resume_retries_retryable_failed_sidecar_and_records_attempt(self) -> None:
+        with tempfile.TemporaryDirectory(dir=ROOT) as tmp:
+            runtime = RuntimeOptions(
+                run_name="synthetic-sidecar-server-error-retry",
+                output_root=Path(tmp).relative_to(ROOT),
+                wait=False,
+            )
+            result = run_workflow(
+                workflow_file="automation/examples/responses_runner_v2_synthetic/workflows/one_pass.workflow.json",
+                runtime=runtime,
+                client=FakeClient(completed=False),
+                root=ROOT,
+            )
+            run_dir = ROOT / result["run_dir"]
+            stage_dir = run_dir / "stages/01_draft_summary"
+            (stage_dir / "sidecar.response.latest.json").write_text(
+                json.dumps(
+                    {
+                        "id": "resp_failed_sidecar",
+                        "status": "failed",
+                        "max_output_tokens": 128000,
+                        "error": {"code": "server_error", "message": "Synthetic transient failure"},
+                        "output": [],
+                    },
+                    indent=2,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            client = FakeClient()
+
+            resumed = resume_stage(
+                run_dir=run_dir.relative_to(ROOT),
+                stage_id="draft_summary",
+                wait=False,
+                poll_interval=0.1,
+                max_wait_seconds=10.0,
+                client=client,
+                root=ROOT,
+            )
+            sidecar_requests = [
+                request
+                for request in client.create_requests
+                if request.get("metadata", {}).get("kind") == "sidecar"
+            ]
+            attempts = json.loads((stage_dir / "sidecar.response.attempts.json").read_text(encoding="utf-8"))
+
+            self.assertEqual(resumed["status"], "completed")
+            self.assertEqual(len(sidecar_requests), 1)
+            self.assertEqual(attempts["attempts"][0]["response_id"], "resp_failed_sidecar")
+            self.assertEqual(attempts["attempts"][0]["retry_reason"], "retryable_terminal_server_error")
+            self.assertTrue((stage_dir / "sidecar.response.json").exists())
 
     def test_terminal_cleanup_tracks_and_deletes_sidecar_uploads(self) -> None:
         with tempfile.TemporaryDirectory(dir=ROOT) as tmp:
