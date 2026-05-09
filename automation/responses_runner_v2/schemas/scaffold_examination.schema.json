@@ -1,0 +1,273 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Responses Runner V2 Scaffold Examination",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "examination_id",
+    "created_at",
+    "started_at",
+    "supervisor_session_id",
+    "workflow_id",
+    "status",
+    "summary",
+    "workflow",
+    "stages",
+    "blocking_issues",
+    "non_blocking_findings",
+    "runtime_input_contract",
+    "constructed_stage_request",
+    "requires_primary_job_input_for_examination",
+    "command",
+    "json_report_path",
+    "markdown_report_path"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "responses_runner_v2.scaffold_examination.v1"
+    },
+    "examination_id": {
+      "$ref": "#/$defs/idString"
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "started_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "supervisor_session_id": {
+      "$ref": "#/$defs/idString"
+    },
+    "workflow_id": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/idString"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "status": {
+      "enum": [
+        "passed",
+        "failed"
+      ]
+    },
+    "summary": {
+      "type": "string",
+      "minLength": 1
+    },
+    "workflow": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "stages": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/stage"
+      }
+    },
+    "blocking_issues": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/issue"
+      }
+    },
+    "non_blocking_findings": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/finding"
+      }
+    },
+    "runtime_input_contract": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "constructed_stage_request": {
+      "type": "boolean"
+    },
+    "requires_primary_job_input_for_examination": {
+      "type": "boolean"
+    },
+    "command": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "json_report_path": {
+      "$ref": "#/$defs/pathString"
+    },
+    "markdown_report_path": {
+      "$ref": "#/$defs/pathString"
+    }
+  },
+  "$defs": {
+    "idString": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9._-]{0,127}$"
+    },
+    "pathString": {
+      "type": "string",
+      "minLength": 1
+    },
+    "issue": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "issue_id",
+        "severity",
+        "description",
+        "evidence",
+        "affected_artifacts"
+      ],
+      "properties": {
+        "issue_id": {
+          "$ref": "#/$defs/idString"
+        },
+        "severity": {
+          "enum": [
+            "critical",
+            "blocking",
+            "high",
+            "medium",
+            "low"
+          ]
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1
+        },
+        "evidence": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "affected_artifacts": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "finding": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "finding_id",
+        "description",
+        "evidence",
+        "affected_artifacts"
+      ],
+      "properties": {
+        "finding_id": {
+          "$ref": "#/$defs/idString"
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1
+        },
+        "evidence": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "affected_artifacts": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "stage": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "stage_id",
+        "stage_number",
+        "title",
+        "gate",
+        "task_path",
+        "input_manifest_path",
+        "input_manifest",
+        "tool_profile",
+        "model_role",
+        "max_output_tokens",
+        "carry_forward",
+        "output"
+      ],
+      "properties": {
+        "stage_id": {
+          "$ref": "#/$defs/idString"
+        },
+        "stage_number": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1
+        },
+        "gate": {
+          "enum": [
+            "auto",
+            "review_required",
+            "terminal"
+          ]
+        },
+        "task_path": {
+          "$ref": "#/$defs/pathString"
+        },
+        "input_manifest_path": {
+          "$ref": "#/$defs/pathString"
+        },
+        "input_manifest": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "tool_profile": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "model_role": {
+          "enum": [
+            "primary_generation",
+            "structural_processing"
+          ]
+        },
+        "max_output_tokens": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "carry_forward": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "output": {
+          "type": "object",
+          "additionalProperties": true
+        }
+      }
+    }
+  },
+  "description": "Static pre-launch scaffold examination report for the supervisor lane."
+}

@@ -80,33 +80,38 @@ def _prompt_with_job(prompt_text: str, job_text: str) -> str:
     )
 
 
-def _parse_stdout_json(stdout: str) -> dict[str, Any]:
-    stripped = stdout.strip()
+def _parse_json_object_text(text: str, *, label: str) -> dict[str, Any]:
+    stripped = text.strip()
     if not stripped:
-        raise AgentOutputError("Agent stdout did not contain JSON.")
+        raise AgentOutputError(f"{label} did not contain JSON.")
     try:
         payload = json.loads(stripped)
     except json.JSONDecodeError:
         start = stripped.find("{")
         end = stripped.rfind("}")
         if start < 0 or end <= start:
-            raise AgentOutputError("Agent stdout was not valid JSON.")
+            raise AgentOutputError(f"{label} was not valid JSON.")
         try:
             payload = json.loads(stripped[start : end + 1])
         except json.JSONDecodeError as exc:
-            raise AgentOutputError(f"Agent stdout contained malformed JSON: {exc}") from exc
+            raise AgentOutputError(f"{label} contained malformed JSON: {exc}") from exc
+    if not isinstance(payload, dict):
+        raise AgentOutputError(f"{label} JSON output must be an object.")
+    return payload
+
+
+def _parse_stdout_json(stdout: str) -> dict[str, Any]:
+    payload = _parse_json_object_text(stdout, label="Agent stdout")
     if isinstance(payload, dict) and isinstance(payload.get("result"), str):
         result_text = payload["result"].strip()
         try:
-            nested = json.loads(result_text)
-        except json.JSONDecodeError:
+            nested = _parse_json_object_text(result_text, label="Agent result")
+        except AgentOutputError:
             nested = None
         if isinstance(nested, dict):
             payload = nested
     if isinstance(payload, dict) and isinstance(payload.get("structured_output"), dict):
         payload = payload["structured_output"]
-    if not isinstance(payload, dict):
-        raise AgentOutputError("Agent JSON output must be an object.")
     return payload
 
 

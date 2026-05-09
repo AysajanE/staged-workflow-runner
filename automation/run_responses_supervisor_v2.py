@@ -56,11 +56,24 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     stage_parser.add_argument("--scaffold-path", required=True, type=_path_argument)
     stage_parser.add_argument("--created-by", default="operator_codex")
 
+    examine_parser = subparsers.add_parser(
+        "examine-scaffold",
+        help="Statically examine a scaffold before executable Stage 1 request construction.",
+    )
+    _add_root_argument(examine_parser)
+    _add_session_argument(examine_parser)
+    examine_parser.add_argument("--workflow-file", required=True, type=_path_argument)
+    examine_parser.add_argument("--output", type=_path_argument)
+
     dry_parser = subparsers.add_parser("dry-run-scaffold", help="Dry-run a scaffold workflow.")
     _add_root_argument(dry_parser)
     _add_session_argument(dry_parser)
     dry_parser.add_argument("--workflow-file", required=True, type=_path_argument)
     dry_parser.add_argument("--run-name", default="supervisor-scaffold-dry-run")
+    dry_parser.add_argument("--stage")
+    dry_parser.add_argument("--primary-job-input", action="append", default=[])
+    dry_parser.add_argument("--reference-context", action="append", default=[])
+    dry_parser.add_argument("--review-bundle", action="append", default=[])
 
     op_parser = subparsers.add_parser(
         "invoke-operator",
@@ -194,6 +207,17 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         return 0
 
+    if args.command == "examine-scaffold":
+        _print_result(
+            supervisor.examine_scaffold(
+                root=root,
+                session_ref=args.session,
+                workflow_file=args.workflow_file,
+                output=args.output,
+            )
+        )
+        return 0
+
     if args.command == "dry-run-scaffold":
         _print_result(
             supervisor.dry_run_scaffold(
@@ -201,6 +225,10 @@ def main(argv: Sequence[str] | None = None) -> int:
                 session_ref=args.session,
                 workflow_file=args.workflow_file,
                 run_name=args.run_name,
+                primary_job_inputs=args.primary_job_input,
+                reference_context=args.reference_context,
+                review_bundles=args.review_bundle,
+                stage_id=args.stage,
             )
         )
         return 0

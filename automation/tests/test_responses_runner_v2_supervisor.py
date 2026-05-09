@@ -110,6 +110,131 @@ def _stage_scaffold(session_id: str, tmp_path: Path) -> dict:
     return supervisor.stage_scaffold(root=ROOT, session_ref=session_id, scaffold_path=scaffold_dir.relative_to(ROOT))
 
 
+def _write_minimal_workflow_pack(tmp_path: Path) -> tuple[Path, Path, Path]:
+    pack = tmp_path / "task_pack"
+    workflows_dir = pack / "workflows"
+    prompts_dir = pack / "prompts"
+    inputs_dir = pack / "inputs"
+    tools_dir = pack / "tools"
+    workflows_dir.mkdir(parents=True)
+    prompts_dir.mkdir()
+    inputs_dir.mkdir()
+    tools_dir.mkdir()
+    shared = pack / "shared_instructions.md"
+    shared.write_text(
+        "# Shared Instructions\n\nReview the attached repository evidence carefully and produce a grounded implementation plan.\n",
+        encoding="utf-8",
+    )
+    prompt = prompts_dir / "stage1.md"
+    prompt.write_text(
+        "# Stage 1\n\n"
+        "Examine the task scaffold and implementation target in detail. Confirm the task objective, identify relevant files, "
+        "map dependencies, evaluate validation requirements, and produce a precise execution packet. The output must be "
+        "grounded in attached files, call out missing information, distinguish blocking findings from improvements, and "
+        "avoid making unsupported claims. Include concrete next steps and validation commands so the operator can proceed "
+        "with high confidence after review.\n",
+        encoding="utf-8",
+    )
+    primary = tmp_path / "primary_input.md"
+    primary.write_text("# Primary Input\n\nImplement the requested high-priority task.\n", encoding="utf-8")
+    tool_profile = tools_dir / "no_tools.profile.json"
+    tool_profile.write_text('{"tools":[]}\n', encoding="utf-8")
+    input_manifest = inputs_dir / "stage1.input_manifest.json"
+    input_manifest.write_text(
+        json.dumps(
+            {
+                "schema_version": "responses_runner_v2.input_manifest.v1",
+                "manifest_id": "test_workflow.stage1.static",
+                "workflow_id": "test_workflow",
+                "stage_id": "stage1",
+                "description": "Static scaffold inputs.",
+                "primary_job_inputs": [],
+                "reviewed_handoff_inputs": [],
+                "attached_repository_files": [
+                    {
+                        "path": relpath(ROOT, shared),
+                        "kind": "file",
+                        "required": True,
+                    }
+                ],
+                "reference_context": [],
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    workflow = workflows_dir / "one_stage.workflow.json"
+    workflow.write_text(
+        json.dumps(
+            {
+                "schema_version": "responses_runner_v2.workflow_manifest.v1",
+                "workflow_id": "test_workflow",
+                "workflow_name": "Test Workflow",
+                "workflow_mode": "one_pass",
+                "description": "Synthetic workflow for supervisor scaffold examination tests.",
+                "shared_instructions_file": "../shared_instructions.md",
+                "operator_requirements": {
+                    "minimum_primary_job_inputs": 1,
+                    "maximum_primary_job_inputs": 1,
+                    "allow_reference_context": False,
+                },
+                "defaults": {
+                    "model_roles": {
+                        "primary_generation": {
+                            "model": "gpt-5.5-pro",
+                            "reasoning_effort": "xhigh",
+                            "verbosity": "high",
+                            "prompt_cache_retention": "24h",
+                        },
+                        "structural_processing": {
+                            "model": "gpt-5.5",
+                            "reasoning_effort": "high",
+                            "verbosity": "medium",
+                            "prompt_cache_retention": "24h",
+                        },
+                    },
+                    "request": {
+                        "background": True,
+                        "store": True,
+                        "parallel_tool_calls": True,
+                        "max_tool_calls": 8,
+                        "token_preflight": {
+                            "enabled": False,
+                            "max_retries": 1,
+                            "retryable_http_status_codes": [429, 500],
+                            "on_retryable_service_failure": "continue_without_token_count",
+                        },
+                        "file_uploads": {
+                            "purpose": "user_data",
+                            "delete_on_completion": False,
+                            "expires_after_seconds": 604800,
+                        },
+                    },
+                },
+                "stages": [
+                    {
+                        "stage_id": "stage1",
+                        "stage_number": 1,
+                        "title": "Stage 1",
+                        "task_file": "../prompts/stage1.md",
+                        "input_manifest_file": "../inputs/stage1.input_manifest.json",
+                        "tool_profile_file": "../tools/no_tools.profile.json",
+                        "model_role": "primary_generation",
+                        "max_output_tokens": 128000,
+                        "gate": "terminal",
+                        "output": {"primary_format": "text"},
+                    }
+                ],
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    return workflow.relative_to(ROOT), primary.relative_to(ROOT), pack.relative_to(ROOT)
+
+
 def _write_checkpoint(
     *,
     tmp_path: Path,
@@ -213,6 +338,48 @@ class ResponsesRunnerV2SupervisorTests(unittest.TestCase):
             self.assertTrue((ROOT / record["hash_manifest_path"]).exists())
             updated = load_session(ROOT, session["supervisor_session_id"])
             self.assertEqual(updated["status"], "scaffold_staged")
+
+    def test_examine_scaffold_does_not_require_primary_job_input(self) -> None:
+        with tempfile.TemporaryDirectory(dir=ROOT) as tmp:
+            tmp_path = Path(tmp)
+            session = _create_session(tmp_path)
+            workflow, _primary, pack = _write_minimal_workflow_pack(tmp_path)
+            supervisor.stage_scaffold(root=ROOT, session_ref=session["supervisor_session_id"], scaffold_path=pack)
+            examination = supervisor.examine_scaffold(
+                root=ROOT,
+                session_ref=session["supervisor_session_id"],
+                workflow_file=workflow,
+            )
+            self.assertEqual(examination["status"], "passed")
+            self.assertFalse(examination["constructed_stage_request"])
+            self.assertFalse(examination["requires_primary_job_input_for_examination"])
+            self.assertEqual(examination["runtime_input_contract"]["minimum_primary_job_inputs"], 1)
+            self.assertEqual(examination["stages"][0]["input_manifest"]["aggregate_file_count"], 1)
+            self.assertTrue((ROOT / examination["json_report_path"]).exists())
+            self.assertTrue((ROOT / examination["markdown_report_path"]).exists())
+            updated = load_session(ROOT, session["supervisor_session_id"])
+            self.assertEqual(updated["status"], "scaffold_reviewing")
+            self.assertEqual(updated["scaffold_versions"][-1]["approval_status"], "reviewing")
+            self.assertEqual(updated["validation_results"][-1]["command_or_method"], "static_scaffold_examination")
+
+    def test_dry_run_scaffold_accepts_explicit_primary_job_input(self) -> None:
+        with tempfile.TemporaryDirectory(dir=ROOT) as tmp:
+            tmp_path = Path(tmp)
+            session = _create_session(tmp_path)
+            workflow, primary, pack = _write_minimal_workflow_pack(tmp_path)
+            supervisor.stage_scaffold(root=ROOT, session_ref=session["supervisor_session_id"], scaffold_path=pack)
+            record = supervisor.dry_run_scaffold(
+                root=ROOT,
+                session_ref=session["supervisor_session_id"],
+                workflow_file=workflow,
+                primary_job_inputs=[primary.as_posix()],
+            )
+            self.assertEqual(record["status"], "passed")
+            self.assertIn("--primary-job-input", record["command"])
+            self.assertEqual(record["result"]["stage_id"], "stage1")
+            self.assertTrue((ROOT / record["result"]["run_manifest_path"]).exists())
+            updated = load_session(ROOT, session["supervisor_session_id"])
+            self.assertEqual(updated["scaffold_versions"][-1]["approval_status"], "dry_run_passed")
 
     def test_missing_operator_provisional_blocks_reviewers(self) -> None:
         with tempfile.TemporaryDirectory(dir=ROOT) as tmp:
@@ -345,6 +512,29 @@ class ResponsesRunnerV2SupervisorTests(unittest.TestCase):
             self.assertTrue(result.fallback_used)
             self.assertEqual(result.status, "succeeded")
 
+    def test_claude_result_wrapper_with_preface_is_unwrapped(self) -> None:
+        with tempfile.TemporaryDirectory(dir=ROOT) as tmp:
+            decision = _review_decision(actor_role="claude_review_agent", review_cycle_id="cycle_preface")
+            wrapped_stdout = json.dumps({"type": "result", "result": "Brief preface.\n\n" + json.dumps(decision)})
+
+            def runner(argv, **_kwargs):
+                if "--effort" in argv and argv[argv.index("--effort") + 1] == "max":
+                    return SimpleNamespace(returncode=2, stdout="", stderr="unsupported effort max")
+                return SimpleNamespace(returncode=0, stdout=wrapped_stdout, stderr="")
+
+            result = supervisor_agents.invoke_claude_review_agent(
+                root=ROOT,
+                review_kind="scaffold",
+                review_cycle_id="cycle_preface",
+                supervisor_session_id="sup_test",
+                job={"review_job_id": "job_preface"},
+                output_dir=Path(tmp).relative_to(ROOT),
+                runner=runner,
+            )
+            self.assertEqual(result.status, "succeeded")
+            payload = json.loads((ROOT / result.decision_path).read_text(encoding="utf-8"))
+            self.assertEqual(payload["decision_id"], "claude_review_agent_cycle_preface")
+
     def test_review_agent_read_only_violation_fails(self) -> None:
         with tempfile.TemporaryDirectory(dir=ROOT) as tmp:
             watched = Path(tmp) / "watched.txt"
@@ -420,6 +610,36 @@ class ResponsesRunnerV2SupervisorTests(unittest.TestCase):
             rec = acceptance["recommendations"][0]
             self.assertEqual(rec["operator_decision"], "rejected")
             self.assertIn("Missing applied-change evidence", rec["rejected_reason"])
+
+    def test_rejected_blocking_recommendation_becomes_valid_blocking_issue(self) -> None:
+        with tempfile.TemporaryDirectory(dir=ROOT) as tmp:
+            tmp_path = Path(tmp)
+            session = _create_session(tmp_path)
+            consolidated = _review_decision(
+                actor_role="consolidation_pass",
+                review_cycle_id="cycle_blocking_accept",
+                recommendations=[{**_recommendation("must_fix", evidence=True, severity="blocking"), "consolidation_recommendation": "accepted_for_operator_review"}],
+                review_kind="consolidation",
+            )
+            consolidated["agent_command_id"] = None
+            consolidated["command"] = None
+            consolidated["read_only_check"] = None
+            consolidated_path = tmp_path / "consolidated.json"
+            consolidated_path.write_text(json.dumps(consolidated, indent=2) + "\n", encoding="utf-8")
+            supervisor.create_review_cycle(root=ROOT, session_ref=session["supervisor_session_id"], review_cycle_id="cycle_blocking_accept", review_kind="scaffold")
+            acceptance = supervisor.accept_consolidated_review(
+                root=ROOT,
+                session_ref=session["supervisor_session_id"],
+                review_cycle_id="cycle_blocking_accept",
+                consolidated_review=consolidated_path.relative_to(ROOT),
+                accepted_recommendation_ids=[],
+                output=(tmp_path / "acceptance.json").relative_to(ROOT),
+            )
+            self.assertEqual(acceptance["approval_decision"], "do_not_approve")
+            issue = acceptance["blocking_issues"][0]
+            self.assertEqual(issue["source_recommendation_id"], "must_fix")
+            self.assertIsInstance(issue["evidence"][0], str)
+            self.assertIsInstance(issue["affected_artifacts"][0], str)
 
     def test_operator_accepts_only_with_applied_evidence(self) -> None:
         with tempfile.TemporaryDirectory(dir=ROOT) as tmp:

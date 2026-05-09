@@ -102,7 +102,7 @@ python automation/run_responses_supervisor_v2.py init-session \
   --summary "One-sentence accepted task summary"
 ```
 
-Stage and dry-run a scaffold:
+Stage, statically examine, and then executable-dry-run a scaffold:
 
 ```bash
 python automation/run_responses_supervisor_v2.py stage-scaffold \
@@ -110,11 +110,19 @@ python automation/run_responses_supervisor_v2.py stage-scaffold \
   --session <supervisor_session_id> \
   --scaffold-path automation/task_packs/example_task
 
-python automation/run_responses_supervisor_v2.py dry-run-scaffold \
+python automation/run_responses_supervisor_v2.py examine-scaffold \
   --root . \
   --session <supervisor_session_id> \
   --workflow-file automation/task_packs/example_task/workflows/workflow.json
+
+python automation/run_responses_supervisor_v2.py dry-run-scaffold \
+  --root . \
+  --session <supervisor_session_id> \
+  --workflow-file automation/task_packs/example_task/workflows/workflow.json \
+  --primary-job-input docs/accepted_primary_input.md
 ```
+
+`examine-scaffold` is the pre-launch static scaffold review gate. It validates the workflow scaffold, resolves static task-pack attachments, checks model posture, stage-gate shape, sidecar schema compatibility, tool profiles, and stage prompt/input inventory without constructing a Stage 1 request. `dry-run-scaffold` remains the executable request-construction gate and therefore accepts the same runtime inputs that a real Stage 1 run would require.
 
 For every scaffold and non-terminal stage, the required supervisor review loop is:
 

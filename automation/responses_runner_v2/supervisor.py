@@ -21,6 +21,8 @@ from .contracts import (
     write_json,
     write_text,
 )
+from . import attachments
+from .pack_loader import load_input_manifest, load_schema_json, load_tool_profile, load_workflow_definition
 from .review_bundle import create_review_bundle
 from .workflow import run_workflow
 from . import artifacts as runner_artifacts
@@ -30,6 +32,16 @@ from . import supervisor_policies
 
 OPERATOR_BOUNDARY = "headless_discrete_codex_exec_with_deterministic_supervisor_cli"
 REVIEW_KINDS_REQUIRING_OPERATOR_PROVISIONAL = {"scaffold", "stage_output", "final_packet", "recovery"}
+UNSUPPORTED_OUTPUT_SCHEMA_KEYWORDS = {
+    "if",
+    "then",
+    "else",
+    "allOf",
+    "oneOf",
+    "dependentRequired",
+    "dependentSchemas",
+    "not",
+}
 
 
 def _load_session_and_path(root: Path, session_ref: str | Path) -> tuple[dict[str, Any], Path]:
@@ -151,12 +163,470 @@ def stage_scaffold(*, root: Path, session_ref: str | Path, scaffold_path: str | 
     return record
 
 
-def dry_run_scaffold(*, root: Path, session_ref: str | Path, workflow_file: str | Path, run_name: str = "supervisor-scaffold-dry-run") -> dict[str, Any]:
-    """Run the staged scaffold in dry-run mode and record the validation result."""
+def _render_scaffold_examination_markdown(examination: dict[str, Any]) -> str:
+    lines = [
+        "# Scaffold Examination",
+        "",
+        f"- examination_id: {examination['examination_id']}",
+        f"- status: {examination['status']}",
+        f"- workflow_id: {examination.get('workflow_id')}",
+        f"- stage_count: {len(examination.get('stages', []))}",
+        "",
+        "## Summary",
+        "",
+        examination["summary"],
+        "",
+        "## Blocking Issues",
+        "",
+    ]
+    blocking = examination.get("blocking_issues", [])
+    if not blocking:
+        lines.append("None.")
+    for issue in blocking:
+        lines.append(f"- {issue['issue_id']}: {issue['description']}")
+    lines.extend(["", "## Non-Blocking Findings", ""])
+    findings = examination.get("non_blocking_findings", [])
+    if not findings:
+        lines.append("None.")
+    for finding in findings:
+        lines.append(f"- {finding['finding_id']}: {finding['description']}")
+    lines.extend(["", "## Stages", ""])
+    for stage in examination.get("stages", []):
+        lines.append(
+            f"- {stage['stage_number']}. {stage['stage_id']} "
+            f"({stage['gate']}, tools={stage['tool_profile'].get('tool_count', 0)}, "
+            f"attachments={stage['input_manifest'].get('aggregate_file_count', 0)})"
+        )
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def _schema_keyword_hits(value: Any, *, path: str = "$") -> list[dict[str, str]]:
+    hits: list[dict[str, str]] = []
+    if isinstance(value, dict):
+        for key, nested in value.items():
+            child_path = f"{path}.{key}"
+            if key in UNSUPPORTED_OUTPUT_SCHEMA_KEYWORDS:
+                hits.append({"path": child_path, "keyword": key})
+            hits.extend(_schema_keyword_hits(nested, path=child_path))
+    elif isinstance(value, list):
+        for index, nested in enumerate(value):
+            hits.extend(_schema_keyword_hits(nested, path=f"{path}[{index}]"))
+    return hits
+
+
+def _entry_count_and_bytes(entries: list[dict[str, Any]]) -> tuple[int, int]:
+    count = 0
+    byte_count = 0
+    for entry in entries:
+        resolved = entry.get("resolved") if isinstance(entry, dict) else None
+        if not isinstance(resolved, dict):
+            continue
+        count += int(resolved.get("aggregate_file_count") or 0)
+        byte_count += int(resolved.get("aggregate_bytes") or 0)
+    return count, byte_count
+
+
+def _append_issue(
+    issues: list[dict[str, Any]],
+    *,
+    issue_id: str,
+    severity: str,
+    description: str,
+    evidence: list[str],
+    affected_artifacts: list[str],
+) -> None:
+    issues.append(
+        {
+            "issue_id": normalize_slug(issue_id),
+            "severity": severity,
+            "description": description,
+            "evidence": evidence,
+            "affected_artifacts": affected_artifacts,
+        }
+    )
+
+
+def _append_finding(
+    findings: list[dict[str, Any]],
+    *,
+    finding_id: str,
+    description: str,
+    evidence: list[str],
+    affected_artifacts: list[str],
+) -> None:
+    findings.append(
+        {
+            "finding_id": normalize_slug(finding_id),
+            "description": description,
+            "evidence": evidence,
+            "affected_artifacts": affected_artifacts,
+        }
+    )
+
+
+def _profile_summary(profile: dict[str, Any]) -> dict[str, Any]:
+    tools = profile.get("tools")
+    if not isinstance(tools, list):
+        tools = []
+    tool_types = []
+    for tool in tools:
+        if isinstance(tool, dict):
+            tool_types.append(str(tool.get("type") or "unknown"))
+        else:
+            tool_types.append(type(tool).__name__)
+    return {
+        "tool_count": len(tools),
+        "tool_types": tool_types,
+        "parallel_tool_calls": profile.get("parallel_tool_calls"),
+        "max_tool_calls": profile.get("max_tool_calls"),
+    }
+
+
+def examine_scaffold(
+    *,
+    root: Path,
+    session_ref: str | Path,
+    workflow_file: str | Path,
+    output: str | Path | None = None,
+) -> dict[str, Any]:
+    """Statically examine a staged workflow scaffold before any executable Stage 1 dry-run."""
 
     session, session_path = _load_session_and_path(root, session_ref)
+    examination_id = normalize_slug(f"scaffold_examination_{len(session['validation_results']) + 1:03d}")
+    output_json_path = resolve_under_root(
+        root,
+        output or (session_path / "examinations" / f"{examination_id}.json"),
+        must_exist=False,
+    )
+    output_md_path = output_json_path.with_suffix(".md")
+    command = [
+        "python3",
+        "automation/run_responses_supervisor_v2.py",
+        "examine-scaffold",
+        "--root",
+        str(root),
+        "--session",
+        str(session_ref),
+        "--workflow-file",
+        str(workflow_file),
+    ]
+    if output is not None:
+        command.extend(["--output", str(output)])
+    blocking_issues: list[dict[str, Any]] = []
+    findings: list[dict[str, Any]] = []
+    stages: list[dict[str, Any]] = []
+    workflow_summary: dict[str, Any] = {}
+    workflow_id: str | None = None
+    started_at = runner_now().isoformat()
+
+    try:
+        workflow_path = resolve_under_root(root, workflow_file, must_exist=True)
+        workflow_payload = load_json(workflow_path, "workflow manifest")
+        try:
+            supervisor_artifacts.validate_against_schema(workflow_payload, "workflow_manifest.schema.json", "workflow manifest")
+        except supervisor_artifacts.SchemaValidationError as exc:
+            _append_issue(
+                blocking_issues,
+                issue_id="workflow_manifest_schema_validation_failed",
+                severity="blocking",
+                description="Workflow manifest does not conform to the committed runner schema.",
+                evidence=[str(exc)],
+                affected_artifacts=[relpath(root, workflow_path)],
+            )
+        workflow = load_workflow_definition(workflow_file, root=root)
+        workflow_id = workflow.workflow_id
+        workflow_summary = {
+            "workflow_id": workflow.workflow_id,
+            "workflow_name": workflow.workflow_name,
+            "workflow_mode": workflow.workflow_mode,
+            "workflow_manifest_path": relpath(root, workflow.workflow_file),
+            "operator_requirements": workflow.operator_requirements,
+            "shared_instructions_path": relpath(root, workflow.shared_instructions_path),
+            "model_roles": {
+                role_name: {
+                    "model": profile.model,
+                    "reasoning_effort": profile.reasoning_effort,
+                    "verbosity": profile.verbosity,
+                    "prompt_cache_retention": profile.prompt_cache_retention,
+                }
+                for role_name, profile in workflow.model_roles.items()
+            },
+        }
+
+        expected_models = _default_model_defaults()
+        primary = workflow.model_roles.get("primary_generation")
+        structural = workflow.model_roles.get("structural_processing")
+        if primary is None or primary.model != expected_models["primary"]:
+            _append_issue(
+                blocking_issues,
+                issue_id="primary_model_posture_mismatch",
+                severity="blocking",
+                description="Workflow primary_generation model does not match supervisor model posture.",
+                evidence=[f"Expected {expected_models['primary']}, got {primary.model if primary else None}."],
+                affected_artifacts=[relpath(root, workflow.workflow_file)],
+            )
+        if structural is None or structural.model != expected_models["structural"]:
+            _append_issue(
+                blocking_issues,
+                issue_id="structural_model_posture_mismatch",
+                severity="blocking",
+                description="Workflow structural_processing model does not match supervisor model posture.",
+                evidence=[f"Expected {expected_models['structural']}, got {structural.model if structural else None}."],
+                affected_artifacts=[relpath(root, workflow.workflow_file)],
+            )
+
+        terminal_stages = [stage for stage in workflow.stages if stage.gate.value == "terminal"]
+        if len(terminal_stages) != 1 or terminal_stages[0] != workflow.stages[-1]:
+            _append_issue(
+                blocking_issues,
+                issue_id="terminal_stage_shape_invalid",
+                severity="blocking",
+                description="A supervised scaffold should have exactly one terminal stage and it should be the final stage.",
+                evidence=[f"terminal_stage_ids={[stage.stage_id for stage in terminal_stages]}"],
+                affected_artifacts=[relpath(root, workflow.workflow_file)],
+            )
+
+        for stage in workflow.stages[:-1]:
+            if stage.gate.value != "review_required":
+                _append_issue(
+                    blocking_issues,
+                    issue_id=f"{stage.stage_id}_missing_review_gate",
+                    severity="blocking",
+                    description="Non-terminal stages must be review-gated before downstream progression.",
+                    evidence=[f"Stage {stage.stage_id} gate is {stage.gate.value}."],
+                    affected_artifacts=[relpath(root, workflow.workflow_file)],
+                )
+
+        for index, stage in enumerate(workflow.stages):
+            task_text = stage.task_path.read_text(encoding="utf-8")
+            word_count = len(task_text.split())
+            if word_count < 80:
+                _append_finding(
+                    findings,
+                    finding_id=f"{stage.stage_id}_short_prompt",
+                    description="Stage prompt is unusually short for a high-stakes scaffold and should be reviewed for substantive completeness.",
+                    evidence=[f"Stage {stage.stage_id} prompt has {word_count} words."],
+                    affected_artifacts=[relpath(root, stage.task_path)],
+                )
+
+            raw_manifest = load_json(stage.input_manifest_path, "input manifest")
+            try:
+                supervisor_artifacts.validate_against_schema(raw_manifest, "input_manifest.schema.json", f"{stage.stage_id} input manifest")
+            except supervisor_artifacts.SchemaValidationError as exc:
+                _append_issue(
+                    blocking_issues,
+                    issue_id=f"{stage.stage_id}_input_manifest_schema_validation_failed",
+                    severity="blocking",
+                    description="Stage input manifest does not conform to the committed runner schema.",
+                    evidence=[str(exc)],
+                    affected_artifacts=[relpath(root, stage.input_manifest_path)],
+                )
+            static_manifest = load_input_manifest(stage.input_manifest_path, root=root)
+            resolved_manifest = attachments.resolve_stage_input_manifest(
+                root=root,
+                workflow_id=workflow.workflow_id,
+                stage_id=stage.stage_id,
+                run_id=f"{examination_id}_{stage.stage_id}",
+                manifest_id=f"{workflow.workflow_id}.{stage.stage_id}.scaffold_examination",
+                description=str(static_manifest.get("description") or ""),
+                primary_job_inputs=static_manifest["primary_job_inputs"],
+                reviewed_handoff_inputs=static_manifest["reviewed_handoff_inputs"],
+                attached_repository_files=static_manifest["attached_repository_files"],
+                reference_context=static_manifest["reference_context"],
+            )
+            role_counts: dict[str, dict[str, int]] = {}
+            aggregate_file_count = 0
+            aggregate_bytes = 0
+            for field_name in ("primary_job_inputs", "reviewed_handoff_inputs", "attached_repository_files", "reference_context"):
+                count, byte_count = _entry_count_and_bytes(resolved_manifest[field_name])
+                role_counts[field_name] = {"file_count": count, "bytes": byte_count}
+                aggregate_file_count += count
+                aggregate_bytes += byte_count
+
+            profile = load_tool_profile(stage.tool_profile_path, root=root) if stage.tool_profile_path else {}
+            sidecar_summary = None
+            if stage.output.sidecar is not None:
+                sidecar_schema = load_schema_json(stage.output.sidecar.schema_path, root=root)
+                keyword_hits = _schema_keyword_hits(sidecar_schema)
+                if keyword_hits:
+                    _append_issue(
+                        blocking_issues,
+                        issue_id=f"{stage.stage_id}_sidecar_schema_unsupported_keywords",
+                        severity="blocking",
+                        description="Sidecar schema uses unsupported conservative keywords for this runner lane.",
+                        evidence=[f"{hit['path']} uses {hit['keyword']}" for hit in keyword_hits],
+                        affected_artifacts=[relpath(root, stage.output.sidecar.schema_path)],
+                    )
+                sidecar_summary = {
+                    "schema_file": stage.output.sidecar.schema_file,
+                    "schema_name": stage.output.sidecar.schema_name,
+                    "schema_path": relpath(root, stage.output.sidecar.schema_path),
+                    "unsupported_keyword_hits": keyword_hits,
+                }
+            elif stage.output.schema_path is not None:
+                direct_schema = load_schema_json(stage.output.schema_path, root=root)
+                keyword_hits = _schema_keyword_hits(direct_schema)
+                if keyword_hits:
+                    _append_issue(
+                        blocking_issues,
+                        issue_id=f"{stage.stage_id}_output_schema_unsupported_keywords",
+                        severity="blocking",
+                        description="Direct output schema uses unsupported conservative keywords for this runner lane.",
+                        evidence=[f"{hit['path']} uses {hit['keyword']}" for hit in keyword_hits],
+                        affected_artifacts=[relpath(root, stage.output.schema_path)],
+                    )
+
+            if index > 0 and not (
+                stage.carry_forward.review_bundle_from_stage_id
+                or stage.carry_forward.reference_context_from_stage_ids
+            ):
+                _append_finding(
+                    findings,
+                    finding_id=f"{stage.stage_id}_no_carry_forward",
+                    description="Later stage has no carry-forward dependency; verify this is intentional and not a disconnected stage.",
+                    evidence=[f"Stage {stage.stage_id} has no carry_forward review bundle or reference_context source."],
+                    affected_artifacts=[relpath(root, workflow.workflow_file)],
+                )
+
+            stages.append(
+                {
+                    "stage_id": stage.stage_id,
+                    "stage_number": stage.stage_number,
+                    "title": stage.title,
+                    "gate": stage.gate.value,
+                    "task_file": stage.task_file,
+                    "task_path": relpath(root, stage.task_path),
+                    "prompt_word_count": word_count,
+                    "input_manifest_file": stage.input_manifest_file,
+                    "input_manifest_path": relpath(root, stage.input_manifest_path),
+                    "input_manifest": {
+                        "role_counts": role_counts,
+                        "aggregate_file_count": aggregate_file_count,
+                        "aggregate_bytes": aggregate_bytes,
+                    },
+                    "tool_profile_file": stage.tool_profile_file,
+                    "tool_profile_path": relpath(root, stage.tool_profile_path) if stage.tool_profile_path else None,
+                    "tool_profile": _profile_summary(profile),
+                    "model_role": stage.model_role.value,
+                    "max_output_tokens": stage.max_output_tokens,
+                    "carry_forward": {
+                        "reference_context_from_stage_ids": list(stage.carry_forward.reference_context_from_stage_ids),
+                        "review_bundle_from_stage_id": stage.carry_forward.review_bundle_from_stage_id,
+                        "review_bundle_include_response_artifact_json": stage.carry_forward.review_bundle_include_response_artifact_json,
+                    },
+                    "output": {
+                        "primary_format": stage.output.primary_format,
+                        "schema_file": stage.output.schema_file,
+                        "schema_name": stage.output.schema_name,
+                        "sidecar": sidecar_summary,
+                    },
+                }
+            )
+    except (SystemExit, supervisor_artifacts.SchemaValidationError) as exc:
+        _append_issue(
+            blocking_issues,
+            issue_id="scaffold_static_load_failed",
+            severity="blocking",
+            description="Static scaffold examination could not load or validate the workflow scaffold.",
+            evidence=[str(exc)],
+            affected_artifacts=[str(workflow_file)],
+        )
+
+    status = "failed" if blocking_issues else "passed"
+    summary = (
+        "Static scaffold examination passed without constructing a Stage 1 request."
+        if status == "passed"
+        else "Static scaffold examination found blocking issues before Stage 1 request construction."
+    )
+    examination = {
+        "schema_version": "responses_runner_v2.scaffold_examination.v1",
+        "examination_id": examination_id,
+        "created_at": runner_now().isoformat(),
+        "started_at": started_at,
+        "supervisor_session_id": session["supervisor_session_id"],
+        "workflow_id": workflow_id,
+        "status": status,
+        "summary": summary,
+        "workflow": workflow_summary,
+        "stages": stages,
+        "blocking_issues": blocking_issues,
+        "non_blocking_findings": findings,
+        "runtime_input_contract": workflow_summary.get("operator_requirements", {}),
+        "constructed_stage_request": False,
+        "requires_primary_job_input_for_examination": False,
+        "command": command,
+        "json_report_path": relpath(root, output_json_path),
+        "markdown_report_path": relpath(root, output_md_path),
+    }
+    supervisor_artifacts.write_json_validated(
+        output_json_path,
+        examination,
+        "scaffold_examination.schema.json",
+        "scaffold examination",
+    )
+    write_text(output_md_path, _render_scaffold_examination_markdown(examination))
+
+    validation_record = {
+        "check_id": examination_id,
+        "command_or_method": "static_scaffold_examination",
+        "phase": "scaffold_review",
+        "expected_result": "Task-pack scaffold loads, static stage inputs resolve, and stage design is reviewable before Stage 1 request construction.",
+        "actual_result": summary,
+        "status": status,
+        "artifact_path": relpath(root, output_json_path),
+        "markdown_report_path": relpath(root, output_md_path),
+        "blocking_issue_count": len(blocking_issues),
+        "non_blocking_finding_count": len(findings),
+    }
+    session["validation_results"].append(validation_record)
+    if session["scaffold_versions"]:
+        latest = session["scaffold_versions"][-1]
+        latest.setdefault("examination_artifacts", []).append(validation_record)
+        latest["approval_status"] = "blocked" if status == "failed" else "reviewing"
+    session["status"] = "blocked" if status == "failed" else "scaffold_reviewing"
+    session["current_phase"] = "scaffold_review"
+    if status == "failed":
+        session["errors"].append(
+            {
+                "error_id": examination_id,
+                "severity": "blocking",
+                "message": summary,
+                "related_artifact": relpath(root, output_json_path),
+                "recovery_action": "repair_scaffold",
+            }
+        )
+    _write_session(root, session_path, session)
+    return examination
+
+
+def dry_run_scaffold(
+    *,
+    root: Path,
+    session_ref: str | Path,
+    workflow_file: str | Path,
+    run_name: str = "supervisor-scaffold-dry-run",
+    primary_job_inputs: Sequence[str] | None = None,
+    reference_context: Sequence[str] | None = None,
+    review_bundles: Sequence[str] | None = None,
+    stage_id: str | None = None,
+) -> dict[str, Any]:
+    """Run the staged scaffold in executable dry-run mode and record validation."""
+
+    primary_job_inputs = list(primary_job_inputs or [])
+    reference_context = list(reference_context or [])
+    review_bundles = list(review_bundles or [])
+    session, session_path = _load_session_and_path(root, session_ref)
     output_root = Path(relpath(root, session_path / "dry_runs"))
-    command = ["python3", "automation/run_responses_v2.py", "run", "--root", str(root), "--workflow-file", str(workflow_file), "--dry-run"]
+    command = ["python3", "automation/run_responses_v2.py", "run", "--root", str(root), "--workflow-file", str(workflow_file)]
+    for value in primary_job_inputs:
+        command.extend(["--primary-job-input", value])
+    for value in reference_context:
+        command.extend(["--reference-context", value])
+    for value in review_bundles:
+        command.extend(["--review-bundle", value])
+    if stage_id:
+        command.extend(["--stage", stage_id])
+    command.append("--dry-run")
     started_at = runner_now().isoformat()
     status = "passed"
     exit_code = 0
@@ -165,7 +635,15 @@ def dry_run_scaffold(*, root: Path, session_ref: str | Path, workflow_file: str 
     try:
         result = run_workflow(
             workflow_file=workflow_file,
-            runtime=RuntimeOptions(run_name=run_name, output_root=output_root, dry_run=True),
+            runtime=RuntimeOptions(
+                run_name=run_name,
+                output_root=output_root,
+                dry_run=True,
+                primary_job_inputs=primary_job_inputs,
+                reference_context=reference_context,
+                review_bundles=review_bundles,
+                stage_id=stage_id,
+            ),
             root=root,
         )
     except SystemExit as exc:
@@ -508,6 +986,51 @@ def _accepted_change_payload(evidence_payload: dict[str, Any], rec_id: str) -> d
     return item
 
 
+def _evidence_item_to_issue_string(item: Any) -> str:
+    if isinstance(item, str) and item.strip():
+        return item.strip()
+    if isinstance(item, dict):
+        source = str(item.get("artifact_path") or item.get("source") or "").strip()
+        summary = str(item.get("quote_or_summary") or item.get("summary") or item.get("evidence") or "").strip()
+        if source and summary:
+            return f"{source}: {summary}"
+        if summary:
+            return summary
+        if source:
+            return source
+    rendered = json.dumps(item, sort_keys=True, ensure_ascii=False) if isinstance(item, (dict, list)) else str(item)
+    return rendered.strip() or "Recommendation was rejected during operator acceptance."
+
+
+def _artifact_item_to_issue_string(item: Any) -> str:
+    if isinstance(item, str) and item.strip():
+        return item.strip()
+    if isinstance(item, dict):
+        for key in ("artifact_path", "path", "source", "name"):
+            value = item.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+    rendered = json.dumps(item, sort_keys=True, ensure_ascii=False) if isinstance(item, (dict, list)) else str(item)
+    return rendered.strip() or "unknown_artifact"
+
+
+def _rejected_blocking_recommendation_issue(rec: dict[str, Any]) -> dict[str, Any]:
+    rec_id = str(rec.get("recommendation_id") or "recommendation")
+    evidence_items = rec.get("evidence") if isinstance(rec.get("evidence"), list) else []
+    artifact_items = rec.get("affected_artifacts") if isinstance(rec.get("affected_artifacts"), list) else []
+    evidence = [_evidence_item_to_issue_string(item) for item in evidence_items]
+    if rec.get("rejected_reason"):
+        evidence.append(str(rec["rejected_reason"]))
+    return {
+        "issue_id": normalize_slug(f"{rec_id}_rejected_blocking_recommendation"),
+        "severity": rec.get("severity") if rec.get("severity") in {"critical", "blocking", "high", "medium", "low"} else "blocking",
+        "description": str(rec.get("recommendation") or "Blocking recommendation was rejected during operator acceptance."),
+        "evidence": evidence or ["Blocking recommendation was not accepted by the operator acceptance pass."],
+        "affected_artifacts": [_artifact_item_to_issue_string(item) for item in artifact_items] or ["unknown_artifact"],
+        "source_recommendation_id": rec_id,
+    }
+
+
 def accept_consolidated_review(
     *,
     root: Path,
@@ -560,13 +1083,14 @@ def accept_consolidated_review(
             rec["rejected_reason"] = "Not accepted by operator selective-acceptance pass."
         recommendations.append(rec)
 
-    blocking_after_acceptance = [
+    rejected_blocking_recommendations = [
         rec
         for rec in recommendations
         if rec.get("operator_decision") == "rejected"
         and rec.get("severity") in {"critical", "blocking"}
         and rec.get("consolidation_recommendation") not in {"duplicate", "already_satisfied", "out_of_scope"}
     ]
+    blocking_after_acceptance = [_rejected_blocking_recommendation_issue(rec) for rec in rejected_blocking_recommendations]
     approval = "approve" if not blocking_after_acceptance else "do_not_approve"
     decision = {
         "schema_version": REVIEW_DECISION_SCHEMA_VERSION,
