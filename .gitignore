@@ -1,5 +1,6 @@
 # Local runner output, supervisor sessions, extracted packets, and archives.
 .local/
+.grok/
 
 # Local secrets and environment overrides.
 .env
