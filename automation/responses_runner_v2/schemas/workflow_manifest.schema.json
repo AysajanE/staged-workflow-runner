@@ -61,6 +61,13 @@
         "allow_reference_context": {
           "type": "boolean",
           "description": "Describes the `allow_reference_context` field for this artifact contract."
+        },
+        "expected_primary_job_input_paths": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/pathString"
+          },
+          "description": "Repo-relative primary job input paths expected by the operator for this workflow."
         }
       },
       "description": "Runtime input requirements enforced for this workflow."

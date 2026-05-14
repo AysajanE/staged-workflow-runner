@@ -1,0 +1,1524 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Stage Workflow Runner — Interactive Explainer</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --bg-2: #161b22;
+    --bg-3: #1c2230;
+    --bg-card: #11161f;
+    --border: #2a3340;
+    --border-bright: #3d4a5c;
+    --text: #e6edf3;
+    --text-mid: #b6c2cf;
+    --text-dim: #8b949e;
+    --engine: #38bdf8;     /* cyan  — the engine lane (mechanism) */
+    --engine-dim: #1e4d63;
+    --supervisor: #fbbf24; /* amber — the supervisor lane (policy) */
+    --supervisor-dim: #5c4914;
+    --gate: #fb7185;       /* rose  — gates / guardrails / danger */
+    --gate-dim: #5c2730;
+    --go: #34d399;         /* emerald — success / go */
+    --go-dim: #1d4d3b;
+    --violet: #a78bfa;
+    --violet-dim: #2e2747;
+    --mono: "SF Mono", "JetBrains Mono", "Fira Code", Menlo, Consolas, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    line-height: 1.6;
+    font-size: 15px;
+    display: flex;
+    min-height: 100vh;
+  }
+  a { color: var(--engine); }
+
+  /* ---------- Sidebar ---------- */
+  .sidebar {
+    width: 270px;
+    flex-shrink: 0;
+    background: var(--bg-2);
+    border-right: 1px solid var(--border);
+    position: sticky;
+    top: 0;
+    height: 100vh;
+    overflow-y: auto;
+    padding: 22px 0;
+  }
+  .sidebar h1 { font-size: 15px; padding: 0 22px 4px; letter-spacing: 0.3px; }
+  .sidebar .tagline {
+    font-size: 11.5px; color: var(--text-dim);
+    padding: 0 22px 18px; font-family: var(--mono);
+  }
+  .nav-item {
+    display: block; padding: 8px 22px; color: var(--text-dim);
+    text-decoration: none; font-size: 13.5px;
+    border-left: 3px solid transparent; cursor: pointer;
+    transition: all 0.12s ease;
+  }
+  .nav-item:hover { color: var(--text); background: var(--bg-3); }
+  .nav-item.active {
+    color: var(--text); border-left-color: var(--engine);
+    background: var(--bg-3); font-weight: 600;
+  }
+  .nav-num { font-family: var(--mono); color: var(--text-dim); margin-right: 8px; font-size: 11px; }
+  .nav-item.active .nav-num { color: var(--engine); }
+  .nav-hint {
+    font-family: var(--mono); font-size: 10.5px; color: var(--text-dim);
+    padding: 16px 22px 0; line-height: 1.7;
+  }
+
+  /* ---------- Main ---------- */
+  .main { flex: 1; padding: 46px 56px 120px; max-width: 1080px; }
+  section { display: none; animation: fade 0.25s ease; }
+  section.active { display: block; }
+  @keyframes fade { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+  .kicker {
+    font-family: var(--mono); font-size: 12px; color: var(--engine);
+    letter-spacing: 1.5px; text-transform: uppercase; margin-bottom: 8px;
+  }
+  h2 { font-size: 30px; margin-bottom: 6px; letter-spacing: -0.4px; }
+  h3 { font-size: 19px; margin: 30px 0 12px; letter-spacing: -0.2px; }
+  h4 { font-size: 15px; margin: 20px 0 8px; color: var(--text-mid); }
+  p { color: var(--text-mid); margin-bottom: 14px; }
+  .lede { font-size: 16.5px; color: var(--text); margin-bottom: 22px; }
+  ul, ol { color: var(--text-mid); margin: 0 0 14px 22px; }
+  li { margin-bottom: 6px; }
+  strong { color: var(--text); }
+  em { color: var(--text-mid); }
+  code {
+    font-family: var(--mono); background: var(--bg-3); padding: 1.5px 6px;
+    border-radius: 4px; font-size: 12.5px; color: var(--engine);
+  }
+
+  /* ---------- Callouts ---------- */
+  .callout {
+    border-left: 3px solid var(--violet); background: var(--bg-card);
+    padding: 13px 18px; border-radius: 0 8px 8px 0; margin: 18px 0; font-size: 14px;
+  }
+  .callout.engine { border-left-color: var(--engine); }
+  .callout.supervisor { border-left-color: var(--supervisor); }
+  .callout.gate { border-left-color: var(--gate); }
+  .callout.go { border-left-color: var(--go); }
+  .callout .label {
+    font-family: var(--mono); font-size: 10.5px; letter-spacing: 1px;
+    text-transform: uppercase; color: var(--violet); display: block; margin-bottom: 4px;
+  }
+  .callout.engine .label { color: var(--engine); }
+  .callout.supervisor .label { color: var(--supervisor); }
+  .callout.gate .label { color: var(--gate); }
+  .callout.go .label { color: var(--go); }
+  .callout p:last-child { margin-bottom: 0; }
+
+  /* ---------- Cards (expandable) ---------- */
+  .card-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin: 20px 0; }
+  .xcard {
+    background: var(--bg-card); border: 1px solid var(--border);
+    border-radius: 10px; padding: 16px 18px; cursor: pointer;
+    transition: border-color 0.15s ease;
+  }
+  .xcard:hover { border-color: var(--border-bright); }
+  .xcard.open { border-color: var(--engine); }
+  .xcard .xhead { display: flex; align-items: baseline; gap: 10px; }
+  .xcard .xnum {
+    font-family: var(--mono); font-size: 12px; color: var(--engine);
+    border: 1px solid var(--engine-dim); border-radius: 5px;
+    padding: 1px 7px; flex-shrink: 0;
+  }
+  .xcard .xtitle { font-weight: 600; font-size: 15px; flex: 1; }
+  .xcard .xchev { color: var(--text-dim); font-size: 13px; transition: transform 0.2s ease; }
+  .xcard.open .xchev { transform: rotate(90deg); }
+  .xcard .xbody {
+    display: none; margin-top: 12px; padding-top: 12px;
+    border-top: 1px solid var(--border); font-size: 13.5px; color: var(--text-mid);
+  }
+  .xcard.open .xbody { display: block; }
+  .xcard .xbody p { font-size: 13.5px; }
+  .xcard .xbody p:last-child { margin-bottom: 0; }
+
+  /* ---------- Two-lane diagram ---------- */
+  .lanes { margin: 24px 0; }
+  .lane {
+    border: 1.5px solid var(--border); border-radius: 12px;
+    padding: 18px 22px; margin-bottom: 6px; cursor: pointer;
+    transition: all 0.18s ease; background: var(--bg-card);
+  }
+  .lane.engine.sel { border-color: var(--engine); box-shadow: 0 0 0 1px var(--engine), 0 8px 30px -10px var(--engine-dim); }
+  .lane.supervisor.sel { border-color: var(--supervisor); box-shadow: 0 0 0 1px var(--supervisor), 0 8px 30px -10px var(--supervisor-dim); }
+  .lane.dim { opacity: 0.42; }
+  .lane-head { display: flex; align-items: center; gap: 12px; margin-bottom: 4px; }
+  .lane-tag { font-family: var(--mono); font-size: 11px; padding: 3px 9px; border-radius: 5px; letter-spacing: 0.5px; }
+  .lane.engine .lane-tag { background: var(--engine-dim); color: var(--engine); }
+  .lane.supervisor .lane-tag { background: var(--supervisor-dim); color: var(--supervisor); }
+  .lane-title { font-size: 17px; font-weight: 700; }
+  .lane-sub { font-family: var(--mono); font-size: 11.5px; color: var(--text-dim); }
+  .lane-owns { font-size: 13px; color: var(--text-mid); margin-top: 8px; }
+  .lane-connector { text-align: center; font-family: var(--mono); font-size: 12px; color: var(--supervisor); padding: 4px 0; }
+
+  /* ---------- Detail blocks (pre-rendered, toggled) ---------- */
+  .detail-wrap {
+    margin-top: 16px; background: var(--bg-card); border: 1px solid var(--border);
+    border-radius: 10px; overflow: hidden;
+  }
+  .detail-block { display: none; padding: 18px 20px; font-size: 13.5px; }
+  .detail-block.active { display: block; }
+  .detail-block p { font-size: 13.5px; }
+  .detail-block p:last-child { margin-bottom: 0; }
+  .detail-head {
+    font-weight: 700; font-size: 15px; margin-bottom: 10px;
+    display: flex; align-items: center; gap: 10px;
+  }
+  .detail-meta {
+    font-family: var(--mono); font-size: 11.5px; color: var(--text-dim);
+    margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border);
+  }
+
+  /* ---------- Lifecycle flow ---------- */
+  .flow { display: flex; flex-direction: column; gap: 0; margin: 22px 0; }
+  .flow-node {
+    border: 1.5px solid var(--border); background: var(--bg-card);
+    border-radius: 10px; padding: 12px 16px; cursor: pointer;
+    transition: all 0.15s ease; display: flex; align-items: center; gap: 14px;
+  }
+  .flow-node:hover { border-color: var(--border-bright); }
+  .flow-node.static { cursor: default; }
+  .flow-node.static:hover { border-color: var(--border); }
+  .flow-node.phase-human.sel { border-color: var(--violet); background: var(--bg-3); }
+  .flow-node.phase-super.sel { border-color: var(--supervisor); background: var(--bg-3); }
+  .flow-node.phase-engine.sel { border-color: var(--engine); background: var(--bg-3); }
+  .flow-node.phase-gate.sel { border-color: var(--gate); background: var(--bg-3); }
+  .flow-badge {
+    font-family: var(--mono); font-size: 10px; padding: 2px 7px;
+    border-radius: 4px; flex-shrink: 0; width: 82px; text-align: center; letter-spacing: 0.5px;
+  }
+  .phase-human .flow-badge { background: var(--violet-dim); color: var(--violet); }
+  .phase-super .flow-badge { background: var(--supervisor-dim); color: var(--supervisor); }
+  .phase-engine .flow-badge { background: var(--engine-dim); color: var(--engine); }
+  .phase-gate .flow-badge { background: var(--gate-dim); color: var(--gate); }
+  .flow-hash .flow-badge { background: var(--engine-dim); color: var(--engine); }
+  .flow-name { font-weight: 600; font-size: 14px; flex: 1; }
+  .flow-cmd { font-family: var(--mono); font-size: 11px; color: var(--text-dim); }
+  .flow-arrow { text-align: center; color: var(--text-dim); font-size: 13px; line-height: 1; padding: 3px 0; }
+
+  /* ---------- Stepper ---------- */
+  .stepper { margin: 22px 0; }
+  .step-track { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 16px; }
+  .step-dot {
+    width: 38px; height: 38px; border-radius: 9px;
+    border: 1.5px solid var(--border); background: var(--bg-card);
+    color: var(--text-dim); font-family: var(--mono); font-size: 13px;
+    font-weight: 600; cursor: pointer; display: flex; align-items: center;
+    justify-content: center; transition: all 0.13s ease; flex-shrink: 0;
+  }
+  .step-dot:hover { border-color: var(--border-bright); color: var(--text); }
+  .step-dot.done { color: var(--go); border-color: var(--go-dim); }
+  .step-dot.sel { border-color: var(--engine); color: var(--engine); background: var(--bg-3); }
+  .step-panels {
+    background: var(--bg-card); border: 1px solid var(--border);
+    border-radius: 10px; padding: 18px 22px; min-height: 150px;
+  }
+  .step-panel { display: none; }
+  .step-panel.active { display: block; }
+  .step-panel .sp-title { font-size: 16px; font-weight: 700; margin-bottom: 4px; }
+  .step-panel .sp-tag {
+    font-family: var(--mono); font-size: 10.5px; color: var(--text-dim);
+    margin-bottom: 12px; display: block;
+  }
+  .step-panel p { font-size: 13.5px; margin-bottom: 0; }
+  .step-nav { display: flex; gap: 10px; margin-top: 14px; }
+  .step-btn {
+    background: var(--bg-3); border: 1px solid var(--border); color: var(--text-mid);
+    padding: 6px 16px; border-radius: 7px; cursor: pointer;
+    font-size: 12.5px; font-family: var(--sans);
+  }
+  .step-btn:hover { border-color: var(--engine); color: var(--text); }
+  .step-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+  .step-counter { font-family: var(--mono); font-size: 12px; color: var(--text-dim); align-self: center; margin-left: 4px; }
+
+  /* ---------- Failure matrix ---------- */
+  .matrix { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 22px 0; }
+  .fcell {
+    border: 1.5px solid var(--border); background: var(--bg-card);
+    border-radius: 10px; padding: 14px; cursor: pointer; transition: all 0.15s ease;
+  }
+  .fcell:hover { border-color: var(--border-bright); }
+  .fcell.bad.sel { border-color: var(--gate); background: var(--bg-3); }
+  .fcell.ok.sel { border-color: var(--go); background: var(--bg-3); }
+  .fcell .fc-name { font-family: var(--mono); font-size: 12px; font-weight: 600; margin-bottom: 8px; }
+  .fcell.ok .fc-name { color: var(--go); }
+  .fcell.bad .fc-name { color: var(--gate); }
+  .fc-flags { display: flex; gap: 5px; flex-wrap: wrap; }
+  .fc-flag {
+    font-family: var(--mono); font-size: 9.5px; padding: 2px 6px;
+    border-radius: 4px; background: var(--bg-3); color: var(--text-dim);
+  }
+  .fc-flag.yes { background: var(--go-dim); color: var(--go); }
+  .fc-flag.no { background: var(--gate-dim); color: var(--gate); }
+
+  /* ---------- Tabs ---------- */
+  .tabs { display: flex; gap: 6px; margin: 20px 0 0; flex-wrap: wrap; }
+  .tab {
+    padding: 8px 16px; background: var(--bg-card); border: 1px solid var(--border);
+    border-bottom: none; border-radius: 8px 8px 0 0; cursor: pointer;
+    font-size: 13px; color: var(--text-dim); font-family: var(--mono);
+  }
+  .tab:hover { color: var(--text); }
+  .tab.sel { color: var(--engine); background: var(--bg-3); border-color: var(--engine); }
+  .tab-body {
+    border: 1px solid var(--border); border-radius: 0 10px 10px 10px;
+    padding: 20px 22px; background: var(--bg-3);
+  }
+  .tab-pane { display: none; }
+  .tab-pane.sel { display: block; }
+  .tab-pane h4:first-child { margin-top: 0; }
+
+  /* ---------- Code blocks ---------- */
+  pre {
+    background: #0a0d12; border: 1px solid var(--border); border-radius: 9px;
+    padding: 15px 18px; overflow-x: auto; margin: 14px 0;
+    font-family: var(--mono); font-size: 12.5px; line-height: 1.65; color: var(--text-mid);
+  }
+  pre .c-key { color: var(--engine); }
+  pre .c-sup { color: var(--supervisor); }
+  pre .c-cmt { color: var(--text-dim); font-style: italic; }
+  pre .c-gate { color: var(--gate); }
+
+  /* ---------- Tables ---------- */
+  table { width: 100%; border-collapse: collapse; margin: 16px 0; font-size: 13px; }
+  th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--border); }
+  th { color: var(--text-dim); font-weight: 600; font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.5px; }
+  td { color: var(--text-mid); }
+  td code { font-size: 11.5px; }
+  tr:hover td { background: var(--bg-card); }
+
+  /* ---------- Tree ---------- */
+  .tree {
+    font-family: var(--mono); font-size: 12px; background: #0a0d12;
+    border: 1px solid var(--border); border-radius: 9px; padding: 16px 20px;
+    color: var(--text-dim); line-height: 1.75; overflow-x: auto; white-space: pre;
+  }
+  .tree .t-dir { color: var(--engine); }
+  .tree .t-key { color: var(--text); }
+  .tree .t-cmt { color: var(--text-dim); }
+  .tree .t-sup { color: var(--supervisor); }
+
+  /* ---------- Authority order ---------- */
+  .authority { display: flex; flex-direction: column; gap: 8px; margin: 18px 0; }
+  .auth-row {
+    display: flex; align-items: center; gap: 14px; background: var(--bg-card);
+    border: 1px solid var(--border); border-radius: 9px; padding: 11px 16px;
+  }
+  .auth-rank { font-family: var(--mono); font-size: 16px; font-weight: 700; width: 26px; text-align: center; }
+  .auth-1 { color: var(--gate); }
+  .auth-2 { color: var(--supervisor); }
+  .auth-3 { color: var(--engine); }
+  .auth-4 { color: var(--text-dim); }
+  .auth-name { font-weight: 600; font-size: 14px; }
+  .auth-desc { font-size: 12.5px; color: var(--text-dim); margin-top: 1px; }
+  .auth-bar { flex: 1; height: 6px; border-radius: 3px; background: var(--bg-3); overflow: hidden; }
+  .auth-bar div { height: 100%; }
+
+  .pill { display: inline-block; font-family: var(--mono); font-size: 10.5px; padding: 2px 8px; border-radius: 10px; margin: 0 2px; }
+  .pill.engine { background: var(--engine-dim); color: var(--engine); }
+  .pill.supervisor { background: var(--supervisor-dim); color: var(--supervisor); }
+  .pill.gate { background: var(--gate-dim); color: var(--gate); }
+  .pill.go { background: var(--go-dim); color: var(--go); }
+  .pill.human { background: var(--violet-dim); color: var(--violet); }
+
+  .footer-note {
+    margin-top: 40px; padding-top: 20px; border-top: 1px solid var(--border);
+    font-size: 12.5px; color: var(--text-dim); line-height: 1.9;
+  }
+  .progress-hint { font-size: 12px; color: var(--text-dim); font-family: var(--mono); margin-top: 8px; }
+
+  @media (max-width: 920px) {
+    .sidebar { display: none; }
+    .main { padding: 30px 22px 80px; }
+    .card-grid, .matrix { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<nav class="sidebar">
+  <h1>Stage Workflow Runner</h1>
+  <div class="tagline">interactive operator explainer</div>
+  <a class="nav-item active" data-target="s-start"><span class="nav-num">00</span>Start here</a>
+  <a class="nav-item" data-target="s-principles"><span class="nav-num">01</span>First principles</a>
+  <a class="nav-item" data-target="s-lanes"><span class="nav-num">02</span>The two lanes</a>
+  <a class="nav-item" data-target="s-lifecycle"><span class="nav-num">03</span>The whole lifecycle</a>
+  <a class="nav-item" data-target="s-prestage"><span class="nav-num">04</span>Before the first stage</a>
+  <a class="nav-item" data-target="s-stage"><span class="nav-num">05</span>Inside one stage</a>
+  <a class="nav-item" data-target="s-review"><span class="nav-num">06</span>The review loop</a>
+  <a class="nav-item" data-target="s-failure"><span class="nav-num">07</span>When a stage fails</a>
+  <a class="nav-item" data-target="s-workflows"><span class="nav-num">08</span>The workflows</a>
+  <a class="nav-item" data-target="s-evidence"><span class="nav-num">09</span>The evidence chain</a>
+  <a class="nav-item" data-target="s-glossary"><span class="nav-num">10</span>Glossary</a>
+  <div class="nav-hint">click diagrams ·<br/>steppers · cards<br/>&larr; &rarr; switch sections</div>
+</nav>
+
+<main class="main">
+
+<!-- ============ 00 START HERE ============ -->
+<section id="s-start" class="active">
+  <div class="kicker">Start here</div>
+  <h2>What you are about to operate</h2>
+  <p class="lede">
+    The Stage Workflow Runner is a <strong>manifest-driven runner for high-stakes, staged
+    OpenAI Responses workflows</strong>. It treats every artifact as evidence —
+    schema-versioned, hashed, and confined to a single workspace root — so that a
+    <code>tar</code> of that root is a complete, replayable audit trail.
+  </p>
+
+  <div class="callout">
+    <span class="label">Read this sentence three times</span>
+    <p><strong>High-stakes</strong> — the design assumes an answer could be wrong in a way
+    that costs money or trust, so every claim must trace to a hashed file.
+    <strong>Staged</strong> — work is split into ordered stages with review gates between
+    them. <strong>Manifest-driven</strong> — you define a workflow with JSON + Markdown in
+    a <em>task pack</em>, never with Python. The engine is generic; the task pack is the
+    workflow.</p>
+  </div>
+
+  <h3>How to use this page</h3>
+  <p>
+    This is built to take you from <strong>first principles</strong> to a complete mental
+    model, step by step. Everything is interactive — diagrams light up, steppers walk you
+    through sequences, cards expand. Go in order the first time:
+  </p>
+  <ol>
+    <li><strong>First principles</strong> — the six ideas everything else is derived from.</li>
+    <li><strong>The two lanes</strong> — the single most important architectural fact.</li>
+    <li><strong>The whole lifecycle</strong> — the big map, from "a human has a task" to "final bundle".</li>
+    <li><strong>Before the first stage</strong> — the pre-flight sequence that runs before anything touches OpenAI.</li>
+    <li><strong>Inside one stage</strong> — what actually happens in a single unit of work.</li>
+    <li><strong>The review loop</strong>, <strong>when a stage fails</strong>, <strong>the workflows</strong>, <strong>the evidence chain</strong> — the working detail.</li>
+  </ol>
+
+  <div class="callout go">
+    <span class="label">The fastest way to build intuition</span>
+    <p>After this page: dry-run the synthetic one-pass workflow, then open every file it
+    wrote under <code>.local/automation/responses_runner_v2/runs/</code>. The engine's
+    entire contract is visible in those artifacts. The companion file
+    <code>docs/stage-workflow-runner-onboarding.md</code> is the text reference for
+    everything shown here.</p>
+  </div>
+
+  <h3>The shape of the system at a glance</h3>
+  <pre><span class="c-cmt"># A TASK PACK is pure config — no code</span>
+task_pack/
+  workflows/*.workflow.json      <span class="c-cmt"># stage order, gates, models, carry-forward</span>
+  inputs/*.input_manifest.json   <span class="c-cmt"># what files attach to each stage</span>
+  prompts/*.md                   <span class="c-cmt"># one task prompt per stage</span>
+  tools/*.profile.json           <span class="c-cmt"># optional per-stage tool config</span>
+  schemas/*.schema.json          <span class="c-cmt"># optional structured-output schemas</span>
+  shared_instructions.md         <span class="c-cmt"># instructions applied to every stage</span>
+        <span class="c-key">|</span>
+        <span class="c-key">v</span>
+<span class="c-key">THE ENGINE</span> reads the manifests, talks to OpenAI, and writes durable hashed
+artifacts under one workspace root. <span class="c-sup">THE SUPERVISOR</span> wraps the engine with
+policy: staging, gating, multi-agent review, failure classification, recovery.</pre>
+</section>
+
+<!-- ============ 01 FIRST PRINCIPLES ============ -->
+<section id="s-principles">
+  <div class="kicker">01 · First principles</div>
+  <h2>Six ideas everything derives from</h2>
+  <p class="lede">
+    Click each card. If you understand only one section of this whole explainer, make it
+    this one — every command, artifact, and guardrail is a consequence of these six.
+  </p>
+
+  <div class="card-grid">
+    <div class="xcard" data-card>
+      <div class="xhead"><span class="xnum">P1</span><span class="xtitle">One workspace root, mechanically enforced</span><span class="xchev">&#9656;</span></div>
+      <div class="xbody">
+        <p>Every invocation operates against <strong>one exact workspace root</strong>.
+        Resolution order: explicit <code>--root</code> &rarr;
+        <code>RESPONSES_RUNNER_V2_ROOT</code> &rarr; current working directory.</p>
+        <p>This is not a convention you are trusted to follow. Every path passes through
+        one function, <code>resolve_under_root()</code>, which resolves symlinks and then
+        checks the path is under the root. Outside the root &rarr; the process exits. A
+        symlink cannot sneak a file in or out.</p>
+        <p><strong>For you:</strong> <code>Path must stay under workspace root</code> means
+        you pointed at something outside the root. Never "force it" — move the asset or
+        fix <code>--root</code>.</p>
+      </div>
+    </div>
+
+    <div class="xcard" data-card>
+      <div class="xhead"><span class="xnum">P2</span><span class="xtitle">Every artifact is evidence</span><span class="xchev">&#9656;</span></div>
+      <div class="xbody">
+        <p>Every file the runner writes is <strong>schema-versioned</strong> (a string
+        like <code>responses_runner_v2.run_manifest.v1</code>, treated like a wire
+        protocol), <strong>hashed</strong> (SHA-256 of files and payloads), and
+        <strong>confined</strong> under <code>.local/</code> (git-ignored, never
+        re-attached to a future run).</p>
+        <p>The payoff: claims are back-traceable. The rendered
+        <code>input_manifest.md</code> lists a short hash for every attached file; you can
+        recompute it to verify the model cited a real file.</p>
+      </div>
+    </div>
+
+    <div class="xcard" data-card>
+      <div class="xhead"><span class="xnum">P3</span><span class="xtitle">Responses run in the background — the local process is disposable</span><span class="xchev">&#9656;</span></div>
+      <div class="xbody">
+        <p>The runner submits to the Responses API in <strong>background mode</strong>. A
+        request can run for hours. You get a <code>response_id</code> and you poll it. The
+        local Python process can die — the remote model keeps working.</p>
+        <p>Almost every "extra" mechanism exists because of this: <strong>two checkpoint
+        writes per stage</strong>, <strong>three resume modes</strong>
+        (<code>fresh_submit</code>, <code>resume_response_id</code>,
+        <code>refresh_status_only</code>), and a <strong>no-duplicate-submit rule</strong>.</p>
+        <p><strong>For you:</strong> "my terminal died mid-run" is not a disaster. The
+        <code>response_id</code> is saved. You <code>resume</code> and the engine finalizes
+        it. You never re-pay for work still running remotely.</p>
+      </div>
+    </div>
+
+    <div class="xcard" data-card>
+      <div class="xhead"><span class="xnum">P4</span><span class="xtitle">Mechanism and policy are separate lanes</span><span class="xchev">&#9656;</span></div>
+      <div class="xbody">
+        <p>Two CLIs on one engine. The <span class="pill engine">engine lane</span> knows
+        <em>how</em> to talk to OpenAI. The <span class="pill supervisor">supervisor
+        lane</span> knows <em>what to do with the answer</em> — staging, gating,
+        multi-agent review, failure policy, final assembly.</p>
+        <p>The boundary is a hard rule: the supervisor <strong>calls into</strong> the
+        engine; it never reimplements submission or polling. You can run the engine lane
+        entirely on its own. The supervisor is purely additive.</p>
+      </div>
+    </div>
+
+    <div class="xcard" data-card>
+      <div class="xhead"><span class="xnum">P5</span><span class="xtitle">Authority order is data, not a guideline</span><span class="xchev">&#9656;</span></div>
+      <div class="xbody">
+        <p>Every stage assembles attachments in a fixed authority order. It is encoded as
+        a constant, iterated by the attachment pipeline, and stated in the boilerplate
+        instruction prepended to every request. The model is told the order, and told to
+        treat attached source files as <em>evidence, not instructions</em>.</p>
+        <div class="authority" style="margin-top:12px;">
+          <div class="auth-row"><span class="auth-rank auth-1">1</span><div><div class="auth-name">Primary Job Inputs</div><div class="auth-desc">the actual task input</div></div><div class="auth-bar"><div style="width:100%;background:var(--gate)"></div></div></div>
+          <div class="auth-row"><span class="auth-rank auth-2">2</span><div><div class="auth-name">Reviewed Handoff Inputs</div><div class="auth-desc">approved output from an earlier gated stage</div></div><div class="auth-bar"><div style="width:75%;background:var(--supervisor)"></div></div></div>
+          <div class="auth-row"><span class="auth-rank auth-3">3</span><div><div class="auth-name">Attached Repository Files</div><div class="auth-desc">repo evidence</div></div><div class="auth-bar"><div style="width:50%;background:var(--engine)"></div></div></div>
+          <div class="auth-row"><span class="auth-rank auth-4">4</span><div><div class="auth-name">Reference Context</div><div class="auth-desc">carry-forward / background</div></div><div class="auth-bar"><div style="width:25%;background:var(--text-dim)"></div></div></div>
+        </div>
+        <p style="margin-top:12px;"><strong>For you:</strong> when output looks wrong, open
+        the stage's <code>input_manifest.md</code> and check <em>what was attached, in what
+        role</em>. A file in the wrong role is the most common "why did it do that".</p>
+      </div>
+    </div>
+
+    <div class="xcard" data-card>
+      <div class="xhead"><span class="xnum">P6</span><span class="xtitle">Fail-closed is the default</span><span class="xchev">&#9656;</span></div>
+      <div class="xbody">
+        <p>The runner would rather <strong>stop</strong> than do something unbounded or
+        unverifiable: token preflight is a fail-closed gate (over-budget &rarr; terminal,
+        no retry); schema validation runs before writes; a review-bundle hash mismatch
+        refuses the load; a read-only review violation fails the review; output-limit
+        incomplete outcomes never auto-progress.</p>
+        <p><strong>For you:</strong> a stopped run is the system <em>working</em>. Your job
+        is to read <em>why</em> it stopped — the <code>SystemExit</code> message names the
+        exact guardrail.</p>
+      </div>
+    </div>
+  </div>
+  <p class="progress-hint">// click every card before moving on — these are the foundation</p>
+</section>
+
+<!-- ============ 02 TWO LANES ============ -->
+<section id="s-lanes">
+  <div class="kicker">02 · The two lanes</div>
+  <h2>One engine, two lanes</h2>
+  <p class="lede">
+    Click a lane to see what it owns. This separation — mechanism vs. policy — is the
+    single most important architectural fact about the runner.
+  </p>
+
+  <div class="lanes">
+    <div class="lane supervisor" data-lane="supervisor">
+      <div class="lane-head"><span class="lane-tag">POLICY</span><span class="lane-title">Supervisor lane</span></div>
+      <div class="lane-sub">run_responses_supervisor_v2.py &nbsp;·&nbsp; supervisor.py + supervisor_agents.py + supervisor_artifacts.py + supervisor_policies.py</div>
+      <div class="lane-owns">Decides <em>what to do with the answer</em>: session state, scaffold staging, static examination, dry-run gating, the 3-agent review loop, consolidation, operator acceptance, 6-way failure classification, archive-before-rerun, human pauses, final bundle assembly.</div>
+    </div>
+    <div class="lane-connector">&#8595;&nbsp; calls into &nbsp; run_workflow() &nbsp;/&nbsp; create_review_bundle() &nbsp;&#8595;</div>
+    <div class="lane engine" data-lane="engine">
+      <div class="lane-head"><span class="lane-tag">MECHANISM</span><span class="lane-title">Engine lane</span></div>
+      <div class="lane-sub">run_responses_v2.py &nbsp;·&nbsp; contracts.py + pack_loader.py + workflow.py + attachments.py + artifacts.py + review_bundle.py + sidecar.py + openai_client.py</div>
+      <div class="lane-owns">Knows <em>how to talk to OpenAI</em>: workflow loading, input-manifest expansion, file uploads, request construction, token preflight, Responses API submission, polling / resume / refresh, artifact finalization, sidecar extraction, review-bundle validation.</div>
+    </div>
+  </div>
+
+  <div class="detail-wrap" id="lane-detail">
+    <div class="detail-block" data-lane-detail="engine">
+      <div class="detail-head"><span class="pill engine">MECHANISM</span>Engine lane</div>
+      <p>Generic and reusable: point it at any task pack and it runs. It loads and
+      validates the workflow, expands input manifests, uploads files, builds the request,
+      runs token preflight, submits to the Responses API, polls / resumes / refreshes,
+      finalizes artifacts, runs the sidecar extraction, and validates review bundles.
+      Eight modules; <strong>zero third-party runtime dependencies</strong>. You can
+      operate this lane entirely on its own — manually creating review bundles with
+      <code>create_review_bundle_v2.py</code> when a stage needs review.</p>
+    </div>
+    <div class="detail-block" data-lane-detail="supervisor">
+      <div class="detail-head"><span class="pill supervisor">POLICY</span>Supervisor lane</div>
+      <p>Purely additive. It answers "what do I do with the engine's output?" — especially
+      when failure is messy or review is mandatory. It owns session state, scaffold
+      staging, the static examination gate, the executable dry-run gate, the 3-agent
+      review loop, deterministic consolidation, operator selective acceptance, 6-way
+      failure classification, archive-before-rerun, human-pause records, and final
+      implementation-bundle assembly. It calls <em>into</em> the engine —
+      <code>run_workflow()</code>, <code>create_review_bundle()</code> — and never
+      reimplements submission or polling.</p>
+    </div>
+  </div>
+
+  <h3>The four entry points</h3>
+  <table>
+    <tr><th>Script</th><th>Console script</th><th>Purpose</th></tr>
+    <tr><td><code>run_responses_v2.py</code></td><td><code>staged-workflow-run</code></td><td>Generic engine: <code>run</code> / <code>resume</code> / <code>refresh</code> a stage</td></tr>
+    <tr><td><code>run_responses_supervisor_v2.py</code></td><td><code>staged-workflow-supervisor</code></td><td>Supervisor: session, scaffold, review loop, classify, finalize</td></tr>
+    <tr><td><code>create_review_bundle_v2.py</code></td><td><code>staged-workflow-create-bundle</code></td><td>Build an approved review bundle by hand</td></tr>
+    <tr><td><code>run_responses_v2_eval.py</code></td><td><code>staged-workflow-eval</code></td><td>Score artifacts against an eval dataset; check a freeze gate</td></tr>
+  </table>
+
+  <div class="callout engine">
+    <span class="label">Notable</span>
+    <p>The engine's HTTP client is <strong>standard-library only</strong> —
+    <code>urllib</code>, not <code>requests</code> or <code>httpx</code>, with hand-rolled
+    multipart upload. The core engine has <strong>zero third-party runtime
+    dependencies</strong>. <code>jsonschema</code> and <code>pytest</code> are optional.</p>
+  </div>
+</section>
+
+<!-- ============ 03 LIFECYCLE ============ -->
+<section id="s-lifecycle">
+  <div class="kicker">03 · The whole lifecycle</div>
+  <h2>From "a human has a task" to "final bundle"</h2>
+  <p class="lede">
+    This is the big map. Click any node to walk through it. Notice the colors:
+    <span class="pill human">human</span>
+    <span class="pill supervisor">supervisor</span>
+    <span class="pill gate">gate</span>
+    <span class="pill engine">engine</span>
+    — and notice that <strong>nothing touches OpenAI until node 7</strong>.
+  </p>
+
+  <div class="flow" id="lifecycle-flow">
+    <div class="flow-node phase-human" data-node="0"><span class="flow-badge">HUMAN</span><span class="flow-name">0 · Clarification gate</span><span class="flow-cmd">accept clarified_task_brief.md</span></div>
+    <div class="flow-arrow">&#8595;</div>
+    <div class="flow-node phase-super" data-node="1"><span class="flow-badge">SUPERVISOR</span><span class="flow-name">1 · Initialize session</span><span class="flow-cmd">init-session</span></div>
+    <div class="flow-arrow">&#8595;</div>
+    <div class="flow-node phase-super" data-node="2"><span class="flow-badge">SUPERVISOR</span><span class="flow-name">2 · Stage the scaffold</span><span class="flow-cmd">stage-scaffold</span></div>
+    <div class="flow-arrow">&#8595;</div>
+    <div class="flow-node phase-gate" data-node="3"><span class="flow-badge">GATE</span><span class="flow-name">3 · Examine scaffold (static)</span><span class="flow-cmd">examine-scaffold</span></div>
+    <div class="flow-arrow">&#8595;</div>
+    <div class="flow-node phase-gate" data-node="4"><span class="flow-badge">GATE</span><span class="flow-name">4 · Dry-run scaffold (executable)</span><span class="flow-cmd">dry-run-scaffold</span></div>
+    <div class="flow-arrow">&#8595;</div>
+    <div class="flow-node phase-super" data-node="5"><span class="flow-badge">SUPERVISOR</span><span class="flow-name">5 · Scaffold review cycle</span><span class="flow-cmd">operator &rarr; reviewers &rarr; consolidate &rarr; accept</span></div>
+    <div class="flow-arrow">&#8595;</div>
+    <div class="flow-node phase-gate" data-node="6"><span class="flow-badge">GATE</span><span class="flow-name">6 · Launch allowed?</span><span class="flow-cmd">assert_scaffold_launch_allowed</span></div>
+    <div class="flow-arrow">&#8595;&nbsp;&nbsp;first contact with OpenAI&nbsp;&nbsp;&#8595;</div>
+    <div class="flow-node phase-engine" data-node="7"><span class="flow-badge">ENGINE</span><span class="flow-name">7 · Run Stage N (live)</span><span class="flow-cmd">run --wait</span></div>
+    <div class="flow-arrow">&#8595;</div>
+    <div class="flow-node phase-super" data-node="8"><span class="flow-badge">SUPERVISOR</span><span class="flow-name">8 · Classify the outcome</span><span class="flow-cmd">classify</span></div>
+    <div class="flow-arrow">&#8595;</div>
+    <div class="flow-node phase-super" data-node="9"><span class="flow-badge">SUPERVISOR</span><span class="flow-name">9 · Stage review cycle &rarr; approved bundle</span><span class="flow-cmd">review loop &rarr; create-bundle</span></div>
+    <div class="flow-arrow">&#8634;&nbsp;&nbsp;repeat 7&ndash;9 for each stage&nbsp;&nbsp;&#8595;</div>
+    <div class="flow-node phase-super" data-node="10"><span class="flow-badge">SUPERVISOR</span><span class="flow-name">10 · Finalize the implementation bundle</span><span class="flow-cmd">finalize-bundle</span></div>
+  </div>
+
+  <div class="detail-wrap" id="lifecycle-detail">
+    <div class="detail-block" data-node-detail="0">
+      <div class="detail-head"><span class="pill human">HUMAN</span>0 · Human clarification gate</div>
+      <p>The <strong>only mandatory human step</strong>. A human supplies a task; the
+      operator asks clarifying questions if needed; the human accepts a clarified task
+      brief. Nothing automated runs until a brief is accepted. After this gate, normal
+      execution is AI-operated — human pauses become exception paths only.</p>
+      <div class="detail-meta">actor: human + operator · output: clarified_task_brief.md</div>
+    </div>
+    <div class="detail-block" data-node-detail="1">
+      <div class="detail-head"><span class="pill supervisor">SUPERVISOR</span>1 · Initialize the session</div>
+      <p>Creates the supervisor session JSON — the single source of truth. It records the
+      brief's path and SHA-256, the locked model defaults, the policy block, the retry
+      budget, and empty arrays for everything that will accumulate (scaffolds, review
+      cycles, archives, ...). Every later write to this file is schema-validated and
+      atomically renamed into place.</p>
+      <div class="detail-meta">command: init-session · status &rarr; "clarified" · phase &rarr; "scaffold"</div>
+    </div>
+    <div class="detail-block" data-node-detail="2">
+      <div class="detail-head"><span class="pill supervisor">SUPERVISOR</span>2 · Stage the scaffold</div>
+      <p>Copies the entire task pack <em>into</em> the session at
+      <code>scaffolds/scaffold_001/source/</code> and writes a
+      <code>hash_manifest.json</code> of every file. From now on the supervisor reviews
+      and gates this frozen, hashed copy — not your working tree.</p>
+      <div class="detail-meta">command: stage-scaffold · status &rarr; "scaffold_staged"</div>
+    </div>
+    <div class="detail-block" data-node-detail="3">
+      <div class="detail-head"><span class="pill gate">GATE</span>3 · Examine the scaffold (STATIC gate)</div>
+      <p>The static pre-launch gate. It validates <em>without constructing a Stage 1
+      request</em>: the workflow manifest schema, that the model posture matches the
+      locked defaults, that there is exactly one terminal stage and it is last, that every
+      non-terminal stage is review-gated, that sidecar / output schemas use no unsupported
+      keywords (if / then / oneOf / allOf / not / ...), the tool profiles, the attachment
+      inventory, and that each stage prompt is substantive. Blocking issues &rarr; session
+      "blocked".</p>
+      <div class="detail-meta">command: examine-scaffold · emits scaffold_examination.{json,md}</div>
+    </div>
+    <div class="detail-block" data-node-detail="4">
+      <div class="detail-head"><span class="pill gate">GATE</span>4 · Dry-run the scaffold (EXECUTABLE gate)</div>
+      <p>The executable gate. It calls the engine's <code>run_workflow(dry_run=True)</code>:
+      the engine resolves inputs and <em>writes a request payload</em>, but never calls
+      the API. Where <code>examine-scaffold</code> proves the scaffold is well-formed,
+      <code>dry-run-scaffold</code> proves a real Stage 1 request can actually be
+      constructed from it.</p>
+      <div class="detail-meta">command: dry-run-scaffold · calls the engine with dry_run=True</div>
+    </div>
+    <div class="detail-block" data-node-detail="5">
+      <div class="detail-head"><span class="pill supervisor">SUPERVISOR</span>5 · Scaffold review cycle</div>
+      <p>The full 3-agent review loop, applied to the scaffold itself. The accountable
+      operator Codex runs first and writes a provisional decision; the independent
+      read-only Codex and Claude reviewers run next; consolidation merges findings
+      (advisory only); the operator records a selective-acceptance decision with
+      applied-change evidence. See section 06 for the full loop.</p>
+      <div class="detail-meta">review_kind: scaffold · operator &rarr; reviewers &rarr; consolidate &rarr; accept</div>
+    </div>
+    <div class="detail-block" data-node-detail="6">
+      <div class="detail-head"><span class="pill gate">GATE</span>6 · Launch allowed?</div>
+      <p>The launch check passes <em>only</em> when the latest scaffold version is marked
+      "accepted" AND an accepted scaffold review cycle exists. This is the boundary:
+      everything before it is preparation; everything after it spends tokens. By the time
+      Stage 1's request reaches OpenAI, the workflow has been validated four different
+      ways.</p>
+      <div class="detail-meta">check: assert_scaffold_launch_allowed</div>
+    </div>
+    <div class="detail-block" data-node-detail="7">
+      <div class="detail-head"><span class="pill engine">ENGINE</span>7 · Run Stage N (LIVE)</div>
+      <p>The first thing that ever reaches OpenAI. The engine resolves attachments,
+      renders + uploads the input manifest, writes the request payload, runs token
+      preflight, POSTs to <code>/responses</code>, writes checkpoint #1, polls to a
+      terminal status, writes <code>response.final.*</code>, extracts structured output
+      and runs the sidecar if configured, then writes checkpoint #2. Walk the full loop in
+      section 05.</p>
+      <div class="detail-meta">command: run --wait · the engine's 12-step stage loop</div>
+    </div>
+    <div class="detail-block" data-node-detail="8">
+      <div class="detail-head"><span class="pill supervisor">SUPERVISOR</span>8 · Classify the outcome</div>
+      <p>The supervisor inspects the stage checkpoint and response markdown and assigns
+      exactly one of six classifications, each with its own (reviewable, bundle-able,
+      rerun) triple and recovery action. See section 07. Only
+      <code>completed_complete_artifact</code> and <code>failed_complete_artifact</code>
+      are reviewable.</p>
+      <div class="detail-meta">command: classify · emits a stage_outcome.v1 record</div>
+    </div>
+    <div class="detail-block" data-node-detail="9">
+      <div class="detail-head"><span class="pill supervisor">SUPERVISOR</span>9 · Stage review cycle &rarr; approved bundle</div>
+      <p>If the stage is reviewable, run the same 3-agent loop on its output (review_kind =
+      stage_output). On an approving acceptance record, <code>create-bundle</code> produces
+      the approved review bundle — the contract the next stage consumes as Reviewed
+      Handoff Inputs. Then loop back to node 7 for the next stage.</p>
+      <div class="detail-meta">review_kind: stage_output · ends with create-bundle</div>
+    </div>
+    <div class="detail-block" data-node-detail="10">
+      <div class="detail-head"><span class="pill supervisor">SUPERVISOR</span>10 · Finalize the implementation bundle</div>
+      <p>The terminal artifact. <code>finalize-bundle</code> schema-validates the packet.
+      The schema requires that <code>file_inventory[]</code> and
+      <code>emitted_files[]</code> are the identical set of paths — the "no half-finished
+      implementations, no hidden files" guarantee — plus all three agent reviews, an
+      approving <code>operator_acceptance</code> record, validation evidence, a
+      model-migration summary, a failure-policy summary, a human-pause summary, rollout
+      instructions, and residual risks.</p>
+      <div class="detail-meta">command: finalize-bundle · session status &rarr; "completed"</div>
+    </div>
+  </div>
+
+  <div class="callout">
+    <span class="label">If you only run the engine lane</span>
+    <p>The whole left side collapses to: put the task pack under the root, then
+    <code>run --dry-run</code>. That dry-run is your single pre-flight check. The
+    supervisor lane is what <em>adds</em> staging, the two gates, and automated multi-agent
+    review on top.</p>
+  </div>
+</section>
+
+<!-- ============ 04 BEFORE FIRST STAGE ============ -->
+<section id="s-prestage">
+  <div class="kicker">04 · Before the first stage</div>
+  <h2>What happens between "go" and Stage 1</h2>
+  <p class="lede">
+    This is the part newcomers miss. In the supervisor lane, a great deal happens before
+    Stage 1 runs — and <strong>none of it touches OpenAI</strong>. Step through it.
+  </p>
+
+  <div class="stepper" data-stepper="prestage">
+    <div class="step-track">
+      <div class="step-dot sel" data-dot="0">0</div>
+      <div class="step-dot" data-dot="1">1</div>
+      <div class="step-dot" data-dot="2">2</div>
+      <div class="step-dot" data-dot="3">3</div>
+      <div class="step-dot" data-dot="4">4</div>
+      <div class="step-dot" data-dot="5">5</div>
+      <div class="step-dot" data-dot="6">6</div>
+    </div>
+    <div class="step-panels">
+      <div class="step-panel active" data-panel="0">
+        <div class="sp-title">Human clarification gate</div>
+        <span class="sp-tag">actor: human · the only mandatory human step</span>
+        <p>A human supplies a task. The operator asks clarifying questions if the task is
+        ambiguous. The human accepts a <code>clarified_task_brief.md</code>. This is the
+        one place a human is required — after it, execution is AI-operated and human
+        pauses are exception paths only.</p>
+      </div>
+      <div class="step-panel" data-panel="1">
+        <div class="sp-title">init-session</div>
+        <span class="sp-tag">supervisor · status &rarr; clarified · phase &rarr; scaffold</span>
+        <p>The supervisor creates the session JSON and records the accepted brief's path
+        and SHA-256. Nothing has been staged or sent anywhere yet — this just opens the
+        durable, schema-validated ledger that every later step appends to.</p>
+      </div>
+      <div class="step-panel" data-panel="2">
+        <div class="sp-title">stage-scaffold</div>
+        <span class="sp-tag">supervisor · status &rarr; scaffold_staged</span>
+        <p>The task pack is copied <em>into</em> the session and every file is hashed into
+        a <code>hash_manifest.json</code>. The supervisor now gates a frozen, hashed
+        copy — so a later "did the inputs change?" check is exact.</p>
+      </div>
+      <div class="step-panel" data-panel="3">
+        <div class="sp-title">examine-scaffold &mdash; STATIC gate</div>
+        <span class="sp-tag">gate · no Stage 1 request is constructed</span>
+        <p>Validates the scaffold <em>statically</em>: workflow schema, model posture vs.
+        the locked defaults, exactly-one-terminal-stage shape, every non-terminal stage
+        review-gated, sidecar/output schemas free of unsupported keywords, tool profiles,
+        attachment inventory, substantive prompts. Blocking issues put the session in
+        "blocked".</p>
+      </div>
+      <div class="step-panel" data-panel="4">
+        <div class="sp-title">dry-run-scaffold &mdash; EXECUTABLE gate</div>
+        <span class="sp-tag">gate · calls run_workflow(dry_run=True)</span>
+        <p>Runs the engine in dry-run mode: it resolves inputs and writes a real
+        <code>request_payload.json</code>, but calls no API. Where examine-scaffold proves
+        the scaffold is well-formed, this proves a Stage 1 request can actually be built
+        from it.</p>
+      </div>
+      <div class="step-panel" data-panel="5">
+        <div class="sp-title">Scaffold review cycle</div>
+        <span class="sp-tag">supervisor · review_kind = scaffold</span>
+        <p>The full 3-agent loop on the scaffold itself: <code>invoke-operator</code> &rarr;
+        <code>invoke-reviewers</code> &rarr; <code>consolidate</code> &rarr;
+        <code>accept</code>. The operator must supply applied-change evidence for anything
+        accepted, or the supervisor auto-rejects it.</p>
+      </div>
+      <div class="step-panel" data-panel="6">
+        <div class="sp-title">assert_scaffold_launch_allowed</div>
+        <span class="sp-tag">gate · the boundary between prep and spend</span>
+        <p>Passes only when the latest scaffold version is "accepted" AND an accepted
+        scaffold review cycle exists. Crossing this line is the first time the system will
+        spend tokens. Everything before it was free.</p>
+      </div>
+    </div>
+    <div class="step-nav">
+      <button class="step-btn" data-prev>&#8592; Prev</button>
+      <button class="step-btn" data-next>Next &#8594;</button>
+      <span class="step-counter" data-counter></span>
+    </div>
+  </div>
+
+  <div class="callout gate">
+    <span class="label">Two of these steps are gates you can fail</span>
+    <p><strong>Examine-scaffold</strong> (static) and <strong>dry-run-scaffold</strong>
+    (executable) can both block the session. And step 5 is a full review loop. By the time
+    Stage 1's request reaches OpenAI, the workflow has been validated four different ways.</p>
+  </div>
+</section>
+
+<!-- ============ 05 INSIDE ONE STAGE ============ -->
+<section id="s-stage">
+  <div class="kicker">05 · Inside one stage</div>
+  <h2>The anatomy of a single stage</h2>
+  <p class="lede">
+    A stage is one unit of work = one Responses API call (plus an optional sidecar call).
+    Step through the engine's 12-step stage loop. Watch where <code>--dry-run</code> exits.
+  </p>
+
+  <div class="stepper" data-stepper="stage">
+    <div class="step-track">
+      <div class="step-dot sel" data-dot="0">1</div>
+      <div class="step-dot" data-dot="1">2</div>
+      <div class="step-dot" data-dot="2">3</div>
+      <div class="step-dot" data-dot="3">4</div>
+      <div class="step-dot" data-dot="4">5</div>
+      <div class="step-dot" data-dot="5">6</div>
+      <div class="step-dot" data-dot="6">7</div>
+      <div class="step-dot" data-dot="7">8</div>
+      <div class="step-dot" data-dot="8">9</div>
+      <div class="step-dot" data-dot="9">10</div>
+      <div class="step-dot" data-dot="10">11</div>
+      <div class="step-dot" data-dot="11">12</div>
+    </div>
+    <div class="step-panels">
+      <div class="step-panel active" data-panel="0">
+        <div class="sp-title">1 · Resolve attachments</div>
+        <span class="sp-tag">engine · attachments.py</span>
+        <p>Merge the static input manifest with operator-supplied inputs, review-bundle
+        inputs, and carry-forward artifacts. Walk directories (skipping <code>.git</code>,
+        <code>.local</code>, <code>node_modules</code>, ...), apply exclude globs, hash
+        every file, and check the 50&nbsp;MB / 100-file limits — all before any HTTP
+        traffic.</p>
+      </div>
+      <div class="step-panel" data-panel="1">
+        <div class="sp-title">2 · Render + write input_manifest.{json,md}</div>
+        <span class="sp-tag">engine · the model's table of contents</span>
+        <p>The rendered <code>input_manifest.md</code> enumerates every attached file, its
+        authority role, and a short SHA-256. It is the human-readable source of truth for
+        "what was attached" — and your first stop when output looks wrong.</p>
+      </div>
+      <div class="step-panel" data-panel="2">
+        <div class="sp-title">3 · Write request_payload.json</div>
+        <span class="sp-tag">engine · --dry-run RETURNS HERE</span>
+        <p>The exact body that will be sent to <code>/responses</code> is assembled and
+        written to disk. With <code>--dry-run</code>, the engine stops here: nothing is
+        uploaded, no API is called. This is your cheapest validation.</p>
+      </div>
+      <div class="step-panel" data-panel="3">
+        <div class="sp-title">4 · Upload every file</div>
+        <span class="sp-tag">engine · multipart /files</span>
+        <p>Every file — including <code>input_manifest.md</code>, uploaded first — is
+        pushed via the multipart files endpoint. Non-context file types that are UTF-8
+        text get wrapped as Markdown first. The file-id &harr; source-path mapping is
+        recorded in <code>uploads.json</code>.</p>
+      </div>
+      <div class="step-panel" data-panel="4">
+        <div class="sp-title">5 · Token preflight</div>
+        <span class="sp-tag">engine · fail-closed gate (skip with --skip-token-count)</span>
+        <p>The engine can call <code>POST /responses/input_tokens</code>. If the count
+        exceeds a configured <code>max_input_tokens</code>, the stage is marked
+        <code>blocked</code> and the process exits — terminal, no retry, no fallback.
+        Unbounded token spend is treated as a safety property.</p>
+      </div>
+      <div class="step-panel" data-panel="5">
+        <div class="sp-title">6 · POST /responses &rarr; checkpoint #1</div>
+        <span class="sp-tag">engine · background mode</span>
+        <p>The request is submitted. In background mode it comes back almost immediately as
+        <code>queued</code> with a <code>response_id</code>. The engine writes
+        <code>response.latest.json</code> and the first stage checkpoint — already enough
+        to resume from if the local process dies.</p>
+      </div>
+      <div class="step-panel" data-panel="6">
+        <div class="sp-title">7 · Poll until terminal (if --wait)</div>
+        <span class="sp-tag">engine · rewrites response.latest.json each poll</span>
+        <p>With <code>--wait</code>, the engine polls the <code>response_id</code> until it
+        reaches <code>completed</code> / <code>failed</code> / <code>cancelled</code> /
+        <code>incomplete</code>, rewriting <code>response.latest.json</code> on every poll.
+        Without <code>--wait</code>, it returns now and you <code>resume</code> later.</p>
+      </div>
+      <div class="step-panel" data-panel="7">
+        <div class="sp-title">8 · Write response.final.{json,md}</div>
+        <span class="sp-tag">engine · artifacts.py</span>
+        <p>On a terminal status the engine writes the finalized raw response and a
+        human-readable Markdown render — token usage, cached/reasoning tokens, source
+        citations, tool-call summaries, and the upload lifecycle.</p>
+      </div>
+      <div class="step-panel" data-panel="8">
+        <div class="sp-title">9 · Extract structured output / run sidecar</div>
+        <span class="sp-tag">engine · sidecar.py (only on the terminal-artifact path)</span>
+        <p>If the stage requested <code>json_schema</code> output, structured output is
+        extracted. If a <code>sidecar</code> is configured, a <em>second</em> Responses
+        call runs: it re-reads the primary markdown + JSON and asks the structural model
+        for a strict-schema payload &rarr; <code>output.structured.json</code> +
+        <code>sidecar.response.*</code>.</p>
+      </div>
+      <div class="step-panel" data-panel="9">
+        <div class="sp-title">10 · Write checkpoint #2 + update run_manifest</div>
+        <span class="sp-tag">engine · the durable resume point</span>
+        <p>The second, final stage checkpoint records the terminal status and pointers to
+        every artifact. The run manifest's per-stage summary is updated with statuses and
+        artifact hashes.</p>
+      </div>
+      <div class="step-panel" data-panel="10">
+        <div class="sp-title">11 · Map response status &rarr; stage status</div>
+        <span class="sp-tag">engine · workflow state machine</span>
+        <p>A <code>completed</code> response on a <code>review_required</code> stage with a
+        next stage becomes stage status <code>waiting_for_review</code> — not
+        <code>completed</code>. The run will not proceed past it until you supply
+        <code>--review-bundle</code>.</p>
+      </div>
+      <div class="step-panel" data-panel="11">
+        <div class="sp-title">12 · Auto-progress?</div>
+        <span class="sp-tag">engine · needs ALL FIVE conditions</span>
+        <p>The engine loops to the next stage only when: the stage completed, there IS a
+        next stage, the gate is <code>auto</code>, you passed <code>--wait</code>, and you
+        did NOT pin a specific <code>--stage</code>. Anything else stops the run after one
+        stage.</p>
+      </div>
+    </div>
+    <div class="step-nav">
+      <button class="step-btn" data-prev>&#8592; Prev</button>
+      <button class="step-btn" data-next>Next &#8594;</button>
+      <span class="step-counter" data-counter></span>
+    </div>
+  </div>
+
+  <h3>How the request is assembled</h3>
+  <pre><span class="c-key">instructions</span> = COMMON_RUNNER_INSTRUCTIONS   <span class="c-cmt"># the authority-order boilerplate</span>
+             + shared_instructions.md       <span class="c-cmt"># task-pack-wide</span>
+             + stage_instructions.md        <span class="c-cmt"># optional, per stage</span>
+
+<span class="c-key">input</span> = [ stage task prompt text ]
+      + [ <span class="c-gate">"role: Stage Input Manifest"</span>      &rarr; input_manifest.md ]  <span class="c-cmt"># model TOC, uploaded first</span>
+      + [ <span class="c-gate">"role: Primary Job Inputs"</span>        &rarr; files... ]
+      + [ <span class="c-sup">"role: Reviewed Handoff Inputs"</span>   &rarr; files... ]
+      + [ <span class="c-key">"role: Attached Repository Files"</span> &rarr; files... ]
+      + [ "role: Reference Context"          &rarr; files... ]   <span class="c-cmt"># strict authority order</span></pre>
+
+  <div class="callout engine">
+    <span class="label">Attaching any file type</span>
+    <p>A <code>.go</code> / <code>.rs</code> / <code>.tsx</code> / <code>.sql</code> file
+    is not a Responses-API context type. So if it is UTF-8 text, the engine
+    <strong>wraps it as Markdown</strong> — source path in front matter, body in a fenced
+    block. That is how the runner can attach <em>any</em> text file. Limits enforced
+    <em>during resolution</em> (before any HTTP traffic): 50&nbsp;MB per file,
+    50&nbsp;MB per request, 100 files per request.</p>
+  </div>
+
+  <h3>Stage status vs. response status</h3>
+  <p>The OpenAI <em>response</em> has its own statuses; the engine maps them to a
+  <em>stage</em> status that the workflow state machine reasons about:</p>
+  <table>
+    <tr><th>Response status</th><th>Stage status</th><th>Meaning for you</th></tr>
+    <tr><td><code>completed</code> (gate <code>review_required</code>, has next)</td><td><span class="pill supervisor">waiting_for_review</span></td><td>Must be bundled before the next stage runs</td></tr>
+    <tr><td><code>completed</code> (otherwise)</td><td><span class="pill go">completed</span></td><td>Done</td></tr>
+    <tr><td><code>failed</code></td><td><span class="pill gate">failed</span></td><td>May still have a substantive artifact — classify it</td></tr>
+    <tr><td><code>incomplete</code></td><td><span class="pill gate">incomplete</span></td><td>Never auto-progresses</td></tr>
+    <tr><td><code>queued</code> / <code>in_progress</code></td><td><span class="pill engine">in_progress</span></td><td>Use <code>resume</code>/<code>refresh</code> — never re-<code>run</code></td></tr>
+  </table>
+</section>
+
+<!-- ============ 06 REVIEW LOOP ============ -->
+<section id="s-review">
+  <div class="kicker">06 · The review loop</div>
+  <h2>Three independent agents, one operator decision</h2>
+  <p class="lede">
+    For every scaffold and every non-terminal stage, three agents review the same
+    materials. Step through the loop.
+  </p>
+
+  <h3>The three agents</h3>
+  <table>
+    <tr><th>Role</th><th>CLI invoked</th><th>Read-only?</th><th>Accountable?</th></tr>
+    <tr><td><strong>operator_codex</strong></td><td><code>codex exec</code></td><td><span class="pill gate">No</span> — may apply changes</td><td><span class="pill go">Yes</span> — the accountable lane</td></tr>
+    <tr><td><strong>codex_review_agent</strong></td><td><code>codex exec</code></td><td><span class="pill go">Yes</span> — snapshot-enforced</td><td>No — advisory</td></tr>
+    <tr><td><strong>claude_review_agent</strong></td><td><code>claude -p --model opus --effort max</code></td><td><span class="pill go">Yes</span> — snapshot-enforced</td><td>No — advisory</td></tr>
+  </table>
+
+  <div class="stepper" data-stepper="review">
+    <div class="step-track">
+      <div class="step-dot sel" data-dot="0">1</div>
+      <div class="step-dot" data-dot="1">2</div>
+      <div class="step-dot" data-dot="2">3</div>
+      <div class="step-dot" data-dot="3">4</div>
+      <div class="step-dot" data-dot="4">5</div>
+    </div>
+    <div class="step-panels">
+      <div class="step-panel active" data-panel="0">
+        <div class="sp-title">1 · invoke-operator</div>
+        <span class="sp-tag">operator_codex · codex exec · accountable, may apply changes</span>
+        <p>The accountable operator Codex runs first and writes a <em>provisional</em>
+        review decision. For scaffold / stage_output / final_packet / recovery cycles,
+        this provisional record is <strong>required</strong> before the independent
+        reviewers may run.</p>
+      </div>
+      <div class="step-panel" data-panel="1">
+        <div class="sp-title">2 · invoke-reviewers</div>
+        <span class="sp-tag">codex_review_agent + claude_review_agent · read-only, snapshot-enforced</span>
+        <p>The Codex reviewer (<code>codex exec</code>) and the Claude reviewer
+        (<code>claude -p --model opus --effort max</code>) run <em>independently</em> and
+        <em>read-only</em>. The supervisor snapshots every workspace source file before and
+        after each one. Any change to a file other than the agent's own output sidecars is
+        a <code>read_only_violation</code> that fails the review.</p>
+      </div>
+      <div class="step-panel" data-panel="2">
+        <div class="sp-title">3 · consolidate</div>
+        <span class="sp-tag">consolidation_pass · deterministic · ADVISORY ONLY</span>
+        <p>A deterministic merge of the operator + two reviewer findings, de-duplicated by
+        (recommendation text + affected artifacts). It emits the same
+        <code>review_decision.v1</code> shape with <code>next_action:
+        proceed_to_operator_acceptance</code>. It accepts nothing — it only organizes.</p>
+      </div>
+      <div class="step-panel" data-panel="3">
+        <div class="sp-title">4 · accept</div>
+        <span class="sp-tag">operator · selective acceptance with applied-change evidence</span>
+        <p>The operator selects which recommendation IDs to accept and supplies an
+        applied-change-evidence JSON. The supervisor <strong>rewrites</strong> any
+        "accepted" recommendation to "rejected" unless its evidence has concrete
+        <code>changes_applied[]</code>, <code>validation_evidence[]</code>, and
+        <code>operator_rationale</code>. A rejected blocking recommendation flips the
+        approval to <code>do_not_approve</code>.</p>
+      </div>
+      <div class="step-panel" data-panel="4">
+        <div class="sp-title">5 · create-bundle</div>
+        <span class="sp-tag">supervisor · only on an approving acceptance record</span>
+        <p>An approved review bundle is created <strong>only</strong> if the acceptance
+        record's <code>approval_decision == "approve"</code>. The bundle references the
+        approved markdown, the raw response JSON, and reviewer notes — each with its
+        SHA-256 — and becomes the next stage's Reviewed Handoff Input.</p>
+      </div>
+    </div>
+    <div class="step-nav">
+      <button class="step-btn" data-prev>&#8592; Prev</button>
+      <button class="step-btn" data-next>Next &#8594;</button>
+      <span class="step-counter" data-counter></span>
+    </div>
+  </div>
+
+  <div class="callout gate">
+    <span class="label">The operator cannot rubber-stamp</span>
+    <p>An accepted recommendation without concrete <code>changes_applied[]</code> +
+    <code>validation_evidence[]</code> + <code>operator_rationale</code> is
+    <strong>auto-rejected by the supervisor itself</strong>. The supervisor does not
+    synthesize evidence. A rejected <em>blocking</em> recommendation becomes a blocking
+    issue, which flips the approval to <code>do_not_approve</code>.</p>
+  </div>
+
+  <div class="callout">
+    <span class="label">One protocol for all of them</span>
+    <p>Every agent — operator, both reviewers, <em>and</em> the consolidation pass — emits
+    the <strong>same JSON shape</strong>: <code>review_decision.v1</code>.
+    <code>actor_role</code> distinguishes them. That uniformity is what makes the outputs
+    comparable. Read-only enforcement is a before/after hash snapshot of the whole
+    workspace — a reviewer that edits a file is caught automatically. The Claude lane
+    deliberately does not use <code>--bare</code> (which would skip OAuth); the supervisor
+    strips API-key env vars so the local subscription login is used, and falls back from
+    <code>--effort max</code> to <code>--effort xhigh</code> once if needed.</p>
+  </div>
+</section>
+
+<!-- ============ 07 FAILURE ============ -->
+<section id="s-failure">
+  <div class="kicker">07 · When a stage fails</div>
+  <h2>Six outcomes, six recovery paths</h2>
+  <p class="lede">
+    When a stage reaches a terminal state, the supervisor's <code>classify</code> command
+    assigns exactly one of six classifications. Click each to see its recovery path. The
+    flags are <span class="pill go">reviewable</span> /
+    <span class="pill go">bundle-able</span> / <span class="pill go">rerun</span>.
+  </p>
+
+  <div class="matrix" id="failure-matrix">
+    <div class="fcell ok" data-fail="completed">
+      <div class="fc-name">completed_complete_artifact</div>
+      <div class="fc-flags"><span class="fc-flag yes">reviewable</span><span class="fc-flag yes">bundle</span><span class="fc-flag">rerun</span></div>
+    </div>
+    <div class="fcell ok" data-fail="failed_complete">
+      <div class="fc-name">failed_complete_artifact</div>
+      <div class="fc-flags"><span class="fc-flag yes">reviewable</span><span class="fc-flag yes">bundle</span><span class="fc-flag">rerun</span></div>
+    </div>
+    <div class="fcell bad" data-fail="failed_no">
+      <div class="fc-name">failed_no_artifact</div>
+      <div class="fc-flags"><span class="fc-flag no">reviewable</span><span class="fc-flag no">bundle</span><span class="fc-flag yes">rerun</span></div>
+    </div>
+    <div class="fcell bad" data-fail="incomplete">
+      <div class="fc-name">incomplete_output_limit</div>
+      <div class="fc-flags"><span class="fc-flag no">reviewable</span><span class="fc-flag no">bundle</span><span class="fc-flag no">rerun</span></div>
+    </div>
+    <div class="fcell bad" data-fail="blocked">
+      <div class="fc-name">blocked_token_preflight</div>
+      <div class="fc-flags"><span class="fc-flag no">reviewable</span><span class="fc-flag no">bundle</span><span class="fc-flag no">rerun</span></div>
+    </div>
+    <div class="fcell bad" data-fail="monitoring">
+      <div class="fc-name">long_running_monitoring_anomaly</div>
+      <div class="fc-flags"><span class="fc-flag no">reviewable</span><span class="fc-flag no">bundle</span><span class="fc-flag no">rerun</span></div>
+    </div>
+  </div>
+
+  <div class="detail-wrap" id="failure-detail">
+    <div class="detail-block" data-fail-detail="completed">
+      <div class="detail-head"><span class="pill go">HAPPY PATH</span>completed_complete_artifact</div>
+      <p>The response completed and produced complete, substantive markdown + JSON
+      artifacts (and the sidecar, if configured). <strong>Action:</strong>
+      <code>review</code> — proceed through the normal operator / Codex / Claude /
+      consolidation / acceptance loop. Reviewable &check; · bundle-able &check;.</p>
+    </div>
+    <div class="detail-block" data-fail-detail="failed_complete">
+      <div class="detail-head"><span class="pill go">REVIEWABLE</span>failed_complete_artifact</div>
+      <p>The response reported <code>failed</code>, but it still produced a substantive
+      artifact (markdown &ge; 40 chars, not the empty placeholder).
+      <strong>Action:</strong> <code>review_failed_artifact</code> — treat it as
+      reviewable, preserve the failed status, review and bundle only after acceptance.
+      Reviewable &check; · bundle-able &check;.</p>
+    </div>
+    <div class="detail-block" data-fail-detail="failed_no">
+      <div class="detail-head"><span class="pill gate">RECOVER</span>failed_no_artifact</div>
+      <p>The response failed and produced no substantive artifact.
+      <strong>Action:</strong> <code>archive_before_rerun</code>. No review, no bundle. You
+      must <code>archive-attempt</code> first; the rerun is allowed only if the request and
+      scaffold hashes are unchanged and retry budget remains (default: 1).</p>
+    </div>
+    <div class="detail-block" data-fail-detail="incomplete">
+      <div class="detail-head"><span class="pill gate">HUMAN PAUSE</span>incomplete_output_limit</div>
+      <p>The response ran out of output tokens. <strong>Action:</strong>
+      <code>block_and_recover</code> + a human pause. It <strong>never
+      auto-progresses.</strong> A human must decide on scope, model, or budget before any
+      rerun.</p>
+    </div>
+    <div class="detail-block" data-fail-detail="blocked">
+      <div class="detail-head"><span class="pill gate">HUMAN PAUSE</span>blocked_token_preflight</div>
+      <p>Token preflight failed closed, or the checkpoint is <code>blocked</code>.
+      <strong>Action:</strong> <code>human_pause</code>. No live submission, no bundle.
+      Repair the scaffold or input set, re-run dry-run validation, and relaunch only after
+      approval.</p>
+    </div>
+    <div class="detail-block" data-fail-detail="monitoring">
+      <div class="detail-head"><span class="pill gate">HUMAN PAUSE</span>long_running_monitoring_anomaly</div>
+      <p>A live response stayed <code>queued</code> / <code>in_progress</code> past the
+      stale threshold. <strong>Action:</strong> <code>monitor_without_duplicate_submit</code>
+      + a human pause. Refresh or resume the existing <code>response_id</code> —
+      <strong>never</strong> submit duplicate work while it may still complete.</p>
+    </div>
+  </div>
+
+  <div class="callout">
+    <span class="label">The dividing line between the two failed_* outcomes</span>
+    <p>It is <em>"substantive markdown"</em>: the response markdown must be &ge; 40
+    characters and not literally <code>"No assistant text was returned."</code> A failed
+    response <em>with</em> substantive text is still reviewable; <em>without</em> it, you
+    must archive before any rerun.</p>
+  </div>
+
+  <div class="callout gate">
+    <span class="label">Archive-before-rerun — the anti-"quietly changed the inputs" guard</span>
+    <p>A <code>failed_no_artifact</code> stage may be rerun <strong>only after
+    archiving</strong>. The archive records a deterministic <code>request_hash</code> and
+    <code>scaffold_hash</code>. Before the rerun is allowed, the supervisor checks the
+    <em>current</em> hashes against the archive's <code>_before</code> hashes. If you
+    changed the prompt and tried to claim a "fresh failure," the hashes won't match — the
+    rerun is blocked.</p>
+  </div>
+</section>
+
+<!-- ============ 08 WORKFLOWS ============ -->
+<section id="s-workflows">
+  <div class="kicker">08 · The workflows</div>
+  <h2>Workflow modes &amp; the bundled packs</h2>
+  <p class="lede">
+    A workflow manifest declares a <code>workflow_mode</code>; the loader enforces the
+    stage count. Three gate types control progression between stages.
+  </p>
+
+  <h3>The four workflow modes</h3>
+  <table>
+    <tr><th>Mode</th><th>Stages</th><th>Typical gate pattern</th></tr>
+    <tr><td><code>one_pass</code></td><td>exactly 1</td><td><span class="pill gate">terminal</span></td></tr>
+    <tr><td><code>two_pass</code></td><td>exactly 2</td><td><span class="pill engine">auto</span> &rarr; <span class="pill gate">terminal</span></td></tr>
+    <tr><td><code>reviewed_three_stage</code></td><td>exactly 3</td><td><span class="pill supervisor">review_required</span> &rarr; <span class="pill supervisor">review_required</span> &rarr; <span class="pill gate">terminal</span></td></tr>
+    <tr><td><code>custom_ordered</code></td><td>any number</td><td>any combination</td></tr>
+  </table>
+
+  <h4>The three gate types</h4>
+  <ul>
+    <li><span class="pill engine">auto</span> — the engine <em>may</em> auto-progress to
+    the next stage (only when you passed <code>--wait</code>, didn't pin a
+    <code>--stage</code>, and there is a next stage).</li>
+    <li><span class="pill supervisor">review_required</span> — the engine
+    <strong>stops</strong>. The output ends in status <code>waiting_for_review</code> and
+    must be reviewed and packaged into an approved review bundle before the next stage can
+    run.</li>
+    <li><span class="pill gate">terminal</span> — the last stage. There is exactly one,
+    and it is last.</li>
+  </ul>
+
+  <h3>The bundled packs</h3>
+  <div class="tabs" id="pack-tabs">
+    <div class="tab sel" data-tab="synthetic">synthetic proof pack</div>
+    <div class="tab" data-tab="fourstage">four-stage self-improvement</div>
+    <div class="tab" data-tab="internal">supervisor internal pack</div>
+  </div>
+  <div class="tab-body">
+    <div class="tab-pane sel" data-pane="synthetic">
+      <h4>automation/examples/responses_runner_v2_synthetic/</h4>
+      <p>Small, bounded, business-agnostic. It exists so you can verify the <em>engine</em>
+      without adopting a real workflow. It ships three workflows:</p>
+      <pre><span class="c-key">one_pass.workflow.json</span>             1 stage   <span class="c-cmt"># terminal + sidecar</span>
+<span class="c-key">two_pass.workflow.json</span>             stage 1 <span class="c-key">auto</span> &rarr; stage 2 <span class="c-gate">terminal</span>+sidecar
+<span class="c-key">reviewed_three_stage.workflow.json</span>  proposal <span class="c-sup">(review_required)</span>
+                                   &rarr; revision <span class="c-sup">(review_required, carries proposal's bundle)</span>
+                                   &rarr; final_delivery <span class="c-gate">(terminal</span>+sidecar, carries revision's bundle<span class="c-gate">)</span></pre>
+      <p>This is your first stop. Dry-run all three, then open the artifacts they wrote.</p>
+    </div>
+    <div class="tab-pane" data-pane="fourstage">
+      <h4>automation/task_packs/responses_runner_v2_supervised_end_to_end/</h4>
+      <p>The current four-stage <code>custom_ordered</code> pack. It asks the runner to
+      improve <em>itself</em> by designing the supervisor lane around the existing engine:</p>
+      <pre>Stage 1  architecture_and_supervision_protocol      <span class="c-sup">review_required</span>
+Stage 2  agent_review_protocol_and_package_contract <span class="c-sup">review_required</span>  <span class="c-cmt"># carries Stage 1 bundle</span>
+Stage 3  draft_drop_in_packet                       <span class="c-sup">review_required</span>  <span class="c-cmt"># carries Stage 2 bundle</span>
+Stage 4  final_drop_in_packet                       <span class="c-gate">terminal</span> + sidecar  <span class="c-cmt"># carries Stage 3 bundle</span></pre>
+      <p>It is self-referential: the artifact being authored is the same kind of artifact
+      that reviews it.</p>
+    </div>
+    <div class="tab-pane" data-pane="internal">
+      <h4>automation/task_packs/responses_runner_v2_supervisor_internal/</h4>
+      <p><em>Not</em> a normal workflow pack. It is the supervisor's own prompt +
+      command-template library: the prompts for operator Codex, the Codex reviewer, and
+      the Claude reviewer, plus the <code>*.command.json</code> templates that define
+      exactly how each agent CLI is invoked. The supervisor CLI depends on these files
+      existing.</p>
+    </div>
+  </div>
+
+  <h3>Carry-forward: how a stage sees the previous stage</h3>
+  <ul>
+    <li><strong><code>reference_context_from_stage_ids</code></strong> — attaches the prior
+    stage's <code>response.final.md</code> under the lowest-authority <em>Reference
+    Context</em> role. Cheap, no review required.</li>
+    <li><strong><code>review_bundle_from_stage_id</code></strong> — requires you to supply
+    that stage's <em>approved review bundle</em> with <code>--review-bundle</code>. Its
+    contents land under <em>Reviewed Handoff Inputs</em>. This is the gated path.</li>
+  </ul>
+  <p>Carry-forward is deliberately cheap — it attaches the <em>actual approved text</em>,
+  not a lossy summary.</p>
+
+  <div class="callout supervisor">
+    <span class="label">The locked model posture</span>
+    <p>The loader rejects anything else <em>at load time</em>: primary generation
+    <code>gpt-5.5-pro</code>, structural processing <code>gpt-5.5</code>, GPT-5.5-family
+    prompt cache retention <code>24h</code>, high-stakes reasoning effort
+    <code>xhigh</code> (structural <code>high</code>/<code>medium</code>), locked max
+    output <code>128000</code>.</p>
+  </div>
+</section>
+
+<!-- ============ 09 EVIDENCE CHAIN ============ -->
+<section id="s-evidence">
+  <div class="kicker">09 · The evidence chain</div>
+  <h2>Why a tar of the root is a complete audit trail</h2>
+  <p class="lede">
+    Every artifact links to the next by a hash. Break any link and the runner refuses to
+    proceed. This is the chain of custody.
+  </p>
+
+  <div class="flow" style="margin-top:8px;">
+    <div class="flow-node flow-hash static"><span class="flow-badge">HASH</span><span class="flow-name">workflow_manifest.sha256</span><span class="flow-cmd">recorded in the run manifest</span></div>
+    <div class="flow-arrow">&#8595;</div>
+    <div class="flow-node flow-hash static"><span class="flow-badge">RUN</span><span class="flow-name">run_manifest.json</span><span class="flow-cmd">stage summary records response.final.* by SHA-256</span></div>
+    <div class="flow-arrow">&#8595;</div>
+    <div class="flow-node flow-hash static"><span class="flow-badge">STAGE</span><span class="flow-name">stage_checkpoint.json</span><span class="flow-cmd">points at every artifact + the response_id</span></div>
+    <div class="flow-arrow">&#8595;</div>
+    <div class="flow-node phase-super static"><span class="flow-badge">BUNDLE</span><span class="flow-name">review_bundle.json</span><span class="flow-cmd">artifact_hashes{} — load() re-hashes &amp; refuses on mismatch</span></div>
+    <div class="flow-arrow">&#8595;</div>
+    <div class="flow-node flow-hash static"><span class="flow-badge">NEXT</span><span class="flow-name">next stage's input_manifest.json</span><span class="flow-cmd">references the bundle under Reviewed Handoff Inputs</span></div>
+  </div>
+
+  <h3>The run output layout</h3>
+  <p>Everything lands under <code>.local/</code> — git-ignored, never committed, never
+  re-attached as evidence to a future run.</p>
+  <div class="tree">.local/automation/responses_runner_v2/
+├─ <span class="t-dir">runs/</span>{timestamp}_{run_name}_{workflow_id}/
+│  ├─ <span class="t-key">run_manifest.json</span>            <span class="t-cmt"># top-level run state + per-stage summary</span>
+│  └─ <span class="t-dir">stages/</span>{NN_stage_id}/
+│     ├─ <span class="t-key">input_manifest.json</span>        <span class="t-cmt"># resolved attachments (machine)</span>
+│     ├─ <span class="t-key">input_manifest.md</span>          <span class="t-cmt"># resolved attachments (human + model TOC)</span>
+│     ├─ <span class="t-key">request_payload.json</span>       <span class="t-cmt"># the EXACT body sent to /responses</span>
+│     ├─ <span class="t-key">token_preflight.json</span>       <span class="t-cmt"># or token_preflight.error.json</span>
+│     ├─ <span class="t-key">uploads.json</span>               <span class="t-cmt"># file_id ↔ source_path + lifecycle</span>
+│     ├─ <span class="t-key">response.latest.json</span>       <span class="t-cmt"># rewritten on every poll</span>
+│     ├─ <span class="t-key">response.final.json</span>        <span class="t-cmt"># finalized raw response</span>
+│     ├─ <span class="t-key">response.final.md</span>          <span class="t-cmt"># human render: usage, sources, tools</span>
+│     ├─ <span class="t-key">output.structured.json</span>     <span class="t-cmt"># if json_schema OR sidecar configured</span>
+│     ├─ <span class="t-key">sidecar.response.json/.md</span>   <span class="t-cmt"># if sidecar configured</span>
+│     └─ <span class="t-key">stage_checkpoint.json</span>      <span class="t-cmt"># durable, resumable stage state</span>
+└─ <span class="t-sup">supervisor_sessions/</span>{session_id}/
+   ├─ <span class="t-key">supervisor_session.json</span>     <span class="t-cmt"># schema-validated single source of truth</span>
+   ├─ <span class="t-dir">scaffolds/</span>  <span class="t-dir">examinations/</span>  <span class="t-dir">dry_runs/</span>
+   ├─ <span class="t-dir">review_cycles/</span>  <span class="t-dir">archives/</span>  <span class="t-dir">monitoring/</span>
+   ├─ <span class="t-dir">human_pauses/</span>  <span class="t-dir">commands/</span>
+   └─ <span class="t-dir">final_bundle/</span>final_implementation_bundle.json</div>
+
+  <h3>Where to look when something is wrong</h3>
+  <table>
+    <tr><th>Question</th><th>First file to open</th></tr>
+    <tr><td>Why did the model produce that?</td><td><code>stages/NN/input_manifest.md</code> — check what attached, in which role</td></tr>
+    <tr><td>What exactly did we send?</td><td><code>stages/NN/request_payload.json</code></td></tr>
+    <tr><td>What is the current stage state?</td><td><code>stages/NN/stage_checkpoint.json</code></td></tr>
+    <tr><td>What is the overall run state?</td><td><code>run_manifest.json</code></td></tr>
+    <tr><td>Did token preflight pass?</td><td><code>stages/NN/token_preflight.json</code> / <code>.error.json</code></td></tr>
+    <tr><td>What did the model actually say?</td><td><code>stages/NN/response.final.md</code></td></tr>
+    <tr><td>What does the supervisor think?</td><td><code>supervisor_session.json</code> — status, phase, errors[], human_pauses[]</td></tr>
+    <tr><td>Why did a review fail?</td><td><code>review_cycles/&lt;id&gt;/agents/*.readonly.diff.md</code> + the <code>.stderr.txt</code></td></tr>
+    <tr><td>Why was a rerun blocked?</td><td><code>archives/&lt;id&gt;/supervisor_archive.json</code> — compare the hashes</td></tr>
+  </table>
+
+  <div class="callout go">
+    <span class="label">The diagnosis habit</span>
+    <p>A <code>SystemExit</code> from any CLI is <em>designed</em> to name the exact
+    guardrail that tripped. Read it literally before changing anything. A stopped run is
+    the system protecting the evidence chain.</p>
+  </div>
+</section>
+
+<!-- ============ 10 GLOSSARY ============ -->
+<section id="s-glossary">
+  <div class="kicker">10 · Glossary</div>
+  <h2>The sixteen words that run everything</h2>
+  <p class="lede">Click any term to expand it. The rest of the system is just these,
+  combined.</p>
+
+  <div class="card-grid">
+    <div class="xcard" data-card><div class="xhead"><span class="xnum">01</span><span class="xtitle">Task pack</span><span class="xchev">&#9656;</span></div><div class="xbody"><p>A directory of JSON + Markdown that <em>defines a workflow</em>: workflow manifest, per-stage input manifests, prompts, tool profiles, output schemas, shared instructions. No Python.</p></div></div>
+    <div class="xcard" data-card><div class="xhead"><span class="xnum">02</span><span class="xtitle">Workflow manifest</span><span class="xchev">&#9656;</span></div><div class="xbody"><p>The <code>*.workflow.json</code> file. Declares the workflow id, mode, model roles, request defaults, the ordered stage list, each stage's gate, carry-forward rules, and optional sidecar extraction.</p></div></div>
+    <div class="xcard" data-card><div class="xhead"><span class="xnum">03</span><span class="xtitle">Stage</span><span class="xchev">&#9656;</span></div><div class="xbody"><p>One unit of work = one Responses API call (plus an optional sidecar call). Stages are ordered by <code>stage_number</code>.</p></div></div>
+    <div class="xcard" data-card><div class="xhead"><span class="xnum">04</span><span class="xtitle">Gate</span><span class="xchev">&#9656;</span></div><div class="xbody"><p>A stage's progression rule: <code>auto</code> (engine may continue), <code>review_required</code> (stop — output must be reviewed and bundled first), <code>terminal</code> (last stage).</p></div></div>
+    <div class="xcard" data-card><div class="xhead"><span class="xnum">05</span><span class="xtitle">Input manifest</span><span class="xchev">&#9656;</span></div><div class="xbody"><p>The per-stage <code>*.input_manifest.json</code>. Declares the <em>static</em> attachment set, grouped into the four authority roles. The engine merges it with operator inputs and carry-forward at runtime, then renders <code>input_manifest.md</code>.</p></div></div>
+    <div class="xcard" data-card><div class="xhead"><span class="xnum">06</span><span class="xtitle">Authority order</span><span class="xchev">&#9656;</span></div><div class="xbody"><p>The fixed ranking of attachment roles: Primary Job Inputs &rarr; Reviewed Handoff Inputs &rarr; Attached Repository Files &rarr; Reference Context. Encoded as data, stated in every request.</p></div></div>
+    <div class="xcard" data-card><div class="xhead"><span class="xnum">07</span><span class="xtitle">Review bundle</span><span class="xchev">&#9656;</span></div><div class="xbody"><p>The approval contract passed <em>between</em> gated stages. A JSON file referencing the approved markdown, raw response JSON, and reviewer notes — each with its SHA-256. Loading it re-hashes everything and refuses on mismatch.</p></div></div>
+    <div class="xcard" data-card><div class="xhead"><span class="xnum">08</span><span class="xtitle">Run manifest</span><span class="xchev">&#9656;</span></div><div class="xbody"><p><code>run_manifest.json</code> — the top-level durable state of one run: workflow id, the workflow manifest's hash, the ordered stage list, and a per-stage summary.</p></div></div>
+    <div class="xcard" data-card><div class="xhead"><span class="xnum">09</span><span class="xtitle">Stage checkpoint</span><span class="xchev">&#9656;</span></div><div class="xbody"><p><code>stage_checkpoint.json</code> — the durable, resumable state of one stage: status, the <code>response_id</code>, token-preflight result, and pointers to every artifact. Written twice per stage.</p></div></div>
+    <div class="xcard" data-card><div class="xhead"><span class="xnum">10</span><span class="xtitle">Sidecar</span><span class="xchev">&#9656;</span></div><div class="xbody"><p>An optional <em>second</em> Responses call after a stage completes. It re-reads the stage's markdown and extracts a strict-JSON-schema payload using the structural model — keeping creative generation and machine-ingestible structure as separate passes.</p></div></div>
+    <div class="xcard" data-card><div class="xhead"><span class="xnum">11</span><span class="xtitle">Supervisor session</span><span class="xchev">&#9656;</span></div><div class="xbody"><p>The supervisor's single source of truth: a schema-validated <code>supervisor_session.json</code> plus a directory of review cycles, scaffolds, archives, monitoring records, and the final bundle.</p></div></div>
+    <div class="xcard" data-card><div class="xhead"><span class="xnum">12</span><span class="xtitle">Scaffold</span><span class="xchev">&#9656;</span></div><div class="xbody"><p>A task pack staged <em>into</em> a supervisor session and hashed, so the supervisor can gate it — examine, dry-run, review — before any live stage runs.</p></div></div>
+    <div class="xcard" data-card><div class="xhead"><span class="xnum">13</span><span class="xtitle">Review cycle</span><span class="xchev">&#9656;</span></div><div class="xbody"><p>One pass of the supervisor's review loop on a scaffold, a stage output, a final packet, or a recovery path: operator &rarr; 2 independent reviewers &rarr; consolidation &rarr; operator acceptance.</p></div></div>
+    <div class="xcard" data-card><div class="xhead"><span class="xnum">14</span><span class="xtitle">Resume mode</span><span class="xchev">&#9656;</span></div><div class="xbody"><p>How a checkpoint was produced: <code>fresh_submit</code> (first run), <code>resume_response_id</code> (rehydrate a stored id and finalize), <code>refresh_status_only</code> (just poll, do not finalize).</p></div></div>
+    <div class="xcard" data-card><div class="xhead"><span class="xnum">15</span><span class="xtitle">Token preflight</span><span class="xchev">&#9656;</span></div><div class="xbody"><p>A fail-closed gate: before live submission the engine can count input tokens; over the configured limit is terminal — no retry, no fallback. Skipped with <code>--skip-token-count</code>.</p></div></div>
+    <div class="xcard" data-card><div class="xhead"><span class="xnum">16</span><span class="xtitle">Final implementation bundle</span><span class="xchev">&#9656;</span></div><div class="xbody"><p>The supervisor's terminal artifact. Schema-validated; requires <code>file_inventory</code> and <code>emitted_files</code> to be the identical set of paths, all three agent reviews, and an approving operator acceptance.</p></div></div>
+  </div>
+
+  <div class="footer-note">
+    <strong>Companion text reference:</strong> <code>docs/stage-workflow-runner-onboarding.md</code>
+    — the full operator onboarding guide, with command reference and playbooks.<br/>
+    <strong>Source reading order:</strong> <code>AGENTS.md</code> &rarr;
+    <code>DEVELOPING.md</code> &rarr; <code>docs/runbooks/responses-runner-v2.md</code>
+    &rarr; <code>contracts.py</code> &rarr; <code>pack_loader.py</code> &rarr;
+    <code>workflow.py</code> &rarr; <code>attachments.py</code> &rarr;
+    <code>review_bundle.py</code> + <code>sidecar.py</code>.<br/>
+    <strong>Fastest intuition builder:</strong> dry-run the synthetic one-pass workflow,
+    then open every file it wrote under
+    <code>.local/automation/responses_runner_v2/runs/</code>.
+  </div>
+</section>
+
+</main>
+
+<script>
+"use strict";
+
+/* ---------------- Section navigation ---------------- */
+var navItems = document.querySelectorAll(".nav-item");
+var sections = document.querySelectorAll("section");
+function showSection(id) {
+  sections.forEach(function (s) { s.classList.toggle("active", s.id === id); });
+  navItems.forEach(function (n) { n.classList.toggle("active", n.dataset.target === id); });
+  window.scrollTo({ top: 0, behavior: "smooth" });
+}
+navItems.forEach(function (n) {
+  n.addEventListener("click", function () { showSection(n.dataset.target); });
+});
+
+/* ---------------- Expandable cards ---------------- */
+document.querySelectorAll("[data-card]").forEach(function (card) {
+  card.addEventListener("click", function () { card.classList.toggle("open"); });
+});
+
+/* ---------------- Two-lane diagram ---------------- */
+var lanes = document.querySelectorAll(".lane");
+var laneDetailBlocks = document.querySelectorAll("#lane-detail .detail-block");
+function selectLane(key) {
+  lanes.forEach(function (l) {
+    l.classList.toggle("sel", l.dataset.lane === key);
+    l.classList.toggle("dim", l.dataset.lane !== key);
+  });
+  laneDetailBlocks.forEach(function (b) {
+    b.classList.toggle("active", b.dataset.laneDetail === key);
+  });
+}
+lanes.forEach(function (lane) {
+  lane.addEventListener("click", function () { selectLane(lane.dataset.lane); });
+});
+
+/* ---------------- Lifecycle flow ---------------- */
+var flowNodes = document.querySelectorAll("#lifecycle-flow .flow-node");
+var lifecycleBlocks = document.querySelectorAll("#lifecycle-detail .detail-block");
+function selectNode(id) {
+  flowNodes.forEach(function (n) { n.classList.toggle("sel", n.dataset.node === id); });
+  lifecycleBlocks.forEach(function (b) {
+    b.classList.toggle("active", b.dataset.nodeDetail === id);
+  });
+}
+flowNodes.forEach(function (node) {
+  node.addEventListener("click", function () { selectNode(node.dataset.node); });
+});
+
+/* ---------------- Failure matrix ---------------- */
+var fcells = document.querySelectorAll("#failure-matrix .fcell");
+var failureBlocks = document.querySelectorAll("#failure-detail .detail-block");
+function selectFailure(key) {
+  fcells.forEach(function (c) { c.classList.toggle("sel", c.dataset.fail === key); });
+  failureBlocks.forEach(function (b) {
+    b.classList.toggle("active", b.dataset.failDetail === key);
+  });
+}
+fcells.forEach(function (cell) {
+  cell.addEventListener("click", function () { selectFailure(cell.dataset.fail); });
+});
+
+/* ---------------- Pack tabs ---------------- */
+var tabs = document.querySelectorAll("#pack-tabs .tab");
+var panes = document.querySelectorAll(".tab-pane");
+tabs.forEach(function (tab) {
+  tab.addEventListener("click", function () {
+    tabs.forEach(function (t) { t.classList.toggle("sel", t === tab); });
+    panes.forEach(function (p) { p.classList.toggle("sel", p.dataset.pane === tab.dataset.tab); });
+  });
+});
+
+/* ---------------- Steppers (pre-rendered, class-toggled) ---------------- */
+document.querySelectorAll("[data-stepper]").forEach(function (stepper) {
+  var dots = stepper.querySelectorAll(".step-dot");
+  var panels = stepper.querySelectorAll(".step-panel");
+  var prevBtn = stepper.querySelector("[data-prev]");
+  var nextBtn = stepper.querySelector("[data-next]");
+  var counter = stepper.querySelector("[data-counter]");
+  var total = dots.length;
+  var current = 0;
+  function render() {
+    dots.forEach(function (d, i) {
+      d.classList.toggle("sel", i === current);
+      d.classList.toggle("done", i < current);
+    });
+    panels.forEach(function (p, i) { p.classList.toggle("active", i === current); });
+    prevBtn.disabled = current === 0;
+    nextBtn.disabled = current === total - 1;
+    if (counter) { counter.textContent = "step " + (current + 1) + " / " + total; }
+  }
+  function go(i) { current = Math.max(0, Math.min(total - 1, i)); render(); }
+  dots.forEach(function (d, i) {
+    d.addEventListener("click", function () { go(i); });
+  });
+  prevBtn.addEventListener("click", function () { go(current - 1); });
+  nextBtn.addEventListener("click", function () { go(current + 1); });
+  render();
+});
+
+/* ---------------- Initial selections ---------------- */
+selectLane("engine");
+selectNode("0");
+selectFailure("completed");
+
+/* ---------------- Keyboard: left/right arrows switch sections ---------------- */
+document.addEventListener("keydown", function (e) {
+  if (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA") { return; }
+  var ids = Array.prototype.map.call(navItems, function (n) { return n.dataset.target; });
+  var activeSection = document.querySelector("section.active");
+  var activeIdx = ids.indexOf(activeSection.id);
+  if (e.key === "ArrowRight" && activeIdx < ids.length - 1) { showSection(ids[activeIdx + 1]); }
+  if (e.key === "ArrowLeft" && activeIdx > 0) { showSection(ids[activeIdx - 1]); }
+});
+</script>
+</body>
+</html>

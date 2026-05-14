@@ -375,6 +375,7 @@ def validate_operator_inputs(
     minimum = workflow.operator_requirements.get("minimum_primary_job_inputs")
     maximum = workflow.operator_requirements.get("maximum_primary_job_inputs")
     allow_reference_context = workflow.operator_requirements.get("allow_reference_context", True)
+    expected_primary_job_input_paths = workflow.operator_requirements.get("expected_primary_job_input_paths")
     if minimum is not None and len(primary_job_inputs) < int(minimum):
         raise SystemExit(
             f"workflow requires at least {minimum} primary job input(s), got {len(primary_job_inputs)}."
@@ -383,6 +384,15 @@ def validate_operator_inputs(
         raise SystemExit(
             f"workflow allows at most {maximum} primary job input(s), got {len(primary_job_inputs)}."
         )
+    if expected_primary_job_input_paths is not None:
+        expected = [Path(str(path)).as_posix() for path in expected_primary_job_input_paths]
+        received = [Path(str(path)).as_posix() for path in primary_job_inputs]
+        if received != expected:
+            raise SystemExit(
+                "workflow requires exact primary job input path(s): "
+                + ", ".join(expected)
+                + f"; got: {', '.join(received) if received else '<none>'}."
+            )
     if not bool(allow_reference_context) and reference_context:
         raise SystemExit("workflow does not allow operator-supplied reference context.")
 
