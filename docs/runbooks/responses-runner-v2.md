@@ -84,7 +84,7 @@ python automation/run_responses_v2.py run \
 If the runner checkout is separate from the target project:
 
 ```bash
-python /path/to/staged-workflow-runner/automation/run_responses_v2.py run \
+python $KEEL_ROOT/tools/staged-workflow-runner/automation/run_responses_v2.py run \
   --root /path/to/target-workspace \
   --workflow-file task_packs/example/workflows/example.workflow.json \
   --primary-job-input docs/approved_brief.md \

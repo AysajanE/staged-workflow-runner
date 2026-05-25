@@ -1,0 +1,17 @@
+{
+  "schema_version": "responses_runner_v2.input_manifest.v1",
+  "manifest_id": "gstack_design_to_po_playbook.stage4",
+  "workflow_id": "gstack_design_to_po_playbook",
+  "stage_id": "gate_and_contract_review",
+  "description": "Stage 4 checks the draft rows for gate, verification, and markdown_playbook_v1 contract issues.",
+  "primary_job_inputs": [],
+  "reviewed_handoff_inputs": [],
+  "attached_repository_files": [
+    {
+      "path": "automation/task_packs/gstack_design_to_po_playbook/corpus/markdown_playbook_v1_contract.md",
+      "kind": "file",
+      "notes": "bounded local summary of the PO playbook contract"
+    }
+  ],
+  "reference_context": []
+}

@@ -1,0 +1,153 @@
+{
+  "schema_version": "responses_runner_v2.workflow_manifest.v1",
+  "workflow_id": "gstack_design_to_po_playbook",
+  "workflow_name": "Gstack Design To PO Playbook",
+  "workflow_mode": "custom_ordered",
+  "description": "High-stakes staged lane for converting reviewed gstack planning material into a markdown_playbook_v1 draft for plan-orchestrator.",
+  "shared_instructions_file": "../shared_instructions.md",
+  "operator_requirements": {
+    "minimum_primary_job_inputs": 1,
+    "maximum_primary_job_inputs": 4,
+    "allow_reference_context": true
+  },
+  "defaults": {
+    "model_roles": {
+      "primary_generation": {
+        "model": "gpt-5.5-pro",
+        "reasoning_effort": "xhigh",
+        "verbosity": "high",
+        "prompt_cache_retention": "24h"
+      },
+      "structural_processing": {
+        "model": "gpt-5.5",
+        "reasoning_effort": "high",
+        "verbosity": "medium",
+        "prompt_cache_retention": "24h"
+      }
+    },
+    "request": {
+      "background": true,
+      "store": true,
+      "parallel_tool_calls": true,
+      "max_tool_calls": 8,
+      "service_tier": "default",
+      "token_preflight": {
+        "enabled": true,
+        "max_retries": 2,
+        "retryable_http_status_codes": [
+          429,
+          500,
+          502,
+          503,
+          504
+        ],
+        "on_retryable_service_failure": "continue_without_token_count"
+      },
+      "file_uploads": {
+        "purpose": "user_data",
+        "delete_on_completion": false,
+        "expires_after_seconds": 604800
+      }
+    }
+  },
+  "stages": [
+    {
+      "stage_id": "source_authority_map",
+      "stage_number": 1,
+      "title": "Source Authority Map",
+      "task_file": "../prompts/stage1_source_authority_map.md",
+      "input_manifest_file": "../inputs/stage1.input_manifest.json",
+      "model_role": "primary_generation",
+      "max_output_tokens": 128000,
+      "gate": "review_required",
+      "output": {
+        "primary_format": "text"
+      }
+    },
+    {
+      "stage_id": "repo_grounding",
+      "stage_number": 2,
+      "title": "Repository Grounding",
+      "task_file": "../prompts/stage2_repo_grounding.md",
+      "input_manifest_file": "../inputs/stage2.input_manifest.json",
+      "model_role": "primary_generation",
+      "max_output_tokens": 128000,
+      "gate": "review_required",
+      "carry_forward": {
+        "reference_context_from_stage_ids": [
+          "source_authority_map"
+        ],
+        "review_bundle_from_stage_id": "source_authority_map",
+        "review_bundle_include_response_artifact_json": false
+      },
+      "output": {
+        "primary_format": "text"
+      }
+    },
+    {
+      "stage_id": "execution_row_draft",
+      "stage_number": 3,
+      "title": "Execution Row Draft",
+      "task_file": "../prompts/stage3_execution_row_draft.md",
+      "input_manifest_file": "../inputs/stage3.input_manifest.json",
+      "model_role": "primary_generation",
+      "max_output_tokens": 128000,
+      "gate": "review_required",
+      "carry_forward": {
+        "reference_context_from_stage_ids": [
+          "source_authority_map",
+          "repo_grounding"
+        ],
+        "review_bundle_from_stage_id": "repo_grounding",
+        "review_bundle_include_response_artifact_json": false
+      },
+      "output": {
+        "primary_format": "text"
+      }
+    },
+    {
+      "stage_id": "gate_and_contract_review",
+      "stage_number": 4,
+      "title": "Gate And Contract Review",
+      "task_file": "../prompts/stage4_gate_and_contract_review.md",
+      "input_manifest_file": "../inputs/stage4.input_manifest.json",
+      "model_role": "primary_generation",
+      "max_output_tokens": 128000,
+      "gate": "review_required",
+      "carry_forward": {
+        "reference_context_from_stage_ids": [
+          "source_authority_map",
+          "repo_grounding",
+          "execution_row_draft"
+        ],
+        "review_bundle_from_stage_id": "execution_row_draft",
+        "review_bundle_include_response_artifact_json": false
+      },
+      "output": {
+        "primary_format": "text"
+      }
+    },
+    {
+      "stage_id": "final_markdown_playbook",
+      "stage_number": 5,
+      "title": "Final Markdown Playbook",
+      "task_file": "../prompts/stage5_final_markdown_playbook.md",
+      "input_manifest_file": "../inputs/stage5.input_manifest.json",
+      "model_role": "primary_generation",
+      "max_output_tokens": 128000,
+      "gate": "terminal",
+      "carry_forward": {
+        "reference_context_from_stage_ids": [
+          "source_authority_map",
+          "repo_grounding",
+          "execution_row_draft"
+        ],
+        "review_bundle_from_stage_id": "gate_and_contract_review",
+        "review_bundle_include_response_artifact_json": false
+      },
+      "output": {
+        "primary_format": "text"
+      }
+    }
+  ]
+}

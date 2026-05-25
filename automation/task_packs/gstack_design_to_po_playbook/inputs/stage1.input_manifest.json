@@ -1,0 +1,17 @@
+{
+  "schema_version": "responses_runner_v2.input_manifest.v1",
+  "manifest_id": "gstack_design_to_po_playbook.stage1",
+  "workflow_id": "gstack_design_to_po_playbook",
+  "stage_id": "source_authority_map",
+  "description": "Stage 1 uses operator-supplied gstack planning inputs plus the local playbook contract summary.",
+  "primary_job_inputs": [],
+  "reviewed_handoff_inputs": [],
+  "attached_repository_files": [
+    {
+      "path": "automation/task_packs/gstack_design_to_po_playbook/corpus/markdown_playbook_v1_contract.md",
+      "kind": "file",
+      "notes": "bounded local summary of the PO playbook contract"
+    }
+  ],
+  "reference_context": []
+}

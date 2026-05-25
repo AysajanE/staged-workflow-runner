@@ -13,7 +13,7 @@ This repository is ready to publish as a standalone source repository for the ru
 - Review-bundle CLI: `automation/create_review_bundle_v2.py`.
 - Supervisor CLI: `automation/run_responses_supervisor_v2.py`.
 - Synthetic proof pack: included under `automation/examples/responses_runner_v2_synthetic/`.
-- Supervisor/self-improvement packs: included under `automation/task_packs/`.
+- Supervisor/self-improvement packs and the high-stakes gstack-to-PO playbook lane: included under `automation/task_packs/`.
 - Local run outputs, secrets, caches, and scratch archives are intentionally excluded from Git.
 
 The first release intentionally preserves the tested internal layout and names: `automation/...`, `responses_runner_v2`, existing CLI filenames, and schema identifiers.
@@ -80,7 +80,7 @@ python automation/run_responses_v2.py run \
 Use this checkout against an external target workspace:
 
 ```bash
-python /path/to/staged-workflow-runner/automation/run_responses_v2.py run \
+python $KEEL_ROOT/tools/staged-workflow-runner/automation/run_responses_v2.py run \
   --root /path/to/target-workspace \
   --workflow-file task_packs/example/workflows/example.workflow.json \
   --skip-token-count \
@@ -146,6 +146,7 @@ For every scaffold and non-terminal stage, the required supervisor review loop i
 - `automation/task_packs/responses_runner_v2_supervisor_internal/` — supervisor prompt and command-template library.
 - `automation/task_packs/responses_runner_v2_supervised_end_to_end/` — current four-stage self-improvement pack.
 - `automation/task_packs/responses_runner_v2_supervisory_lane/` — legacy three-stage supervisory-lane pack kept as historical regression coverage.
+- `automation/task_packs/gstack_design_to_po_playbook/` — high-stakes five-stage lane for drafting reviewed `markdown_playbook_v1` playbooks from gstack planning inputs.
 - `automation/tests/` — regression tests.
 - `docs/runbooks/` — operator-facing runbooks.
 - `docs/design/supervised-self-improvement-pack.md` — public design summary for the current supervised self-improvement pack.
@@ -194,6 +195,12 @@ python automation/run_responses_v2.py run \
 python automation/run_responses_v2.py run \
   --root . \
   --workflow-file automation/task_packs/responses_runner_v2_supervised_end_to_end/workflows/four_stage.workflow.json \
+  --dry-run
+
+python automation/run_responses_v2.py run \
+  --root . \
+  --workflow-file automation/task_packs/gstack_design_to_po_playbook/workflows/gstack_design_to_po_playbook.workflow.json \
+  --primary-job-input docs/gstack/<approved-design-or-brief>.md \
   --dry-run
 ```
 
