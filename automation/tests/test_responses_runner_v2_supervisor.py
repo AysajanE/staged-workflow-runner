@@ -419,6 +419,71 @@ class ResponsesRunnerV2SupervisorTests(unittest.TestCase):
             cycle = updated["review_cycles"][0]
             self.assertEqual(cycle["operator_provisional_record"], result["operator_review"])
 
+    def test_operator_invocation_canonicalizes_common_review_shape_drift(self) -> None:
+        with tempfile.TemporaryDirectory(dir=ROOT) as tmp:
+            tmp_path = Path(tmp)
+            session = _create_session(tmp_path)
+            decision = _review_decision(
+                actor_role="operator_codex",
+                review_cycle_id="cycle_shape_drift",
+                review_kind="stage_output",
+                approval="approve",
+            )
+            decision["slice"] = "S05"
+            decision["job_id"] = "job"
+            decision["handoff_path"] = "handoff.md"
+            decision["next_action"] = "create_approved_review_bundle_and_continue_with_review_bundle_to_next_stage"
+            decision["recommendations"] = [
+                {
+                    "id": "REC-001",
+                    "recommendation": "Approve this stage output for review-bundle creation.",
+                    "operator_decision": "accepted",
+                    "decision_rationale": "The response is complete and hash-stable.",
+                    "supporting_evidence": ["stage_outcome.json reports reviewable=true."],
+                    "affected_artifact": "stages/01_source_authority_map/response.final.md",
+                    "changes_applied": [
+                        {
+                            "path": "reviewer_notes.md",
+                            "change": "Documented approval rationale.",
+                        }
+                    ],
+                    "validation_evidence": ["reviewer_notes.md hash matched."],
+                }
+            ]
+            decision["unsupported_claims"] = [
+                {
+                    "claim": "Stage output proves downstream repo state.",
+                    "operator_decision": "rejected",
+                    "rejected_reason": "Downstream claims are outside this stage.",
+                    "evidence": "stage_review_job.json",
+                }
+            ]
+            job = tmp_path / "job.json"
+            job.write_text('{"review_job_id":"job"}\n', encoding="utf-8")
+            with mock.patch(
+                "automation.responses_runner_v2.supervisor_agents._run_subprocess",
+                side_effect=_fake_runner_with_stdout(decision, []),
+            ):
+                result = supervisor.invoke_operator(
+                    root=ROOT,
+                    session_ref=session["supervisor_session_id"],
+                    review_cycle_id="cycle_shape_drift",
+                    review_kind="stage_output",
+                    job_json=job.relative_to(ROOT),
+                    output_dir=tmp_path.relative_to(ROOT),
+                )
+
+            operator_review = result["operator_review"]
+            payload = json.loads((ROOT / operator_review).read_text(encoding="utf-8"))
+            self.assertEqual(payload["status"], "succeeded")
+            self.assertEqual(payload["approval_decision"], "approve")
+            self.assertNotIn("slice", payload)
+            self.assertEqual(payload["next_action"], "proceed_to_consolidation")
+            self.assertEqual(payload["recommendations"][0]["recommendation_id"], "rec-001")
+            self.assertEqual(payload["recommendations"][0]["source_agent"], "operator_codex")
+            self.assertTrue(payload["recommendations"][0]["changes_applied"][0]["evidence"])
+            self.assertEqual(payload["unsupported_claims"][0]["source"], "stage_review_job.json")
+
     def test_scaffold_review_gating_blocks_launch_without_acceptance(self) -> None:
         with tempfile.TemporaryDirectory(dir=ROOT) as tmp:
             tmp_path = Path(tmp)

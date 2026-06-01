@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
@@ -43,6 +44,37 @@ class AgentRunResult:
     command: dict[str, Any]
     read_only_check: dict[str, Any] | None
     fallback_used: bool = False
+
+
+REVIEW_DECISION_TOP_LEVEL_KEYS = {
+    "schema_version",
+    "decision_id",
+    "created_at",
+    "supervisor_session_id",
+    "workflow_id",
+    "run_id",
+    "stage_id",
+    "review_cycle_id",
+    "review_kind",
+    "actor_role",
+    "agent_command_id",
+    "status",
+    "approval_decision",
+    "summary",
+    "markdown_report_path",
+    "json_report_path",
+    "reviewed_artifacts",
+    "missing_artifacts",
+    "blocking_issues",
+    "non_blocking_improvements",
+    "recommendations",
+    "unsupported_claims",
+    "evidence",
+    "command",
+    "read_only_check",
+    "validation_errors",
+    "next_action",
+}
 
 
 def load_command_template(root: Path, actor_role: str) -> dict[str, Any]:
@@ -244,6 +276,210 @@ def _minimal_blocked_decision(
     return payload
 
 
+def _safe_id(value: Any, fallback: str) -> str:
+    raw = str(value or fallback).strip().lower()
+    raw = re.sub(r"[^a-z0-9._-]+", "-", raw)
+    raw = raw.strip("._-")
+    if not raw or not raw[0].isalnum():
+        raw = fallback
+    return raw[:128]
+
+
+def _string_list(value: Any) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return [str(item).strip() for item in value if str(item).strip()]
+    text = str(value).strip()
+    return [text] if text else []
+
+
+def _coerce_evidence(value: Any, *, default_source: str, default_artifact_path: str | None = None) -> list[dict[str, str]]:
+    entries = value if isinstance(value, list) else ([] if value is None else [value])
+    coerced: list[dict[str, str]] = []
+    for item in entries:
+        if isinstance(item, dict):
+            quote = str(item.get("quote_or_summary") or item.get("summary") or item.get("evidence") or "").strip()
+            source = str(item.get("source") or default_source).strip()
+            artifact_path = str(item.get("artifact_path") or item.get("path") or "").strip()
+            if not quote:
+                quote = json.dumps(item, sort_keys=True)
+            entry: dict[str, str] = {"quote_or_summary": quote}
+            if artifact_path:
+                entry["artifact_path"] = artifact_path
+            else:
+                entry["source"] = source
+            coerced.append(entry)
+            continue
+
+        text = str(item).strip()
+        if not text:
+            continue
+        entry = {"quote_or_summary": text}
+        if default_artifact_path:
+            entry["artifact_path"] = default_artifact_path
+        else:
+            entry["source"] = default_source
+        coerced.append(entry)
+    return coerced
+
+
+def _coerce_affected_artifacts(rec: dict[str, Any]) -> list[Any]:
+    affected = rec.get("affected_artifacts")
+    if affected is None:
+        affected = rec.get("affected_artifact")
+    if isinstance(affected, list):
+        return affected
+    if affected is None:
+        return []
+    text = str(affected).strip()
+    return [text] if text else []
+
+
+def _coerce_changes_applied(value: Any, *, default_source: str) -> list[dict[str, Any]]:
+    changes = value if isinstance(value, list) else ([] if value is None else [value])
+    coerced: list[dict[str, Any]] = []
+    for item in changes:
+        if not isinstance(item, dict):
+            continue
+        path = str(item.get("path") or "").strip()
+        summary = str(item.get("summary") or item.get("change") or item.get("description") or "").strip()
+        if not path or not summary:
+            continue
+        evidence = _coerce_evidence(
+            item.get("evidence") or summary,
+            default_source=default_source,
+            default_artifact_path=path,
+        )
+        change = dict(item)
+        change.pop("change", None)
+        change["path"] = path
+        change["summary"] = summary
+        change["evidence"] = evidence
+        coerced.append(change)
+    return coerced
+
+
+def _coerce_recommendations(value: Any, *, actor_role: str, default_source: str) -> list[dict[str, Any]]:
+    recommendations = value if isinstance(value, list) else ([] if value is None else [value])
+    coerced: list[dict[str, Any]] = []
+    for index, item in enumerate(recommendations, start=1):
+        if not isinstance(item, dict):
+            continue
+        rec = dict(item)
+        artifact_path = str(rec.get("affected_artifact") or "").strip() or None
+        evidence = rec.get("evidence")
+        if evidence is None:
+            evidence = rec.get("supporting_evidence")
+        rec["recommendation_id"] = _safe_id(
+            rec.get("recommendation_id") or rec.get("id"),
+            f"recommendation-{index}",
+        )
+        rec["source_agent"] = str(rec.get("source_agent") or actor_role)
+        rec["severity"] = str(rec.get("severity") or "medium")
+        rec["evidence"] = _coerce_evidence(
+            evidence,
+            default_source=default_source,
+            default_artifact_path=artifact_path,
+        )
+        rec["affected_artifacts"] = _coerce_affected_artifacts(rec)
+        if "exact_change_needed" not in rec and "rationale_for_no_change" not in rec:
+            rationale = str(rec.get("decision_rationale") or rec.get("recommendation") or "").strip()
+            if rationale:
+                rec["rationale_for_no_change"] = rationale
+        if "changes_applied" in rec:
+            rec["changes_applied"] = _coerce_changes_applied(rec.get("changes_applied"), default_source=default_source)
+        if "validation_evidence" in rec:
+            rec["validation_evidence"] = _coerce_evidence(
+                rec.get("validation_evidence"),
+                default_source=default_source,
+                default_artifact_path=artifact_path,
+            )
+        rec.pop("id", None)
+        rec.pop("supporting_evidence", None)
+        rec.pop("affected_artifact", None)
+        coerced.append(rec)
+    return coerced
+
+
+def _coerce_unsupported_claims(value: Any, *, default_source: str) -> list[dict[str, str]]:
+    claims = value if isinstance(value, list) else ([] if value is None else [value])
+    coerced: list[dict[str, str]] = []
+    for item in claims:
+        if isinstance(item, dict):
+            claim = str(item.get("claim") or "").strip()
+            source = str(item.get("source") or item.get("evidence") or default_source).strip()
+            reason = str(item.get("reason") or item.get("rejected_reason") or item.get("operator_decision") or "").strip()
+        else:
+            claim = str(item).strip()
+            source = default_source
+            reason = "Claim was listed as unsupported by the review agent."
+        if not claim:
+            continue
+        coerced.append({
+            "claim": claim,
+            "source": source or default_source,
+            "reason": reason or "Claim was listed as unsupported by the review agent.",
+        })
+    return coerced
+
+
+def _canonical_next_action(raw_action: Any, *, review_kind: str, approval_decision: str) -> str:
+    action = str(raw_action or "").strip()
+    allowed = {
+        "proceed_to_consolidation",
+        "proceed_to_operator_acceptance",
+        "create_review_bundle",
+        "create_final_bundle",
+        "rerun_after_archive",
+        "human_pause",
+        "blocked",
+    }
+    if action in allowed:
+        return action
+    if approval_decision not in {"approve", "approve_with_conditions"}:
+        return "blocked"
+    if review_kind == "operator_acceptance":
+        return "create_review_bundle"
+    if review_kind == "consolidation":
+        return "proceed_to_operator_acceptance"
+    if review_kind == "final_packet":
+        return "create_final_bundle"
+    return "proceed_to_consolidation"
+
+
+def _canonicalize_review_decision_shape(
+    decision: dict[str, Any],
+    *,
+    actor_role: str,
+    review_kind: str,
+) -> dict[str, Any]:
+    default_source = f"{actor_role}:{review_kind}"
+    canonical = {key: value for key, value in decision.items() if key in REVIEW_DECISION_TOP_LEVEL_KEYS}
+    if "recommendations" in canonical:
+        canonical["recommendations"] = _coerce_recommendations(
+            canonical.get("recommendations"),
+            actor_role=actor_role,
+            default_source=default_source,
+        )
+    if "unsupported_claims" in canonical:
+        canonical["unsupported_claims"] = _coerce_unsupported_claims(
+            canonical.get("unsupported_claims"),
+            default_source=default_source,
+        )
+    if "evidence" in canonical:
+        canonical["evidence"] = _coerce_evidence(canonical.get("evidence"), default_source=default_source)
+    if "validation_errors" in canonical:
+        canonical["validation_errors"] = _string_list(canonical.get("validation_errors"))
+    if "approval_decision" in canonical or "next_action" in canonical:
+        canonical["next_action"] = _canonical_next_action(
+            canonical.get("next_action"),
+            review_kind=review_kind,
+            approval_decision=str(canonical.get("approval_decision") or ""),
+        )
+    return canonical
+
+
 def _normalize_agent_decision(
     *,
     root: Path,
@@ -259,7 +495,11 @@ def _normalize_agent_decision(
 ) -> dict[str, Any]:
     markdown_path = output_dir / f"{command_id}.md"
     json_path = output_dir / f"{command_id}.json"
-    decision = dict(raw_decision)
+    decision = _canonicalize_review_decision_shape(
+        dict(raw_decision),
+        actor_role=actor_role,
+        review_kind=review_kind,
+    )
     decision["schema_version"] = decision.get("schema_version") or REVIEW_DECISION_SCHEMA_VERSION
     decision["decision_id"] = decision.get("decision_id") or command_id
     decision["created_at"] = decision.get("created_at") or runner_now().isoformat()
