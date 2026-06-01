@@ -294,12 +294,125 @@ def _string_list(value: Any) -> list[str]:
     return [text] if text else []
 
 
+def _canonical_status(value: Any) -> str:
+    raw = str(value or "").strip().lower()
+    mapping = {
+        "complete": "succeeded",
+        "completed": "succeeded",
+        "ok": "succeeded",
+        "pass": "succeeded",
+        "passed": "succeeded",
+        "success": "succeeded",
+        "successful": "succeeded",
+        "succeeded": "succeeded",
+        "failure": "failed",
+        "failed": "failed",
+        "blocked": "blocked",
+        "malformed_output": "malformed_output",
+        "read_only_violation": "read_only_violation",
+        "timeout": "timeout",
+    }
+    return mapping.get(raw, str(value or ""))
+
+
+def _canonical_approval(value: Any) -> str:
+    raw = str(value or "").strip().lower()
+    mapping = {
+        "accept": "approve",
+        "accepted": "approve",
+        "approve": "approve",
+        "approved": "approve",
+        "ok": "approve",
+        "pass": "approve",
+        "passed": "approve",
+        "approved_with_conditions": "approve_with_conditions",
+        "approve_with_conditions": "approve_with_conditions",
+        "conditional_approval": "approve_with_conditions",
+        "reject": "do_not_approve",
+        "rejected": "do_not_approve",
+        "do_not_approve": "do_not_approve",
+        "not_approved": "do_not_approve",
+        "blocked": "blocked",
+        "not_applicable": "not_applicable",
+    }
+    return mapping.get(raw, str(value or ""))
+
+
+def _canonical_severity(value: Any) -> str:
+    raw = str(value or "").strip().lower()
+    mapping = {
+        "critical": "critical",
+        "blocker": "blocking",
+        "blocking": "blocking",
+        "high": "high",
+        "medium": "medium",
+        "med": "medium",
+        "low": "low",
+        "info": "low",
+        "informational": "low",
+        "note": "low",
+        "none": "low",
+    }
+    return mapping.get(raw, "medium")
+
+
+def _coerce_artifact_refs(value: Any, *, default_role: str = "reviewed_artifact") -> list[dict[str, Any]]:
+    entries = value if isinstance(value, list) else ([] if value is None else [value])
+    coerced: list[dict[str, Any]] = []
+    for index, item in enumerate(entries, start=1):
+        if isinstance(item, dict):
+            path = str(item.get("path") or item.get("artifact_path") or item.get("artifact") or "").strip()
+            role = str(item.get("role") or item.get("artifact") or item.get("name") or f"{default_role}_{index}").strip()
+            if not path:
+                continue
+            entry: dict[str, Any] = {"path": path, "role": role or default_role}
+            sha256 = str(item.get("sha256") or "").strip()
+            if re.fullmatch(r"[a-f0-9]{64}", sha256):
+                entry["sha256"] = sha256
+            if isinstance(item.get("bytes"), int) and item["bytes"] >= 0:
+                entry["bytes"] = item["bytes"]
+            coerced.append(entry)
+            continue
+        path = str(item).strip()
+        if path:
+            coerced.append({"path": path, "role": f"{default_role}_{index}"})
+    return coerced
+
+
+def _coerce_missing_artifacts(value: Any) -> list[dict[str, Any]]:
+    entries = value if isinstance(value, list) else ([] if value is None else [value])
+    coerced: list[dict[str, Any]] = []
+    for item in entries:
+        if isinstance(item, dict):
+            path = str(item.get("path") or item.get("artifact_path") or item.get("artifact") or "").strip()
+            if not path:
+                continue
+            coerced.append({
+                "path": path,
+                "required": bool(item.get("required", True)),
+                "reason": str(item.get("reason") or item.get("description") or "Required artifact was missing.").strip(),
+            })
+            continue
+        path = str(item).strip()
+        if path:
+            coerced.append({"path": path, "required": True, "reason": "Required artifact was missing."})
+    return coerced
+
+
 def _coerce_evidence(value: Any, *, default_source: str, default_artifact_path: str | None = None) -> list[dict[str, str]]:
     entries = value if isinstance(value, list) else ([] if value is None else [value])
     coerced: list[dict[str, str]] = []
     for item in entries:
         if isinstance(item, dict):
-            quote = str(item.get("quote_or_summary") or item.get("summary") or item.get("evidence") or "").strip()
+            quote = str(
+                item.get("quote_or_summary")
+                or item.get("summary")
+                or item.get("evidence_summary")
+                or item.get("evidence")
+                or item.get("detail")
+                or item.get("rationale")
+                or ""
+            ).strip()
             source = str(item.get("source") or default_source).strip()
             artifact_path = str(item.get("artifact_path") or item.get("path") or "").strip()
             if not quote:
@@ -328,12 +441,59 @@ def _coerce_affected_artifacts(rec: dict[str, Any]) -> list[Any]:
     affected = rec.get("affected_artifacts")
     if affected is None:
         affected = rec.get("affected_artifact")
+    if affected is None:
+        affected = rec.get("artifact_path")
+    if affected is None:
+        affected = rec.get("path")
     if isinstance(affected, list):
-        return affected
+        return [item for item in affected if str(item).strip()]
     if affected is None:
         return []
     text = str(affected).strip()
     return [text] if text else []
+
+
+def _coerce_issue_items(value: Any, *, default_prefix: str, include_severity: bool = True) -> list[dict[str, Any]]:
+    entries = value if isinstance(value, list) else ([] if value is None else [value])
+    coerced: list[dict[str, Any]] = []
+    for index, item in enumerate(entries, start=1):
+        if not isinstance(item, dict):
+            text = str(item).strip()
+            if not text:
+                continue
+            row: dict[str, Any] = {
+                "issue_id": _safe_id(None, f"{default_prefix}-{index}"),
+                "description": text,
+                "evidence": [text],
+                "affected_artifacts": [],
+            }
+            if include_severity:
+                row["severity"] = "medium"
+            coerced.append(row)
+            continue
+        row = dict(item)
+        description = str(
+            row.get("description")
+            or row.get("title")
+            or row.get("detail")
+            or row.get("exact_change_needed")
+            or row.get("rationale")
+            or row.get("reason")
+            or "Review note."
+        ).strip()
+        evidence = row.get("evidence")
+        if evidence is None:
+            evidence = row.get("evidence_summary") or row.get("detail") or description
+        normalized: dict[str, Any] = {
+            "issue_id": _safe_id(row.get("issue_id") or row.get("id"), f"{default_prefix}-{index}"),
+            "description": description,
+            "evidence": _string_list(evidence),
+            "affected_artifacts": [str(item).strip() for item in _coerce_affected_artifacts(row) if str(item).strip()],
+        }
+        if include_severity:
+            normalized["severity"] = _canonical_severity(row.get("severity"))
+        coerced.append(normalized)
+    return coerced
 
 
 def _coerce_changes_applied(value: Any, *, default_source: str) -> list[dict[str, Any]]:
@@ -376,7 +536,16 @@ def _coerce_recommendations(value: Any, *, actor_role: str, default_source: str)
             f"recommendation-{index}",
         )
         rec["source_agent"] = str(rec.get("source_agent") or actor_role)
-        rec["severity"] = str(rec.get("severity") or "medium")
+        rec["severity"] = _canonical_severity(rec.get("severity"))
+        rec["recommendation"] = str(
+            rec.get("recommendation")
+            or rec.get("exact_change_needed")
+            or rec.get("rationale")
+            or rec.get("title")
+            or rec.get("detail")
+            or rec.get("decision_rationale")
+            or "Review recommendation."
+        ).strip()
         rec["evidence"] = _coerce_evidence(
             evidence,
             default_source=default_source,
@@ -456,6 +625,26 @@ def _canonicalize_review_decision_shape(
 ) -> dict[str, Any]:
     default_source = f"{actor_role}:{review_kind}"
     canonical = {key: value for key, value in decision.items() if key in REVIEW_DECISION_TOP_LEVEL_KEYS}
+    if "status" in canonical:
+        canonical["status"] = _canonical_status(canonical.get("status"))
+    if "approval_decision" in canonical:
+        canonical["approval_decision"] = _canonical_approval(canonical.get("approval_decision"))
+    if "reviewed_artifacts" in canonical:
+        canonical["reviewed_artifacts"] = _coerce_artifact_refs(canonical.get("reviewed_artifacts"))
+    if "missing_artifacts" in canonical:
+        canonical["missing_artifacts"] = _coerce_missing_artifacts(canonical.get("missing_artifacts"))
+    if "blocking_issues" in canonical:
+        canonical["blocking_issues"] = _coerce_issue_items(
+            canonical.get("blocking_issues"),
+            default_prefix="blocking-issue",
+            include_severity=True,
+        )
+    if "non_blocking_improvements" in canonical:
+        canonical["non_blocking_improvements"] = _coerce_issue_items(
+            canonical.get("non_blocking_improvements"),
+            default_prefix="non-blocking-improvement",
+            include_severity=False,
+        )
     if "recommendations" in canonical:
         canonical["recommendations"] = _coerce_recommendations(
             canonical.get("recommendations"),

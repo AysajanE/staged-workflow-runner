@@ -509,6 +509,74 @@ class ResponsesRunnerV2SupervisorTests(unittest.TestCase):
             self.assertEqual(result.status, "succeeded")
             self.assertTrue((ROOT / result.decision_path).exists())
 
+    def test_review_agent_canonicalizes_common_reviewer_shape_drift(self) -> None:
+        with tempfile.TemporaryDirectory(dir=ROOT) as tmp:
+            decision = {
+                "schema_version": "responses_runner_v2.review_decision.v1",
+                "actor_role": "codex_review_agent",
+                "status": "completed",
+                "approval_decision": "approved",
+                "summary": "The stage output is complete and reviewable.",
+                "reviewed_artifacts": [
+                    "stages/01_source_authority_map/response.final.md",
+                    {"path": "stage_outcome.json", "role": "stage_outcome", "status": "verified"},
+                ],
+                "missing_artifacts": [],
+                "blocking_issues": [],
+                "non_blocking_improvements": [
+                    {
+                        "id": "NB-001",
+                        "severity": "low",
+                        "artifact_path": "response.final.md",
+                        "evidence": "Minor renderer hygiene note.",
+                        "exact_change_needed": "No change required before advancement.",
+                    }
+                ],
+                "recommendations": [
+                    {
+                        "id": "REC-001",
+                        "severity": "info",
+                        "artifact_path": "run_manifest.json",
+                        "evidence": "The run manifest is waiting_for_review.",
+                        "affected_artifacts": ["run_manifest.json"],
+                        "rationale": "Create the approved review bundle before Stage 2.",
+                    }
+                ],
+                "unsupported_claims": [],
+                "evidence": [
+                    {
+                        "id": "EV-001",
+                        "artifact_path": "response.final.json",
+                        "evidence_summary": "status=completed and incomplete_details=null.",
+                        "severity": "info",
+                    }
+                ],
+                "validation_errors": [],
+                "next_action": "proceed_to_consolidation",
+            }
+
+            result = supervisor_agents.invoke_codex_review_agent(
+                root=ROOT,
+                review_kind="stage_output",
+                review_cycle_id="cycle_reviewer_shape_drift",
+                supervisor_session_id="sup_test",
+                job={"review_job_id": "job1"},
+                output_dir=Path(tmp).relative_to(ROOT),
+                runner=_fake_runner_with_stdout(decision, []),
+            )
+
+            self.assertEqual(result.status, "succeeded")
+            self.assertEqual(result.approval_decision, "approve")
+            payload = json.loads((ROOT / result.decision_path).read_text(encoding="utf-8"))
+            self.assertEqual(payload["status"], "succeeded")
+            self.assertEqual(payload["approval_decision"], "approve")
+            self.assertEqual(payload["reviewed_artifacts"][0]["role"], "reviewed_artifact_1")
+            self.assertNotIn("status", payload["reviewed_artifacts"][1])
+            self.assertEqual(payload["non_blocking_improvements"][0]["issue_id"], "nb-001")
+            self.assertEqual(payload["recommendations"][0]["severity"], "low")
+            self.assertEqual(payload["recommendations"][0]["recommendation"], "Create the approved review bundle before Stage 2.")
+            self.assertEqual(payload["evidence"][0]["quote_or_summary"], "status=completed and incomplete_details=null.")
+
     def test_review_agent_schema_invalid_json_is_failure(self) -> None:
         with tempfile.TemporaryDirectory(dir=ROOT) as tmp:
             invalid = {"schema_version": "responses_runner_v2.review_decision.v1", "actor_role": "codex_review_agent"}
