@@ -47,6 +47,15 @@ MISSING_CLI_EXIT_CODE = 127
 # malformed_output.
 TRANSPORT_FAILURE_STATUSES = {"missing_cli", "interrupted"}
 
+# Optional job field carrying verbatim source text of cited authority
+# files: a list of {path, sha256, content} objects. The supervisor passes
+# the field through to reviewers unmodified (inside the job JSON) so
+# read-only reviewers can run grounding checks instead of blocking on
+# missing source text. The passthrough is bounded so a single job cannot
+# blow the agent CLI argument/stdin budget.
+EMBEDDED_SOURCES_KEY = "embedded_sources"
+MAX_EMBEDDED_SOURCES_BYTES = 512 * 1024
+
 
 class AgentOutputError(RuntimeError):
     pass
@@ -121,12 +130,59 @@ def _jsonable_job(job: dict[str, Any] | str | Path, *, root: Path) -> tuple[dict
     return payload, path.read_text(encoding="utf-8")
 
 
-def _prompt_with_job(prompt_text: str, job_text: str) -> str:
+def _validated_embedded_sources(job_payload: dict[str, Any]) -> list[dict[str, Any]]:
+    """Validate optional job embedded_sources for bounded verbatim passthrough.
+
+    Returns the entries unmodified. Fails closed (SystemExit) on a malformed
+    shape or when total content exceeds MAX_EMBEDDED_SOURCES_BYTES, instead
+    of silently dropping or truncating source text the reviewers will be
+    told they can rely on.
+    """
+
+    raw = job_payload.get(EMBEDDED_SOURCES_KEY)
+    if raw is None:
+        return []
+    if not isinstance(raw, list):
+        raise SystemExit("Job embedded_sources must be a list of {path, sha256, content} objects.")
+    total_bytes = 0
+    entries: list[dict[str, Any]] = []
+    for index, item in enumerate(raw):
+        if not isinstance(item, dict):
+            raise SystemExit(f"Job embedded_sources[{index}] must be an object with path, sha256, and content.")
+        path = item.get("path")
+        content = item.get("content")
+        sha256 = item.get("sha256")
+        if not isinstance(path, str) or not path.strip():
+            raise SystemExit(f"Job embedded_sources[{index}].path must be a non-empty string.")
+        if not isinstance(content, str):
+            raise SystemExit(f"Job embedded_sources[{index}].content must be a string of verbatim source text.")
+        if sha256 is not None and (not isinstance(sha256, str) or re.fullmatch(r"[a-f0-9]{64}", sha256) is None):
+            raise SystemExit(f"Job embedded_sources[{index}].sha256 must be a 64-character lowercase hex digest.")
+        total_bytes += len(content.encode("utf-8"))
+        entries.append(item)
+    if total_bytes > MAX_EMBEDDED_SOURCES_BYTES:
+        raise SystemExit(
+            f"Job embedded_sources content totals {total_bytes} bytes, which exceeds the "
+            f"{MAX_EMBEDDED_SOURCES_BYTES}-byte bounded passthrough budget."
+        )
+    return entries
+
+
+def _prompt_with_job(prompt_text: str, job_text: str, *, embedded_sources_count: int = 0) -> str:
+    sources_note = ""
+    if embedded_sources_count:
+        sources_note = (
+            f"The job object's `embedded_sources` array carries the verbatim text of {embedded_sources_count} "
+            "cited authority file(s) as {path, sha256, content} objects. Treat each `content` value as the "
+            "authoritative source text of the file at `path` and use it for grounding checks. Do not report "
+            "these files as missing source text and do not block for lack of access to them.\n\n"
+        )
     return (
         prompt_text.rstrip()
         + "\n\n## Supervisor Job JSON\n\n"
         + "Read the following job object as the only job-specific instruction payload. "
         + "Emit exactly the machine-ingestible JSON required by the prompt. Do not wrap stdout JSON in markdown fences.\n\n"
+        + sources_note
         + "```json\n"
         + job_text.strip()
         + "\n```\n"
@@ -842,12 +898,13 @@ def _invoke_agent(
     command_id = f"cmd_{actor_role}_{review_cycle_id}_{runner_now().strftime('%H%M%S')}"
     prompt_rel, prompt_text = _read_prompt(root, actor_role)
     job_payload, job_text = _jsonable_job(job, root=root)
+    embedded_sources = _validated_embedded_sources(job_payload)
 
     fallback_used = False
     input_text = None
     env = None
     if actor_role in {"operator_codex", "codex_review_agent"}:
-        argv = ["codex", "exec", _prompt_with_job(prompt_text, job_text)]
+        argv = ["codex", "exec", _prompt_with_job(prompt_text, job_text, embedded_sources_count=len(embedded_sources))]
     elif actor_role == "claude_review_agent":
         prompt_path = resolve_under_root(root, prompt_rel, must_exist=True)
         argv = [
@@ -976,6 +1033,8 @@ def _invoke_agent(
         "prompt_file": prompt_rel,
         "fallback_used": fallback_used,
         "job_keys": sorted(job_payload.keys()),
+        "embedded_sources_count": len(embedded_sources),
+        "embedded_sources_bytes": sum(len(str(item.get("content") or "").encode("utf-8")) for item in embedded_sources),
         **(
             {
                 "stdin_mode": "review_job_json",
