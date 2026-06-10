@@ -84,6 +84,33 @@ Required semantic fields:
 - `evidence`;
 - `next_action`.
 
+These enum values are literal and exhaustive. Any other spelling will be rejected by schema validation:
+
+- `status` MUST be exactly `"succeeded"` when you complete the job. Never write `"completed"`, `"complete"`, `"ok"`, `"passed"`, or `"success"`. All other status values (`failed`, `timeout`, `malformed_output`, `read_only_violation`, `missing_cli`, `interrupted`) are supervisor-assigned; do not emit them.
+- `approval_decision` MUST be exactly one of `"approve"`, `"approve_with_conditions"`, `"do_not_approve"`, `"blocked"`. Never write `"approved"`, `"accepted"`, `"rejected"`, or any other variant.
+- `validation_errors` MUST be `[]` and `blocking_issues` MUST be `[]` whenever `approval_decision` is `"approve"` or `"approve_with_conditions"`.
+- `next_action` MUST be one of `"proceed_to_consolidation"`, `"proceed_to_operator_acceptance"`, `"create_review_bundle"`, `"create_final_bundle"`, `"rerun_after_archive"`, `"human_pause"`, `"blocked"`.
+
+Minimal complete valid example (shape reference; replace the values with your real findings):
+
+```json
+{
+  "actor_role": "operator_codex",
+  "status": "succeeded",
+  "approval_decision": "approve",
+  "summary": "Provisional review found the stage output complete and safe to advance.",
+  "reviewed_artifacts": [{"path": "stages/01_stage/response.final.md", "role": "stage_output"}],
+  "missing_artifacts": [],
+  "blocking_issues": [],
+  "non_blocking_improvements": [],
+  "recommendations": [],
+  "unsupported_claims": [],
+  "evidence": [{"artifact_path": "stages/01_stage/response.final.md", "quote_or_summary": "Required sections are present and grounded."}],
+  "validation_errors": [],
+  "next_action": "proceed_to_consolidation"
+}
+```
+
 For operator acceptance jobs, each recommendation must include `operator_decision`, `decision_rationale`, and either `changes_applied` plus `validation_evidence`, or `rejected_reason`.
 
 ## Stopping Conditions

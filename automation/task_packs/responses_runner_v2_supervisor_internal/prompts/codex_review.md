@@ -21,6 +21,8 @@ Use only:
 
 Do not infer access to files outside the review input bundle.
 
+If the job JSON contains an `embedded_sources` array, each entry is a `{path, sha256, content}` object whose `content` is the verbatim text of the cited authority file at `path`. Treat that content as the source text of the file for grounding and unsupported-claim checks. Do not list those paths in `missing_artifacts` and do not block for lack of access to their source text.
+
 ## Success Criteria
 
 A successful review:
@@ -105,6 +107,34 @@ The JSON must conform to `responses_runner_v2.review_decision.v1` and include:
 - `evidence`;
 - `validation_errors`;
 - `next_action`.
+
+These enum values are literal and exhaustive. Any other spelling will be rejected by schema validation:
+
+- `status` MUST be exactly `"succeeded"` when you complete the review. Never write `"completed"`, `"complete"`, `"ok"`, `"passed"`, or `"success"`. All other status values (`failed`, `timeout`, `malformed_output`, `read_only_violation`, `missing_cli`, `interrupted`) are supervisor-assigned; do not emit them.
+- `approval_decision` MUST be exactly one of `"approve"`, `"approve_with_conditions"`, `"do_not_approve"`, `"blocked"`. Never write `"approved"`, `"accepted"`, `"rejected"`, or any other variant.
+- `validation_errors` MUST be `[]` and `blocking_issues` MUST be `[]` whenever `approval_decision` is `"approve"` or `"approve_with_conditions"`.
+- `reviewed_artifacts` entries are objects with `path` and `role` string keys only (optional `sha256`, `bytes`).
+- `next_action` MUST be one of `"proceed_to_consolidation"`, `"proceed_to_operator_acceptance"`, `"create_review_bundle"`, `"create_final_bundle"`, `"rerun_after_archive"`, `"human_pause"`, `"blocked"`.
+
+Minimal complete valid example (shape reference; replace the values with your real findings):
+
+```json
+{
+  "actor_role": "codex_review_agent",
+  "status": "succeeded",
+  "approval_decision": "approve",
+  "summary": "Stage output satisfies the stage objective and all required checks.",
+  "reviewed_artifacts": [{"path": "stages/01_stage/response.final.md", "role": "stage_output"}],
+  "missing_artifacts": [],
+  "blocking_issues": [],
+  "non_blocking_improvements": [],
+  "recommendations": [],
+  "unsupported_claims": [],
+  "evidence": [{"artifact_path": "stages/01_stage/response.final.md", "quote_or_summary": "Required sections are present and grounded."}],
+  "validation_errors": [],
+  "next_action": "proceed_to_consolidation"
+}
+```
 
 The supervisor will capture stdout/stderr, validate this JSON, write a sidecar, and run a read-only workspace snapshot check.
 

@@ -60,6 +60,12 @@ Emit consolidation JSON conforming to `responses_runner_v2.review_decision.v1` w
 - `recommendations[].consolidation_recommendation`;
 - no `recommendations[].operator_decision`.
 
+These enum values are literal and exhaustive. Any other spelling will be rejected by schema validation:
+
+- `status` MUST be exactly `"succeeded"` for a completed consolidation. Never write `"completed"`, `"complete"`, `"ok"`, `"passed"`, or `"success"`.
+- `approval_decision` MUST be exactly one of `"approve"`, `"approve_with_conditions"`, `"do_not_approve"`, `"blocked"`. Never write `"approved"`, `"accepted"`, `"rejected"`, or any other variant.
+- `validation_errors` MUST be `[]` and `blocking_issues` MUST be `[]` whenever `approval_decision` is `"approve"` or `"approve_with_conditions"`.
+
 Also emit a markdown summary listing blocker count, recommendation count, duplicate map, and unresolved conflicts.
 
 ## Stopping Conditions
