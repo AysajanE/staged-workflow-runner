@@ -68,17 +68,17 @@ def _passed_read_only_check() -> dict:
     }
 
 
-def _replay_raw_decision(raw: dict, *, review_cycle_id: str) -> dict:
+def _replay_raw_decision(raw: dict, *, review_cycle_id: str, actor_role: str = "codex_review_agent") -> dict:
     decision = supervisor_agents._normalize_agent_decision(
         root=ROOT,
         output_dir=ROOT / "unused_replay_output",
-        command_id=f"cmd_codex_review_agent_{review_cycle_id}",
-        actor_role="codex_review_agent",
+        command_id=f"cmd_{actor_role}_{review_cycle_id}",
+        actor_role=actor_role,
         review_kind="stage_output",
         review_cycle_id=review_cycle_id,
         supervisor_session_id="sup_replay",
         raw_decision=raw,
-        command=_command_stub("codex_review_agent"),
+        command=_command_stub(actor_role),
         read_only_check=_passed_read_only_check(),
     )
     supervisor_agents.validate_review_decision(decision)
@@ -100,6 +100,23 @@ class S05ReviewLaneRegressionTests(unittest.TestCase):
         for artifact in decision["reviewed_artifacts"]:
             self.assertIn("path", artifact)
             self.assertIn("role", artifact)
+
+    def test_cycle6_uppercase_decision_id_normalizes_instead_of_failing_transport(self) -> None:
+        # 2026-06-10 regression: the operator fully approved the regenerated
+        # S05 stage-1 artifact but embedded an uppercase ISO timestamp in its
+        # self-assigned decision_id, which failed the idString pattern and was
+        # recorded as a malformed_output transport sidecar.
+        raw_text = (FIXTURES / "cycle6_operator_uppercase_decision_id.stdout.txt").read_text(encoding="utf-8")
+        raw = json.loads(raw_text[raw_text.index("{") : raw_text.rindex("}") + 1])
+        self.assertEqual(raw["status"], "succeeded")
+        self.assertEqual(raw["approval_decision"], "approve")
+        self.assertNotEqual(raw["decision_id"], raw["decision_id"].lower())
+
+        decision = _replay_raw_decision(raw, review_cycle_id="s05_cycle6", actor_role="operator_codex")
+        self.assertEqual(decision["status"], "succeeded")
+        self.assertEqual(decision["approval_decision"], "approve")
+        self.assertRegex(decision["decision_id"], r"^[a-z0-9][a-z0-9._-]{0,127}$")
+        self.assertEqual(decision["validation_errors"], [])
 
     def test_cycle4_raw_approved_dialect_canonicalizes_to_succeeded_approve(self) -> None:
         raw = _load_fixture("cycle4_codex_raw_approved_dialect.stdout.json")

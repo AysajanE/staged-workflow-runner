@@ -789,7 +789,10 @@ def _normalize_agent_decision(
         review_kind=review_kind,
     )
     decision["schema_version"] = decision.get("schema_version") or REVIEW_DECISION_SCHEMA_VERSION
-    decision["decision_id"] = decision.get("decision_id") or command_id
+    # Agent-supplied decision ids arrive in arbitrary casing (e.g. an embedded
+    # ISO timestamp with uppercase T/Z); normalize to the schema idString
+    # pattern instead of failing transport on an identifier spelling.
+    decision["decision_id"] = _safe_id(decision.get("decision_id"), command_id)
     decision["created_at"] = decision.get("created_at") or runner_now().isoformat()
     decision["supervisor_session_id"] = str(decision.get("supervisor_session_id") or supervisor_session_id)
     decision["review_cycle_id"] = str(decision.get("review_cycle_id") or review_cycle_id)
