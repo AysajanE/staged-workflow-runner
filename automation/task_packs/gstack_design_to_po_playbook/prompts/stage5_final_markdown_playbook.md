@@ -5,6 +5,7 @@ Emit only the final `markdown_playbook_v1` markdown document.
 Requirements:
 
 - Use the required sections and execution table columns from the contract summary.
+- The execution table must include non-empty `required_verification_commands` cells for every row.
 - Do not include commentary before or after the playbook.
 - Do not include code fences around the playbook.
 - Do not use pipe characters inside cell content except as markdown table delimiters.

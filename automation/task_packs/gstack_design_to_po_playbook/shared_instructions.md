@@ -10,5 +10,5 @@ Follow these rules in every stage:
 - Preserve `markdown_playbook_v1`. Do not add derived PO columns such as `change_profile`, `execution_mode`, or `host_commands`.
 - Prefer narrow repo-relative paths. Avoid absolute paths, dot-prefixed operational roots, `.local`, `.git`, secret files, and broad write roots.
 - Pipes are not allowed inside markdown table cells. Rewrite text so table parsing remains deterministic.
-- Verification must be concrete. Behavioral code changes need repo-appropriate commands; docs-only rows may use content/hash/path checks.
+- Verification must be concrete and must appear in each row's `required_verification_commands` table cell. Behavioral code changes need repo-appropriate commands; docs-only rows may use content/hash/path checks.
 - Any row produced from uncertainty, external dependency, secrets, production data, irreversible migration, security boundary, or customer-facing claim must require a manual signoff gate.

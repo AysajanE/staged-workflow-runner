@@ -13,4 +13,9 @@ Review and correct:
 7. rows that need manual signoff gates;
 8. missing PO post-output checks.
 
+The corrected execution table must include `required_verification_commands`.
+Verification commands in prose or phase details are useful context but are not
+contract-compliant substitutes for non-empty row cells. If the draft rows omit
+the column, add it here before approving the preflight packet.
+
 Output a final preflight packet: corrected rows, section outline, gate list, verification list, and any residual warnings. Do not execute PO.
