@@ -44,6 +44,12 @@ Agent commands use stdout JSON as the canonical transport. The supervisor captur
 
 Missing stdout JSON, malformed JSON, schema-invalid JSON, mismatched output paths, nonzero exit, timeout, or read-only violation is a hard failure.
 
+Two failures are transport classifications, not reviewer verdicts: `missing_cli` (the agent executable could not be spawned) and `interrupted` (the agent process was killed externally — SIGTERM/SIGINT — with empty or truncated stdout). Their sidecars carry empty `blocking_issues` and a `validation_errors` entry naming the transport cause and kill signal; downstream consumers must not read them as reviewer rejections or as `malformed_output`.
+
+## Timeout Budgets
+
+Each agent command template carries its own `timeout_seconds` and the supervisor enforces it per invocation. `invoke-reviewers` runs the Codex and Claude reviewers sequentially, so any outer or wrapper timeout an external orchestrator places around the whole `invoke-reviewers` call must be at least the sum of all per-agent `timeout_seconds` it covers, plus snapshot/startup margin. An undersized outer timeout SIGTERMs a healthy reviewer mid-run, which the supervisor records as `interrupted`.
+
 ## Read-Only Review Enforcement
 
 Codex and Claude review agents are review-only. They may not edit repository files or produce patches. The supervisor takes a workspace snapshot before and after each reviewer command, excluding `.local` supervisor-owned artifacts, and fails the review if source files change. The Claude lane intentionally does not use `--bare`, because bare mode skips OAuth/keychain reads; the supervisor strips higher-precedence API credential environment variables so subscription OAuth from local `claude` login is used.

@@ -26,6 +26,27 @@ PROMPT_BY_ROLE = {
     "claude_review_agent": f"{INTERNAL_PACK_ROOT}/prompts/claude_review.md",
 }
 
+# Exit codes that indicate the agent process was killed by an external
+# signal (outer timeout, operator Ctrl-C, supervisor host shutdown) rather
+# than the agent rejecting or failing the review on its own.
+INTERRUPT_SIGNAL_BY_EXIT_CODE = {
+    143: "SIGTERM",
+    -15: "SIGTERM",
+    130: "SIGINT",
+    -2: "SIGINT",
+}
+
+# Exit code recorded when the agent CLI executable could not be spawned.
+MISSING_CLI_EXIT_CODE = 127
+
+# Decision statuses that describe a transport-layer delivery failure: the
+# reviewer never produced a verdict. These sidecars carry empty
+# blocking_issues (there is no reviewer finding to block on) and a
+# validation_errors entry naming the transport cause, so downstream
+# consumers can distinguish them from a real reviewer rejection and from
+# malformed_output.
+TRANSPORT_FAILURE_STATUSES = {"missing_cli", "interrupted"}
+
 
 class AgentOutputError(RuntimeError):
     pass
@@ -147,6 +168,21 @@ def _parse_stdout_json(stdout: str) -> dict[str, Any]:
     return payload
 
 
+def _stdout_is_empty_or_truncated(stdout: str) -> bool:
+    """Return True when stdout carries no complete JSON object.
+
+    Used to distinguish an externally killed reviewer (empty or cut-off
+    stdout) from a process that exited on a signal-like code after still
+    delivering a complete decision payload.
+    """
+
+    try:
+        _parse_json_object_text(stdout, label="Agent stdout")
+    except AgentOutputError:
+        return True
+    return False
+
+
 def validate_review_decision(decision: dict[str, Any]) -> None:
     try:
         validate_against_schema(decision, "review_decision.schema.json", "review decision")
@@ -234,6 +270,18 @@ def _minimal_blocked_decision(
 ) -> dict[str, Any]:
     markdown_path = output_dir / f"{command_id}.md"
     json_path = output_dir / f"{command_id}.json"
+    transport_failure = status in TRANSPORT_FAILURE_STATUSES
+    blocking_issues: list[dict[str, Any]] = []
+    if not transport_failure:
+        blocking_issues = [
+            {
+                "issue_id": f"{command_id}_output_failure",
+                "severity": "blocking",
+                "description": summary,
+                "evidence": validation_errors or [summary],
+                "affected_artifacts": [],
+            }
+        ]
     payload = {
         "schema_version": REVIEW_DECISION_SCHEMA_VERSION,
         "decision_id": command_id,
@@ -253,15 +301,7 @@ def _minimal_blocked_decision(
         "json_report_path": relpath(root, json_path),
         "reviewed_artifacts": [],
         "missing_artifacts": [],
-        "blocking_issues": [
-            {
-                "issue_id": f"{command_id}_output_failure",
-                "severity": "blocking",
-                "description": summary,
-                "evidence": validation_errors or [summary],
-                "affected_artifacts": [],
-            }
-        ],
+        "blocking_issues": blocking_issues,
         "non_blocking_improvements": [],
         "recommendations": [],
         "unsupported_claims": [],
@@ -271,7 +311,8 @@ def _minimal_blocked_decision(
         "validation_errors": validation_errors,
         "next_action": "blocked",
     }
-    write_text(markdown_path, "# Agent invocation failed\n\n" + summary + "\n")
+    heading = "# Agent transport failure" if transport_failure else "# Agent invocation failed"
+    write_text(markdown_path, heading + "\n\n" + summary + "\n")
     write_json(json_path, payload)
     return payload
 
@@ -311,6 +352,8 @@ def _canonical_status(value: Any) -> str:
         "malformed_output": "malformed_output",
         "read_only_violation": "read_only_violation",
         "timeout": "timeout",
+        "missing_cli": "missing_cli",
+        "interrupted": "interrupted",
     }
     return mapping.get(raw, str(value or ""))
 
@@ -833,6 +876,7 @@ def _invoke_agent(
 
     read_only_before = snapshot_workspace(root) if actor_role in {"codex_review_agent", "claude_review_agent"} else None
     started_at = runner_now().isoformat()
+    missing_cli_error: str | None = None
     try:
         completed = _run_subprocess(
             argv,
@@ -844,9 +888,17 @@ def _invoke_agent(
         )
     except subprocess.TimeoutExpired as exc:
         completed = SimpleNamespace(returncode=124, stdout=exc.stdout or "", stderr=exc.stderr or "timeout")
+    except FileNotFoundError as exc:
+        missing_cli_error = f"Agent CLI executable could not be spawned: {argv[0]} ({exc})."
+        completed = SimpleNamespace(returncode=MISSING_CLI_EXIT_CODE, stdout="", stderr=missing_cli_error)
     completed_at = runner_now().isoformat()
 
-    if actor_role == "claude_review_agent" and completed.returncode != 0 and _unsupported_effort(str(completed.stderr), str(completed.stdout)):
+    if (
+        actor_role == "claude_review_agent"
+        and missing_cli_error is None
+        and completed.returncode != 0
+        and _unsupported_effort(str(completed.stderr), str(completed.stdout))
+    ):
         fallback_used = True
         fallback_argv = list(argv)
         effort_index = fallback_argv.index("--effort") + 1
@@ -863,6 +915,9 @@ def _invoke_agent(
             )
         except subprocess.TimeoutExpired as exc:
             completed = SimpleNamespace(returncode=124, stdout=exc.stdout or "", stderr=exc.stderr or "timeout")
+        except FileNotFoundError as exc:
+            missing_cli_error = f"Agent CLI executable could not be spawned: {fallback_argv[0]} ({exc})."
+            completed = SimpleNamespace(returncode=MISSING_CLI_EXIT_CODE, stdout="", stderr=missing_cli_error)
         completed_at = runner_now().isoformat()
         argv = fallback_argv
 
@@ -943,12 +998,32 @@ def _invoke_agent(
     validation_errors: list[str] = []
     raw_decision: dict[str, Any] | None = None
     status = "succeeded"
-    if int(completed.returncode) == 124:
+    failure_summary = "Agent invocation failed or produced invalid output."
+    returncode = int(completed.returncode)
+    if missing_cli_error is not None:
+        status = "missing_cli"
+        failure_summary = (
+            "Agent CLI executable was not found, so the reviewer never ran and produced no verdict. "
+            "This is a transport failure, not a reviewer rejection."
+        )
+        validation_errors.append(missing_cli_error)
+    elif returncode == 124:
         status = "timeout"
         validation_errors.append("Agent command timed out.")
-    elif int(completed.returncode) != 0:
+    elif returncode in INTERRUPT_SIGNAL_BY_EXIT_CODE and _stdout_is_empty_or_truncated(str(completed.stdout or "")):
+        signal_name = INTERRUPT_SIGNAL_BY_EXIT_CODE[returncode]
+        status = "interrupted"
+        failure_summary = (
+            "Agent process was interrupted by an external signal before emitting its review decision, "
+            "so the reviewer produced no verdict. This is a transport failure, not a reviewer rejection."
+        )
+        validation_errors.append(
+            f"Agent process was killed externally by {signal_name} (exit code {returncode}) "
+            "with empty or truncated stdout before it could emit a review decision."
+        )
+    elif returncode != 0:
         status = "failed"
-        validation_errors.append(f"Agent command exited with {completed.returncode}.")
+        validation_errors.append(f"Agent command exited with {returncode}.")
     else:
         try:
             raw_decision = _parse_stdout_json(str(completed.stdout or ""))
@@ -958,6 +1033,7 @@ def _invoke_agent(
 
     if read_only_check is not None and read_only_check["status"] != "passed":
         status = "read_only_violation"
+        failure_summary = "Agent invocation failed or produced invalid output."
         validation_errors.append("Reviewer modified workspace source files during read-only review.")
 
     if raw_decision is None or status != "succeeded":
@@ -970,7 +1046,7 @@ def _invoke_agent(
             review_cycle_id=review_cycle_id,
             supervisor_session_id=supervisor_session_id,
             status=status,
-            summary="Agent invocation failed or produced invalid output.",
+            summary=failure_summary,
             validation_errors=validation_errors,
             command=command,
             read_only_check=read_only_check,

@@ -125,9 +125,11 @@
         "blocked",
         "malformed_output",
         "read_only_violation",
-        "timeout"
+        "timeout",
+        "missing_cli",
+        "interrupted"
       ],
-      "description": "Current lifecycle status for this artifact."
+      "description": "Current lifecycle status for this artifact. missing_cli and interrupted are supervisor-assigned transport failures: the reviewer never delivered a verdict."
     },
     "approval_decision": {
       "enum": [
