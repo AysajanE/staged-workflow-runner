@@ -1,0 +1,233 @@
+{
+  "actor_role": "codex_review_agent",
+  "status": "completed",
+  "approval_decision": "blocked",
+  "summary": "The listed stage-control artifacts are present, the response status is completed, and the stage output contains the requested Stage 1 sections without producing execution rows. Approval is blocked because the review bundle does not include the source text for the primary and contract files that the stage output cites as authority, so substantive grounding and unsupported-claim checks cannot be completed under the read-only review protocol.",
+  "reviewed_artifacts": [
+    {
+      "path": ".local/autokeel/swr/runs/2026-06-01_133046_autokeel-s05-20260601t093046-0400_gstack_design_to_po_playbook/stages/01_source_authority_map/input_manifest.json",
+      "role": "input_manifest_json",
+      "status": "reviewed",
+      "evidence": "Manifest declares schema responses_runner_v2.input_manifest.v1, stage_id source_authority_map, three primary job inputs, zero reviewed handoff inputs, one attached repository file, and zero reference-context entries."
+    },
+    {
+      "path": ".local/autokeel/swr/runs/2026-06-01_133046_autokeel-s05-20260601t093046-0400_gstack_design_to_po_playbook/stages/01_source_authority_map/input_manifest.md",
+      "role": "input_manifest_markdown",
+      "status": "reviewed",
+      "evidence": "Lines 14-39 list the three primary job inputs and one attached repository file; lines 31-42 state no reviewed handoff inputs and no reference context."
+    },
+    {
+      "path": ".local/autokeel/swr/runs/2026-06-01_133046_autokeel-s05-20260601t093046-0400_gstack_design_to_po_playbook/stages/01_source_authority_map/request_payload.json",
+      "role": "request_payload",
+      "status": "reviewed",
+      "evidence": "Lines 9-10 require a source authority map with six named outputs and explicitly say not to write a final playbook in this stage; lines 47-70 show background=true, truncation=disabled, xhigh reasoning, max_output_tokens=128000, prompt_cache_retention=24h."
+    },
+    {
+      "path": ".local/autokeel/swr/runs/2026-06-01_133046_autokeel-s05-20260601t093046-0400_gstack_design_to_po_playbook/stages/01_source_authority_map/response.final.json",
+      "role": "response_json",
+      "status": "reviewed",
+      "evidence": "Response status is completed, error is null, incomplete_details is null, model is gpt-5.5-pro-2026-04-23, usage is 50909 total tokens, prompt_cache_retention is 24h."
+    },
+    {
+      "path": ".local/autokeel/swr/runs/2026-06-01_133046_autokeel-s05-20260601t093046-0400_gstack_design_to_po_playbook/stages/01_source_authority_map/response.final.md",
+      "role": "response_markdown",
+      "status": "reviewed",
+      "evidence": "Lines 24-348 cover authority, goals, non-goals, ambiguities, and unsupported claims; lines 352-483 provide a first-pass phase list and state these are not execution rows."
+    },
+    {
+      "path": ".local/autokeel/swr/runs/2026-06-01_133046_autokeel-s05-20260601t093046-0400_gstack_design_to_po_playbook/run_manifest.json",
+      "role": "run_manifest",
+      "status": "reviewed",
+      "evidence": "Lines 24-38 show stage source_authority_map is waiting_for_review with response_status completed; lines 31-33 provide response artifact hashes that match local checksum verification."
+    },
+    {
+      "path": ".local/autokeel/swr/runs/2026-06-01_133046_autokeel-s05-20260601t093046-0400_gstack_design_to_po_playbook/stages/01_source_authority_map/stage_checkpoint.json",
+      "role": "stage_checkpoint",
+      "status": "reviewed",
+      "evidence": "Lines 6-15 show waiting_for_review, review_checkpoint_required=true, and token_preflight pending; lines 23-30 show completed response metadata."
+    },
+    {
+      "path": ".local/autokeel/swr/review_lane/S05-run_20260601_133046_ae09e1ea-source_authority_map-source_authority_map_stage_review_repair_20260601t1757240400/stage_outcome.json",
+      "role": "stage_outcome",
+      "status": "reviewed",
+      "evidence": "Lines 8-13 classify the stage as completed_complete_artifact; lines 14-30 mark response_final_json, response_final_markdown, and required_sidecar checks as passed."
+    }
+  ],
+  "missing_artifacts": [
+    {
+      "path": "docs/gstack/health-data-hub-office-hours.md",
+      "source": ".local/autokeel/swr/runs/2026-06-01_133046_autokeel-s05-20260601t093046-0400_gstack_design_to_po_playbook/stages/01_source_authority_map/input_manifest.md",
+      "evidence": "Input manifest lines 15-19 list this as a primary job input, but the review job does not provide its source text as a reviewed artifact.",
+      "affected_artifacts": [
+        ".local/autokeel/swr/runs/2026-06-01_133046_autokeel-s05-20260601t093046-0400_gstack_design_to_po_playbook/stages/01_source_authority_map/response.final.md"
+      ],
+      "severity": "blocking",
+      "exact_change_needed": "Include the source text or an explicitly reviewed artifact copy of this file in the review bundle before approval."
+    },
+    {
+      "path": "docs/gstack/s05-model-lifecycle-autoplan.md",
+      "source": ".local/autokeel/swr/runs/2026-06-01_133046_autokeel-s05-20260601t093046-0400_gstack_design_to_po_playbook/stages/01_source_authority_map/input_manifest.md",
+      "evidence": "Input manifest lines 20-24 list this as a primary job input, but the review job does not provide its source text as a reviewed artifact.",
+      "affected_artifacts": [
+        ".local/autokeel/swr/runs/2026-06-01_133046_autokeel-s05-20260601t093046-0400_gstack_design_to_po_playbook/stages/01_source_authority_map/response.final.md"
+      ],
+      "severity": "blocking",
+      "exact_change_needed": "Include the source text or an explicitly reviewed artifact copy of this file in the review bundle before approval."
+    },
+    {
+      "path": "docs/briefs/s05-model-lifecycle.autonomous-brief.md",
+      "source": ".local/autokeel/swr/runs/2026-06-01_133046_autokeel-s05-20260601t093046-0400_gstack_design_to_po_playbook/stages/01_source_authority_map/input_manifest.md",
+      "evidence": "Input manifest lines 25-29 list this as a primary job input, but the review job does not provide its source text as a reviewed artifact.",
+      "affected_artifacts": [
+        ".local/autokeel/swr/runs/2026-06-01_133046_autokeel-s05-20260601t093046-0400_gstack_design_to_po_playbook/stages/01_source_authority_map/response.final.md"
+      ],
+      "severity": "blocking",
+      "exact_change_needed": "Include the source text or an explicitly reviewed artifact copy of this file in the review bundle before approval."
+    },
+    {
+      "path": "automation/task_packs/gstack_design_to_po_playbook/corpus/markdown_playbook_v1_contract.md",
+      "source": ".local/autokeel/swr/runs/2026-06-01_133046_autokeel-s05-20260601t093046-0400_gstack_design_to_po_playbook/stages/01_source_authority_map/input_manifest.md",
+      "evidence": "Input manifest lines 34-39 list this as an attached repository file, but the review job does not provide its full source text as a reviewed artifact.",
+      "affected_artifacts": [
+        ".local/autokeel/swr/runs/2026-06-01_133046_autokeel-s05-20260601t093046-0400_gstack_design_to_po_playbook/stages/01_source_authority_map/response.final.md"
+      ],
+      "severity": "blocking",
+      "exact_change_needed": "Include the full contract text or an explicitly reviewed artifact copy in the review bundle before approval."
+    }
+  ],
+  "blocking_issues": [
+    {
+      "id": "blocking_001_source_text_absent_from_review_bundle",
+      "artifact_path": ".local/autokeel/swr/runs/2026-06-01_133046_autokeel-s05-20260601t093046-0400_gstack_design_to_po_playbook/stages/01_source_authority_map/response.final.md",
+      "source": ".local/autokeel/swr/runs/2026-06-01_133046_autokeel-s05-20260601t093046-0400_gstack_design_to_po_playbook/stages/01_source_authority_map/input_manifest.md",
+      "evidence": "The response cites source files for substantive claims throughout the authority map, including lines 50-64 for S05 scope and provider policy, lines 68-97 for model features and gate math, and lines 101-128 for deliverables and verification commands. The manifest lists those source files only by path, byte count, and hash at lines 14-39; their source text is not part of the reviewed artifact set.",
+      "affected_artifacts": [
+        ".local/autokeel/swr/runs/2026-06-01_133046_autokeel-s05-20260601t093046-0400_gstack_design_to_po_playbook/stages/01_source_authority_map/response.final.md",
+        ".local/autokeel/swr/runs/2026-06-01_133046_autokeel-s05-20260601t093046-0400_gstack_design_to_po_playbook/stages/01_source_authority_map/input_manifest.md"
+      ],
+      "severity": "blocking",
+      "exact_change_needed": "Provide the cited source documents as review artifacts, or rerun the review job with source text excerpts sufficient to verify the cited claims. Until then, do not create an approved review bundle or advance to the next stage."
+    }
+  ],
+  "non_blocking_improvements": [
+    {
+      "id": "nonblocking_001_token_preflight_pending",
+      "artifact_path": ".local/autokeel/swr/runs/2026-06-01_133046_autokeel-s05-20260601t093046-0400_gstack_design_to_po_playbook/stages/01_source_authority_map/stage_checkpoint.json",
+      "evidence": "Lines 13-15 show token_preflight status pending while run_manifest lines 3-12 show skip_token_count=true.",
+      "affected_artifacts": [
+        ".local/autokeel/swr/runs/2026-06-01_133046_autokeel-s05-20260601t093046-0400_gstack_design_to_po_playbook/stages/01_source_authority_map/stage_checkpoint.json",
+        ".local/autokeel/swr/runs/2026-06-01_133046_autokeel-s05-20260601t093046-0400_gstack_design_to_po_playbook/run_manifest.json"
+      ],
+      "severity": "non_blocking",
+      "exact_change_needed": "Record an explicit skipped token-preflight reason in future checkpoints so stage economics are unambiguous."
+    },
+    {
+      "id": "nonblocking_002_markdown_usage_metadata_inconsistent",
+      "artifact_path": ".local/autokeel/swr/runs/2026-06-01_133046_autokeel-s05-20260601t093046-0400_gstack_design_to_po_playbook/stages/01_source_authority_map/response.final.md",
+      "evidence": "Header line 15 says reasoning_tokens: None, while the Usage Summary at lines 493-496 reports reasoning_tokens: 8671.",
+      "affected_artifacts": [
+        ".local/autokeel/swr/runs/2026-06-01_133046_autokeel-s05-20260601t093046-0400_gstack_design_to_po_playbook/stages/01_source_authority_map/response.final.md"
+      ],
+      "severity": "non_blocking",
+      "exact_change_needed": "Normalize the markdown sidecar telemetry from response.final.json in future materializations."
+    }
+  ],
+  "recommendations": [
+    {
+      "id": "recommendation_001_do_not_advance_until_source_text_reviewable",
+      "artifact_path": ".local/autokeel/swr/runs/2026-06-01_133046_autokeel-s05-20260601t093046-0400_gstack_design_to_po_playbook/stages/01_source_authority_map/response.final.md",
+      "evidence": "The stage output depends on source-content claims such as S05 being high risk, Oura-only provider policy, exact feature set, gate thresholds, and required deliverables, all cited to source files whose text is absent from the review bundle.",
+      "affected_artifacts": [
+        ".local/autokeel/swr/runs/2026-06-01_133046_autokeel-s05-20260601t093046-0400_gstack_design_to_po_playbook/stages/01_source_authority_map/response.final.md"
+      ],
+      "severity": "blocking",
+      "rationale": "Approving without source text would accept unsupported recommendations contrary to the review protocol.",
+      "exact_change_needed": "Rerun or repair the review job with the four cited source files included as reviewed artifacts, then repeat the read-only review."
+    },
+    {
+      "id": "recommendation_002_no_approved_bundle",
+      "artifact_path": ".local/autokeel/swr/review_lane/S05-run_20260601_133046_ae09e1ea-source_authority_map-source_authority_map_stage_review_repair_20260601t1757240400/stage_outcome.json",
+      "evidence": "Stage outcome lines 32-35 say action=review, reviewable=true, review_bundle_allowed=true, but the current review decision is blocked due insufficient source evidence.",
+      "affected_artifacts": [
+        ".local/autokeel/swr/review_lane/S05-run_20260601_133046_ae09e1ea-source_authority_map-source_authority_map_stage_review_repair_20260601t1757240400/stage_outcome.json"
+      ],
+      "severity": "blocking",
+      "rationale": "review_bundle_allowed is not equivalent to approval.",
+      "exact_change_needed": "Do not create an approved review bundle for this stage output from the current review packet."
+    }
+  ],
+  "unsupported_claims": [
+    {
+      "claim": "The S05 brief and autoplan agree that S05 is high-risk, forbids active manual gates, and requires autonomous_gate_review.",
+      "artifact_path": ".local/autokeel/swr/runs/2026-06-01_133046_autokeel-s05-20260601t093046-0400_gstack_design_to_po_playbook/stages/01_source_authority_map/response.final.md",
+      "evidence": "Response lines 39-40 and 50-54 make this claim and cite source files; the cited source texts are not in the reviewed artifact bundle.",
+      "affected_artifacts": [
+        "docs/gstack/s05-model-lifecycle-autoplan.md",
+        "docs/briefs/s05-model-lifecycle.autonomous-brief.md",
+        "automation/task_packs/gstack_design_to_po_playbook/corpus/markdown_playbook_v1_contract.md"
+      ],
+      "severity": "blocking",
+      "exact_change_needed": "Verify against the cited source text before treating this as approved."
+    },
+    {
+      "claim": "The active S03 and S04 provider policy is Oura active for v1 and 8 Sleep or pyEight fallback-only.",
+      "artifact_path": ".local/autokeel/swr/runs/2026-06-01_133046_autokeel-s05-20260601t093046-0400_gstack_design_to_po_playbook/stages/01_source_authority_map/response.final.md",
+      "evidence": "Response lines 58-64 make this provider-policy claim and cite source files; the cited source texts are not in the reviewed artifact bundle.",
+      "affected_artifacts": [
+        "docs/gstack/health-data-hub-office-hours.md",
+        "docs/gstack/s05-model-lifecycle-autoplan.md",
+        "docs/briefs/s05-model-lifecycle.autonomous-brief.md"
+      ],
+      "severity": "blocking",
+      "exact_change_needed": "Verify against the cited source text before treating this as approved."
+    },
+    {
+      "claim": "The broad design supplies N_model thresholds, evaluation windows, and ridge baseline gate criteria.",
+      "artifact_path": ".local/autokeel/swr/runs/2026-06-01_133046_autokeel-s05-20260601t093046-0400_gstack_design_to_po_playbook/stages/01_source_authority_map/response.final.md",
+      "evidence": "Response lines 83-95 state detailed gate math and cite docs/gstack/health-data-hub-office-hours.md; that source text is not in the reviewed artifact bundle.",
+      "affected_artifacts": [
+        "docs/gstack/health-data-hub-office-hours.md"
+      ],
+      "severity": "blocking",
+      "exact_change_needed": "Verify against the cited source text before treating this as approved."
+    },
+    {
+      "claim": "The S05 autoplan names the listed deliverables and verification commands.",
+      "artifact_path": ".local/autokeel/swr/runs/2026-06-01_133046_autokeel-s05-20260601t093046-0400_gstack_design_to_po_playbook/stages/01_source_authority_map/response.final.md",
+      "evidence": "Response lines 101-128 list deliverables and commands cited to docs/gstack/s05-model-lifecycle-autoplan.md; that source text is not in the reviewed artifact bundle.",
+      "affected_artifacts": [
+        "docs/gstack/s05-model-lifecycle-autoplan.md"
+      ],
+      "severity": "blocking",
+      "exact_change_needed": "Verify against the cited source text before treating this as approved."
+    }
+  ],
+  "evidence": [
+    {
+      "source": ".local/autokeel/swr/runs/2026-06-01_133046_autokeel-s05-20260601t093046-0400_gstack_design_to_po_playbook/stages/01_source_authority_map/request_payload.json",
+      "summary": "The stage objective requires source authority, implementation goals, non-goals, ambiguities, unsupported claims, and phases only; no final playbook."
+    },
+    {
+      "source": ".local/autokeel/swr/runs/2026-06-01_133046_autokeel-s05-20260601t093046-0400_gstack_design_to_po_playbook/stages/01_source_authority_map/response.final.md",
+      "summary": "The output includes those requested sections and explicitly states it does not produce a final playbook or execution rows."
+    },
+    {
+      "source": ".local/autokeel/swr/runs/2026-06-01_133046_autokeel-s05-20260601t093046-0400_gstack_design_to_po_playbook/stages/01_source_authority_map/input_manifest.md",
+      "summary": "The manifest lists source files by path, byte count, and partial SHA, but not source text; this prevents independent verification of cited source-content claims."
+    },
+    {
+      "source": ".local/autokeel/swr/runs/2026-06-01_133046_autokeel-s05-20260601t093046-0400_gstack_design_to_po_playbook/stages/01_source_authority_map/response.final.json",
+      "summary": "The response completed successfully with no error and no incomplete_details, so the block is not due output-limit incompleteness or failed-no-artifact status."
+    },
+    {
+      "source": ".local/autokeel/swr/review_lane/S05-run_20260601_133046_ae09e1ea-source_authority_map-source_authority_map_stage_review_repair_20260601t1757240400/stage_outcome.json",
+      "summary": "The outcome classifies the stage as completed_complete_artifact and reviewable, but reviewability is not sufficient for approval."
+    },
+    {
+      "source": ".local/autokeel/swr/runs/2026-06-01_133046_autokeel-s05-20260601t093046-0400_gstack_design_to_po_playbook/run_manifest.json",
+      "summary": "The run manifest response artifact hashes match local checksum verification for response.final.json and response.final.md."
+    }
+  ],
+  "validation_errors": [],
+  "next_action": "Do not advance this stage and do not create an approved review bundle. Repair or rerun the review packet so the four cited source files are included as reviewed artifacts or source-text excerpts, then repeat the read-only review before launching the next stage."
+}

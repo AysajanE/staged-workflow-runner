@@ -1,0 +1,114 @@
+{
+  "schema_version": "responses_runner_v2.review_decision.v1",
+  "decision_id": "cmd_claude_review_agent_source_authority_map_stage_review_repair_20260601t1757240400_221206",
+  "created_at": "2026-06-01T22:17:43.524512+00:00",
+  "supervisor_session_id": "autokeel-s05-run_20260601_133046_ae09e1ea",
+  "workflow_id": null,
+  "run_id": null,
+  "stage_id": null,
+  "review_cycle_id": "source_authority_map_stage_review_repair_20260601t1757240400",
+  "review_kind": "stage_output",
+  "actor_role": "claude_review_agent",
+  "agent_command_id": "cmd_claude_review_agent_source_authority_map_stage_review_repair_20260601t1757240400_221206",
+  "status": "failed",
+  "approval_decision": "blocked",
+  "summary": "Agent invocation failed or produced invalid output.",
+  "markdown_report_path": ".local/autokeel/swr/review_lane/S05-run_20260601_133046_ae09e1ea-source_authority_map-source_authority_map_stage_review_repair_20260601t1757240400/agents/cmd_claude_review_agent_source_authority_map_stage_review_repair_20260601t1757240400_221206.md",
+  "json_report_path": ".local/autokeel/swr/review_lane/S05-run_20260601_133046_ae09e1ea-source_authority_map-source_authority_map_stage_review_repair_20260601t1757240400/agents/cmd_claude_review_agent_source_authority_map_stage_review_repair_20260601t1757240400_221206.json",
+  "reviewed_artifacts": [],
+  "missing_artifacts": [],
+  "blocking_issues": [
+    {
+      "issue_id": "cmd_claude_review_agent_source_authority_map_stage_review_repair_20260601t1757240400_221206_output_failure",
+      "severity": "blocking",
+      "description": "Agent invocation failed or produced invalid output.",
+      "evidence": [
+        "Agent command exited with 143."
+      ],
+      "affected_artifacts": []
+    }
+  ],
+  "non_blocking_improvements": [],
+  "recommendations": [],
+  "unsupported_claims": [],
+  "evidence": [
+    {
+      "source": "supervisor_agents",
+      "quote_or_summary": "Agent invocation failed or produced invalid output."
+    }
+  ],
+  "command": {
+    "command_id": "cmd_claude_review_agent_source_authority_map_stage_review_repair_20260601t1757240400_221206",
+    "actor_role": "claude_review_agent",
+    "argv": [
+      "claude",
+      "-p",
+      "--model",
+      "opus",
+      "--effort",
+      "max",
+      "--output-format",
+      "json",
+      "--tools",
+      "Read",
+      "--permission-mode",
+      "dontAsk",
+      "--no-session-persistence",
+      "--setting-sources",
+      "user",
+      "--append-system-prompt-file",
+      "<workspace_root>/automation/task_packs/responses_runner_v2_supervisor_internal/prompts/claude_review.md"
+    ],
+    "cwd": "<workspace_root>",
+    "started_at": "2026-06-01T22:12:06.851765+00:00",
+    "completed_at": "2026-06-01T22:17:43.391380+00:00",
+    "exit_code": 143,
+    "stdout_path": ".local/autokeel/swr/review_lane/S05-run_20260601_133046_ae09e1ea-source_authority_map-source_authority_map_stage_review_repair_20260601t1757240400/agents/cmd_claude_review_agent_source_authority_map_stage_review_repair_20260601t1757240400_221206.stdout.txt",
+    "stderr_path": ".local/autokeel/swr/review_lane/S05-run_20260601_133046_ae09e1ea-source_authority_map-source_authority_map_stage_review_repair_20260601t1757240400/agents/cmd_claude_review_agent_source_authority_map_stage_review_repair_20260601t1757240400_221206.stderr.txt",
+    "json_transport": "stdout_json_required_supervisor_sidecar",
+    "expected_json_report_path": ".local/autokeel/swr/review_lane/S05-run_20260601_133046_ae09e1ea-source_authority_map-source_authority_map_stage_review_repair_20260601t1757240400/agents/cmd_claude_review_agent_source_authority_map_stage_review_repair_20260601t1757240400_221206.json",
+    "expected_markdown_report_path": ".local/autokeel/swr/review_lane/S05-run_20260601_133046_ae09e1ea-source_authority_map-source_authority_map_stage_review_repair_20260601t1757240400/agents/cmd_claude_review_agent_source_authority_map_stage_review_repair_20260601t1757240400_221206.md",
+    "prompt_file": "automation/task_packs/responses_runner_v2_supervisor_internal/prompts/claude_review.md",
+    "fallback_used": false,
+    "job_keys": [
+      "allowed_write_paths",
+      "job_id",
+      "next_stage_rule",
+      "objective",
+      "required_checks",
+      "review_kind",
+      "reviewed_artifacts",
+      "run_id",
+      "run_manifest",
+      "slice",
+      "stage_id",
+      "stage_outcome",
+      "workflow_id"
+    ],
+    "stdin_mode": "review_job_json",
+    "auth_strategy": "subscription_oauth",
+    "tools": [
+      "Read"
+    ],
+    "env_unset_for_subscription_oauth": [
+      "ANTHROPIC_API_KEY",
+      "ANTHROPIC_AUTH_TOKEN",
+      "CLAUDE_CODE_OAUTH_TOKEN",
+      "CLAUDE_CODE_USE_BEDROCK",
+      "CLAUDE_CODE_USE_VERTEX",
+      "CLAUDE_CODE_USE_FOUNDRY"
+    ]
+  },
+  "read_only_check": {
+    "method": "workspace_snapshot_excluding_local_artifacts",
+    "before_hash": "45404d889c91591b151b8118126fca1ccebb5114e7f0ba28057a3f415583907a",
+    "after_hash": "45404d889c91591b151b8118126fca1ccebb5114e7f0ba28057a3f415583907a",
+    "diff_path": ".local/autokeel/swr/review_lane/S05-run_20260601_133046_ae09e1ea-source_authority_map-source_authority_map_stage_review_repair_20260601t1757240400/agents/cmd_claude_review_agent_source_authority_map_stage_review_repair_20260601t1757240400_221206.readonly.diff.md",
+    "status": "passed",
+    "changed_paths": []
+  },
+  "validation_errors": [
+    "Agent command exited with 143."
+  ],
+  "next_action": "blocked"
+}

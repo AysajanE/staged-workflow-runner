@@ -1,0 +1,145 @@
+{
+  "schema_version": "responses_runner_v2.review_decision.v1",
+  "actor_role": "codex_review_agent",
+  "review_kind": "stage_output",
+  "status": "succeeded",
+  "approval_decision": "approve",
+  "run_id": "run_20260601_133046_ae09e1ea",
+  "stage_id": "source_authority_map",
+  "workflow_id": "gstack_design_to_po_playbook",
+  "slice": "S05",
+  "summary": "Stage 1 is complete, reviewable, and safe to advance through the required approved review-bundle path. The response satisfies the source-authority-map objective, avoids final playbook execution rows, identifies unresolved ambiguities and unsupported claims, and preserves fail-closed/autonomous-gate constraints for downstream stages. No missing required artifacts, output-limit incompletion, failed-no-artifact condition, or response path/hash mismatch was found.",
+  "reviewed_artifacts": [
+    {
+      "artifact": "input_manifest_json",
+      "path": ".local/autokeel/swr/runs/2026-06-01_133046_autokeel-s05-20260601t093046-0400_gstack_design_to_po_playbook/stages/01_source_authority_map/input_manifest.json",
+      "status": "present",
+      "evidence_summary": "Manifest identifies workflow_id=gstack_design_to_po_playbook, stage_id=source_authority_map, run_id=run_20260601_133046_ae09e1ea, three primary job inputs, no reviewed handoff inputs, and one attached repository file."
+    },
+    {
+      "artifact": "input_manifest_markdown",
+      "path": ".local/autokeel/swr/runs/2026-06-01_133046_autokeel-s05-20260601t093046-0400_gstack_design_to_po_playbook/stages/01_source_authority_map/input_manifest.md",
+      "status": "present",
+      "evidence_summary": "Markdown manifest matches the JSON inventory: three primary job inputs, no reviewed handoff inputs, one attached repository file, and no reference context."
+    },
+    {
+      "artifact": "request_payload",
+      "path": ".local/autokeel/swr/runs/2026-06-01_133046_autokeel-s05-20260601t093046-0400_gstack_design_to_po_playbook/stages/01_source_authority_map/request_payload.json",
+      "status": "present",
+      "evidence_summary": "Payload asks for Stage 1 Source Authority Map and explicitly says: Do not write a final playbook in this stage. It uses model=gpt-5.5-pro, reasoning effort=xhigh, max_output_tokens=128000, prompt_cache_retention=24h, and no tools."
+    },
+    {
+      "artifact": "response_json",
+      "path": ".local/autokeel/swr/runs/2026-06-01_133046_autokeel-s05-20260601t093046-0400_gstack_design_to_po_playbook/stages/01_source_authority_map/response.final.json",
+      "status": "present",
+      "evidence_summary": "Response status is completed, incomplete_details is null, response_status is not failed, and response text contains the required source authority map sections."
+    },
+    {
+      "artifact": "response_markdown",
+      "path": ".local/autokeel/swr/runs/2026-06-01_133046_autokeel-s05-20260601t093046-0400_gstack_design_to_po_playbook/stages/01_source_authority_map/response.final.md",
+      "status": "present",
+      "evidence_summary": "Markdown output includes authoritative source files, confirmed implementation goals, explicit non-goals, unresolved ambiguities, unsupported claims, and a first-pass phase list without execution rows."
+    },
+    {
+      "artifact": "run_manifest",
+      "path": ".local/autokeel/swr/runs/2026-06-01_133046_autokeel-s05-20260601t093046-0400_gstack_design_to_po_playbook/run_manifest.json",
+      "status": "present",
+      "evidence_summary": "Run manifest status is waiting_for_review. Current stage source_authority_map has response_status=completed and recorded response markdown/json hashes."
+    },
+    {
+      "artifact": "stage_checkpoint",
+      "path": ".local/autokeel/swr/runs/2026-06-01_133046_autokeel-s05-20260601t093046-0400_gstack_design_to_po_playbook/stages/01_source_authority_map/stage_checkpoint.json",
+      "status": "present",
+      "evidence_summary": "Checkpoint status is waiting_for_review, terminal=true, review_checkpoint_required=true, response.status=completed, and resume_mode=resume_response_id."
+    },
+    {
+      "artifact": "stage_outcome",
+      "path": ".local/autokeel/swr/review_lane/S05-run_20260601_133046_ae09e1ea-source_authority_map/stage_outcome.json",
+      "status": "present",
+      "evidence_summary": "Stage outcome classification is completed_complete_artifact, action=review, reviewable=true, review_bundle_allowed=true, and rerun_allowed=false."
+    }
+  ],
+  "missing_artifacts": [],
+  "blocking_issues": [],
+  "non_blocking_improvements": [
+    {
+      "id": "NBI-001",
+      "artifact_path": ".local/autokeel/swr/runs/2026-06-01_133046_autokeel-s05-20260601t093046-0400_gstack_design_to_po_playbook/stages/01_source_authority_map/response.final.md",
+      "evidence": "The output states that existing model training entrypoints, S03/S04 completion evidence, provider-policy source of truth, and helper-script existence are not proven by this stage's attachments.",
+      "affected_artifacts": [
+        "future approved review bundle",
+        "stage 2 repo_grounding input handoff"
+      ],
+      "severity": "low",
+      "exact_change_needed": "Carry these limitations into the approved handoff so later stages do not treat Stage 1 as repository-state verification.",
+      "rationale": "This is not a blocker because the Stage 1 objective is a source authority map, and the output correctly records these as ambiguities or unsupported claims."
+    }
+  ],
+  "recommendations": [
+    {
+      "id": "REC-001",
+      "artifact_path": ".local/autokeel/swr/review_lane/S05-run_20260601_133046_ae09e1ea-source_authority_map/stage_outcome.json",
+      "evidence": "classification=completed_complete_artifact, reviewable=true, review_bundle_allowed=true, rerun_allowed=false.",
+      "affected_artifacts": [
+        ".local/autokeel/swr/review_lane/S05-run_20260601_133046_ae09e1ea-source_authority_map/stage_outcome.json",
+        ".local/autokeel/swr/runs/2026-06-01_133046_autokeel-s05-20260601t093046-0400_gstack_design_to_po_playbook/run_manifest.json"
+      ],
+      "severity": "informational",
+      "exact_change_needed": "Approve this Stage 1 output for consolidation and approved review-bundle creation.",
+      "rationale": "The stage is complete and reviewable, not output-limit incomplete, and not a failed-no-artifact attempt."
+    },
+    {
+      "id": "REC-002",
+      "artifact_path": ".local/autokeel/swr/runs/2026-06-01_133046_autokeel-s05-20260601t093046-0400_gstack_design_to_po_playbook/stages/01_source_authority_map/response.final.md",
+      "evidence": "The output says it is a source authority map only and does not produce the final plan-orchestrator playbook or execution rows; it contains sections for authority, goals, non-goals, ambiguities, unsupported claims, and phase list.",
+      "affected_artifacts": [
+        ".local/autokeel/swr/runs/2026-06-01_133046_autokeel-s05-20260601t093046-0400_gstack_design_to_po_playbook/stages/01_source_authority_map/response.final.md"
+      ],
+      "severity": "informational",
+      "exact_change_needed": "Use the Stage 1 output as reviewed source-authority context for Stage 2, not as an executable playbook.",
+      "rationale": "The response satisfies the Stage 1 objective while preserving stage boundaries."
+    },
+    {
+      "id": "REC-003",
+      "artifact_path": ".local/autokeel/swr/runs/2026-06-01_133046_autokeel-s05-20260601t093046-0400_gstack_design_to_po_playbook/run_manifest.json",
+      "evidence": "Run manifest records Stage 1 status=waiting_for_review and Stage 2 status=prepared. The job rule says AutoKeel may continue the same SWR run with --review-bundle if approved.",
+      "affected_artifacts": [
+        "future approved review bundle",
+        "stage 2 repo_grounding"
+      ],
+      "severity": "informational",
+      "exact_change_needed": "Advance only through the approved review-bundle flow before launching Stage 2.",
+      "rationale": "This preserves the Stage 1 through Stage 4 approved-review-bundle requirement."
+    }
+  ],
+  "unsupported_claims": [],
+  "evidence": [
+    {
+      "artifact_path": ".local/autokeel/swr/runs/2026-06-01_133046_autokeel-s05-20260601t093046-0400_gstack_design_to_po_playbook/stages/01_source_authority_map/response.final.json",
+      "evidence_type": "completion_status",
+      "quote_or_summary": "status=completed; incomplete_details=null; error=null; response output contains final assistant text."
+    },
+    {
+      "artifact_path": ".local/autokeel/swr/runs/2026-06-01_133046_autokeel-s05-20260601t093046-0400_gstack_design_to_po_playbook/stages/01_source_authority_map/response.final.md",
+      "evidence_type": "objective_satisfaction",
+      "quote_or_summary": "The output includes: Authoritative Source Files and Relative Authority, Confirmed Implementation Goals, Explicit Non-Goals, Unresolved Ambiguities, Claims Not Sufficiently Supported by Attached Evidence, and First-Pass Phase List Without Execution Rows."
+    },
+    {
+      "artifact_path": ".local/autokeel/swr/runs/2026-06-01_133046_autokeel-s05-20260601t093046-0400_gstack_design_to_po_playbook/run_manifest.json",
+      "evidence_type": "hash_consistency",
+      "quote_or_summary": "Recorded response_markdown_sha256=23c53dd0c0172bd7715dd12aeffb789c9f0df37d5c1d0c074772308e4ad05d52 and response_json_sha256=2a62e26a68f2f7ba938d0964b2b13712e5d795f4e9914dbead1a4a135a1ec84f; local read-only hash checks matched both values."
+    },
+    {
+      "artifact_path": ".local/autokeel/swr/review_lane/S05-run_20260601_133046_ae09e1ea-source_authority_map/stage_outcome.json",
+      "evidence_type": "failure_policy",
+      "quote_or_summary": "classification=completed_complete_artifact; detection_signals include response.status=completed and complete markdown/json artifacts present; action=review; reviewable=true."
+    },
+    {
+      "artifact_path": ".local/autokeel/swr/runs/2026-06-01_133046_autokeel-s05-20260601t093046-0400_gstack_design_to_po_playbook/stages/01_source_authority_map/request_payload.json",
+      "evidence_type": "model_and_economics",
+      "quote_or_summary": "model=gpt-5.5-pro, reasoning.effort=xhigh, max_output_tokens=128000, prompt_cache_key present, prompt_cache_retention=24h, service_tier=default."
+    }
+  ],
+  "validation_errors": [],
+  "next_action": "proceed_to_consolidation"
+}

@@ -1,0 +1,130 @@
+{
+  "schema_version": "responses_runner_v2.review_decision.v1",
+  "decision_id": "cmd_codex_review_agent_source_authority_map_stage_review_repair_20260601t1757240400_220848",
+  "created_at": "2026-06-01T22:12:06.816133+00:00",
+  "supervisor_session_id": "autokeel-s05-run_20260601_133046_ae09e1ea",
+  "workflow_id": null,
+  "run_id": null,
+  "stage_id": null,
+  "review_cycle_id": "source_authority_map_stage_review_repair_20260601t1757240400",
+  "review_kind": "stage_output",
+  "actor_role": "codex_review_agent",
+  "agent_command_id": "cmd_codex_review_agent_source_authority_map_stage_review_repair_20260601t1757240400_220848",
+  "status": "read_only_violation",
+  "approval_decision": "blocked",
+  "summary": "Agent invocation failed or produced invalid output.",
+  "markdown_report_path": ".local/autokeel/swr/review_lane/S05-run_20260601_133046_ae09e1ea-source_authority_map-source_authority_map_stage_review_repair_20260601t1757240400/agents/cmd_codex_review_agent_source_authority_map_stage_review_repair_20260601t1757240400_220848.md",
+  "json_report_path": ".local/autokeel/swr/review_lane/S05-run_20260601_133046_ae09e1ea-source_authority_map-source_authority_map_stage_review_repair_20260601t1757240400/agents/cmd_codex_review_agent_source_authority_map_stage_review_repair_20260601t1757240400_220848.json",
+  "reviewed_artifacts": [],
+  "missing_artifacts": [],
+  "blocking_issues": [
+    {
+      "issue_id": "cmd_codex_review_agent_source_authority_map_stage_review_repair_20260601t1757240400_220848_output_failure",
+      "severity": "blocking",
+      "description": "Agent invocation failed or produced invalid output.",
+      "evidence": [
+        "Reviewer modified workspace source files during read-only review."
+      ],
+      "affected_artifacts": []
+    }
+  ],
+  "non_blocking_improvements": [],
+  "recommendations": [],
+  "unsupported_claims": [],
+  "evidence": [
+    {
+      "source": "supervisor_agents",
+      "quote_or_summary": "Agent invocation failed or produced invalid output."
+    }
+  ],
+  "command": {
+    "command_id": "cmd_codex_review_agent_source_authority_map_stage_review_repair_20260601t1757240400_220848",
+    "actor_role": "codex_review_agent",
+    "argv": [
+      "codex",
+      "exec",
+      "# Codex Review-Agent Prompt\n\n## Role\n\nYou are an independent Codex review agent for `responses_runner_v2`.\n\nYou are read-only. You review artifacts and produce a review report. You do not edit files, emit patches, create approved bundles, or override the operator.\n\n## Objective\n\nReview the artifacts named in the supervisor job JSON and determine whether the scaffold, stage output, provisional bundle, recovery plan, or final packet is safe and sufficient to proceed.\n\n## Reviewed Inputs\n\nUse only:\n\n- artifacts named in the job JSON;\n- artifact text supplied in the job JSON;\n- schemas and criteria named in the job JSON;\n- repository-relative paths explicitly listed in the job JSON.\n\nDo not infer access to files outside the review input bundle.\n\n## Success Criteria\n\nA successful review:\n\n- evaluates the stage or scaffold objective;\n- checks completeness and substantive soundness;\n- checks prompt specificity and input-manifest signal quality;\n- checks model/tool settings and stage economics;\n- checks provisional bundle safety and downstream readiness;\n- identifies unsupported claims;\n- identifies missing artifacts;\n- classifies blocking and non-blocking issues;\n- produces a clear approval or non-approval decision;\n- emits valid JSON to stdout.\n\n## Review Criteria\n\nAssess:\n\n- objective satisfaction;\n- required sections and file inventory parity;\n- evidence grounding;\n- failure-policy compliance;\n- read-only reviewer protocol compliance;\n- model migration posture;\n- prompt-cache retention;\n- review-agent JSON transport;\n- consolidation-vs-acceptance separation;\n- operator selective acceptance;\n- final materialization readiness where applicable.\n\n## Evidence Rules\n\nEvery issue and recommendation must include:\n\n- artifact path or source;\n- evidence quote or summary;\n- affected artifacts;\n- severity;\n- exact change needed or rationale for no change.\n\nDo not recommend acceptance without evidence.\n\n## Missing-Artifact Behavior\n\nIf required artifacts are missing:\n\n- list them in `missing_artifacts`;\n- make approval decision `blocked` or `do_not_approve`;\n- do not ask for interactive clarification;\n- do not silently skip the missing input.\n\n## Prohibited Behavior\n\nYou must not:\n\n- edit files;\n- create patches;\n- create approved bundles;\n- mutate reviewer outputs;\n- run live Responses API calls;\n- override operator acceptance;\n- accept unsupported recommendations;\n- request interactive clarification.\n\n## Output Format\n\nEmit exactly one JSON object to stdout. Do not wrap it in markdown.\n\nThe JSON must conform to `responses_runner_v2.review_decision.v1` and include:\n\n- `actor_role`: `codex_review_agent`;\n- `status`;\n- `approval_decision`;\n- `summary`;\n- `reviewed_artifacts`;\n- `missing_artifacts`;\n- `blocking_issues`;\n- `non_blocking_improvements`;\n- `recommendations`;\n- `unsupported_claims`;\n- `evidence`;\n- `validation_errors`;\n- `next_action`.\n\nThe supervisor will capture stdout/stderr, validate this JSON, write a sidecar, and run a read-only workspace snapshot check.\n\n## Stopping Conditions\n\nStop with `approval_decision=blocked` when required artifacts are missing, evidence is insufficient, the job asks you to edit files, or the job cannot be completed non-interactively.\n\n## Supervisor Job JSON\n\nRead the following job object as the only job-specific instruction payload. Emit exactly the machine-ingestible JSON required by the prompt. Do not wrap stdout JSON in markdown fences.\n\n```json\n{\n  \"allowed_write_paths\": [\n    \".local/autokeel/swr/review_lane/S05-run_20260601_133046_ae09e1ea-source_authority_map-source_authority_map_stage_review_repair_20260601t1757240400\",\n    \".local/autokeel/swr/review_lane/S05-run_20260601_133046_ae09e1ea-source_authority_map-source_authority_map_stage_review_repair_20260601t1757240400/reviewer_notes.md\",\n    \".local/autokeel/swr/review_lane/S05-run_20260601_133046_ae09e1ea-source_authority_map-source_authority_map_stage_review_repair_20260601t1757240400/approved_handoff.md\"\n  ],\n  \"job_id\": \"autokeel_S05_run_20260601_133046_ae09e1ea_source_authority_map_stage_review\",\n  \"next_stage_rule\": \"If approved, AutoKeel may create an approved review bundle and continue the same SWR run with --review-bundle.\",\n  \"objective\": \"Review this completed SWR stage output before any next-stage launch.\",\n  \"required_checks\": [\n    \"Do not advance output-limit incomplete artifacts.\",\n    \"Do not advance failed-no-artifact attempts.\",\n    \"Verify Stage 1 through Stage 4 outputs receive approved review bundles before the next stage.\",\n    \"Reject unsupported claims and any bundle path/hash mismatch.\"\n  ],\n  \"review_kind\": \"stage_output\",\n  \"reviewed_artifacts\": {\n    \"input_manifest_json\": \".local/autokeel/swr/runs/2026-06-01_133046_autokeel-s05-20260601t093046-0400_gstack_design_to_po_playbook/stages/01_source_authority_map/input_manifest.json\",\n    \"input_manifest_markdown\": \".local/autokeel/swr/runs/2026-06-01_133046_autokeel-s05-20260601t093046-0400_gstack_design_to_po_playbook/stages/01_source_authority_map/input_manifest.md\",\n    \"request_payload\": \".local/autokeel/swr/runs/2026-06-01_133046_autokeel-s05-20260601t093046-0400_gstack_design_to_po_playbook/stages/01_source_authority_map/request_payload.json\",\n    \"response_json\": \".local/autokeel/swr/runs/2026-06-01_133046_autokeel-s05-20260601t093046-0400_gstack_design_to_po_playbook/stages/01_source_authority_map/response.final.json\",\n    \"response_markdown\": \".local/autokeel/swr/runs/2026-06-01_133046_autokeel-s05-20260601t093046-0400_gstack_design_to_po_playbook/stages/01_source_authority_map/response.final.md\",\n    \"run_manifest\": \".local/autokeel/swr/runs/2026-06-01_133046_autokeel-s05-20260601t093046-0400_gstack_design_to_po_playbook/run_manifest.json\",\n    \"stage_checkpoint\": \".local/autokeel/swr/runs/2026-06-01_133046_autokeel-s05-20260601t093046-0400_gstack_design_to_po_playbook/stages/01_source_authority_map/stage_checkpoint.json\"\n  },\n  \"run_id\": \"run_20260601_133046_ae09e1ea\",\n  \"run_manifest\": \".local/autokeel/swr/runs/2026-06-01_133046_autokeel-s05-20260601t093046-0400_gstack_design_to_po_playbook/run_manifest.json\",\n  \"slice\": \"S05\",\n  \"stage_id\": \"source_authority_map\",\n  \"stage_outcome\": \".local/autokeel/swr/review_lane/S05-run_20260601_133046_ae09e1ea-source_authority_map-source_authority_map_stage_review_repair_20260601t1757240400/stage_outcome.json\",\n  \"workflow_id\": \"gstack_design_to_po_playbook\"\n}\n```\n"
+    ],
+    "cwd": "<workspace_root>",
+    "started_at": "2026-06-01T22:08:48.988772+00:00",
+    "completed_at": "2026-06-01T22:12:06.707055+00:00",
+    "exit_code": 0,
+    "stdout_path": ".local/autokeel/swr/review_lane/S05-run_20260601_133046_ae09e1ea-source_authority_map-source_authority_map_stage_review_repair_20260601t1757240400/agents/cmd_codex_review_agent_source_authority_map_stage_review_repair_20260601t1757240400_220848.stdout.txt",
+    "stderr_path": ".local/autokeel/swr/review_lane/S05-run_20260601_133046_ae09e1ea-source_authority_map-source_authority_map_stage_review_repair_20260601t1757240400/agents/cmd_codex_review_agent_source_authority_map_stage_review_repair_20260601t1757240400_220848.stderr.txt",
+    "json_transport": "stdout_json_required_supervisor_sidecar",
+    "expected_json_report_path": ".local/autokeel/swr/review_lane/S05-run_20260601_133046_ae09e1ea-source_authority_map-source_authority_map_stage_review_repair_20260601t1757240400/agents/cmd_codex_review_agent_source_authority_map_stage_review_repair_20260601t1757240400_220848.json",
+    "expected_markdown_report_path": ".local/autokeel/swr/review_lane/S05-run_20260601_133046_ae09e1ea-source_authority_map-source_authority_map_stage_review_repair_20260601t1757240400/agents/cmd_codex_review_agent_source_authority_map_stage_review_repair_20260601t1757240400_220848.md",
+    "prompt_file": "automation/task_packs/responses_runner_v2_supervisor_internal/prompts/codex_review.md",
+    "fallback_used": false,
+    "job_keys": [
+      "allowed_write_paths",
+      "job_id",
+      "next_stage_rule",
+      "objective",
+      "required_checks",
+      "review_kind",
+      "reviewed_artifacts",
+      "run_id",
+      "run_manifest",
+      "slice",
+      "stage_id",
+      "stage_outcome",
+      "workflow_id"
+    ]
+  },
+  "read_only_check": {
+    "method": "workspace_snapshot_excluding_local_artifacts",
+    "before_hash": "650b37bc78f3459015b232cb9cb2d4265383bcc7386ba16aa3cfeebbec24212d",
+    "after_hash": "45404d889c91591b151b8118126fca1ccebb5114e7f0ba28057a3f415583907a",
+    "diff_path": ".local/autokeel/swr/review_lane/S05-run_20260601_133046_ae09e1ea-source_authority_map-source_authority_map_stage_review_repair_20260601t1757240400/agents/cmd_codex_review_agent_source_authority_map_stage_review_repair_20260601t1757240400_220848.readonly.diff.md",
+    "status": "failed",
+    "changed_paths": [
+      {
+        "path": ".DS_Store",
+        "status": "modified",
+        "before_sha256": "e6090e7222247f6e71bf60d009d8194698cdcbf4005a1a32772f31021073b948",
+        "after_sha256": "6b165e7a95ad86635c5105bc3d1a0aa26cd13edd26d582d85ceabfdebee09199"
+      },
+      {
+        "path": ".pytest_cache/.DS_Store",
+        "status": "modified",
+        "before_sha256": "03557b65cc66349e79b4bcea0b3b559bbfab4a4a2886c1563f0ef8b2ad3281a2",
+        "after_sha256": "0e131de61462d96fa06d12da6ece934f966dec9bb9f84b53964ac0d356d134c7"
+      },
+      {
+        "path": "docs/.DS_Store",
+        "status": "modified",
+        "before_sha256": "b464e041b6980db004148e34fee894c14af87511197c576fab5f01278b452812",
+        "after_sha256": "de304a83ab177722405422ff203e900a2bc3cfa9da5355b1c10a6359e1dcb6fe"
+      },
+      {
+        "path": "ops/.DS_Store",
+        "status": "modified",
+        "before_sha256": "4a946d43777175419d93baad13f7171e17859fff2e3fac14087fd734535f18e6",
+        "after_sha256": "b5604054232cb3078cc900445f1ba52f87ead67c7bfdcc6ba0e9adcc3a1dc1b2"
+      },
+      {
+        "path": "scripts/.DS_Store",
+        "status": "modified",
+        "before_sha256": "670e4b5c2f8fc7801c88587f9b88721b48635b5b46d6001a2b7e3182f9ef4221",
+        "after_sha256": "f2b6ccbf29f81eac677f5413f0a5bb3a24ae09f964840ef1f7626f53dc9e5325"
+      },
+      {
+        "path": "src/.DS_Store",
+        "status": "modified",
+        "before_sha256": "cfb26d9fe166c3007553bc54ddf792a4092181aed59b46713170c739b6b2267a",
+        "after_sha256": "37dadc28fcec78936ea4b7ced99d1c22e9127681c9e2b7e4333c3214b54e77e5"
+      },
+      {
+        "path": "tests/.DS_Store",
+        "status": "modified",
+        "before_sha256": "a15f6fbd44c8b2fcd3a7b91b7d5bcaa90db060ff6969f5f52d60d27c9140bbde",
+        "after_sha256": "1980beddbecb2a1efaa659bfdf10703222585b957f1f44d2d8959f9e5c4896fb"
+      }
+    ]
+  },
+  "validation_errors": [
+    "Reviewer modified workspace source files during read-only review."
+  ],
+  "next_action": "blocked"
+}

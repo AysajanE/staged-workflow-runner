@@ -9,8 +9,12 @@ from types import SimpleNamespace
 from unittest import mock
 
 from automation.responses_runner_v2 import supervisor, supervisor_agents, supervisor_policies
-from automation.responses_runner_v2.contracts import relpath, runner_now
-from automation.responses_runner_v2.supervisor_artifacts import load_session
+from automation.responses_runner_v2.contracts import relpath, runner_now, sha256_text
+from automation.responses_runner_v2.supervisor_artifacts import (
+    load_session,
+    snapshot_workspace,
+    validate_against_schema,
+)
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -688,6 +692,259 @@ class ResponsesRunnerV2SupervisorTests(unittest.TestCase):
                 runner=runner,
             )
             self.assertEqual(result.status, "read_only_violation")
+
+    def test_review_agent_ignores_junk_and_gitignored_churn_mid_review(self) -> None:
+        with tempfile.TemporaryDirectory(dir=ROOT) as tmp:
+            tmp_path = Path(tmp)
+            ds_store = tmp_path / ".DS_Store"
+            ds_store.write_bytes(b"finder-before")
+            ignored = tmp_path / "inspect_live.scratch"
+            ignored.write_text("scratch-before\n", encoding="utf-8")
+            decision = _review_decision(actor_role="codex_review_agent", review_cycle_id="cycle_junk")
+
+            def runner(_argv, **_kwargs):
+                ds_store.write_bytes(b"finder-after")
+                (tmp_path / "docs_like").mkdir(exist_ok=True)
+                (tmp_path / "docs_like" / ".DS_Store").write_bytes(b"new-finder-junk")
+                (tmp_path / "__pycache__").mkdir(exist_ok=True)
+                (tmp_path / "__pycache__" / "junk.cpython-312.pyc").write_bytes(b"bytecode")
+                (tmp_path / ".pytest_cache").mkdir(exist_ok=True)
+                (tmp_path / ".pytest_cache" / "CACHEDIR.TAG").write_text("tag\n", encoding="utf-8")
+                (tmp_path / "stray.pyc").write_bytes(b"bytecode")
+                ignored.write_text("scratch-after\n", encoding="utf-8")
+                return SimpleNamespace(returncode=0, stdout=json.dumps(decision), stderr="")
+
+            result = supervisor_agents.invoke_codex_review_agent(
+                root=ROOT,
+                review_kind="scaffold",
+                review_cycle_id="cycle_junk",
+                supervisor_session_id="sup_test",
+                job={"review_job_id": "job_junk"},
+                output_dir=tmp_path.relative_to(ROOT),
+                runner=runner,
+            )
+            self.assertEqual(result.status, "succeeded")
+            self.assertIsNotNone(result.read_only_check)
+            self.assertEqual(result.read_only_check["status"], "passed")
+            self.assertEqual(result.read_only_check["changed_paths"], [])
+
+    def test_snapshot_workspace_skips_junk_files_and_gitignored_paths(self) -> None:
+        with tempfile.TemporaryDirectory(dir=ROOT) as tmp:
+            tmp_path = Path(tmp)
+            (tmp_path / "source.txt").write_text("real source\n", encoding="utf-8")
+            (tmp_path / ".DS_Store").write_bytes(b"finder junk")
+            (tmp_path / "module.pyc").write_bytes(b"bytecode")
+            (tmp_path / ".pytest_cache").mkdir()
+            (tmp_path / ".pytest_cache" / "v").write_text("cache\n", encoding="utf-8")
+            (tmp_path / "inspect_live.scratch").write_text("gitignored scratch\n", encoding="utf-8")
+            prefix = tmp_path.relative_to(ROOT).as_posix()
+            snapshot = snapshot_workspace(ROOT)
+            keys = {key for key in snapshot if key.startswith(prefix)}
+            self.assertIn(f"{prefix}/source.txt", keys)
+            self.assertNotIn(f"{prefix}/.DS_Store", keys)
+            self.assertNotIn(f"{prefix}/module.pyc", keys)
+            self.assertNotIn(f"{prefix}/.pytest_cache/v", keys)
+            self.assertNotIn(f"{prefix}/inspect_live.scratch", keys)
+
+    def test_review_agent_missing_cli_is_distinct_transport_classification(self) -> None:
+        with tempfile.TemporaryDirectory(dir=ROOT) as tmp:
+            def runner(argv, **_kwargs):
+                raise FileNotFoundError(f"[Errno 2] No such file or directory: {argv[0]!r}")
+
+            result = supervisor_agents.invoke_codex_review_agent(
+                root=ROOT,
+                review_kind="scaffold",
+                review_cycle_id="cycle_missing_cli",
+                supervisor_session_id="sup_test",
+                job={"review_job_id": "job_missing_cli"},
+                output_dir=Path(tmp).relative_to(ROOT),
+                runner=runner,
+            )
+            self.assertEqual(result.status, "missing_cli")
+            self.assertEqual(result.approval_decision, "blocked")
+            self.assertEqual(result.command["exit_code"], 127)
+            payload = json.loads((ROOT / result.decision_path).read_text(encoding="utf-8"))
+            self.assertEqual(payload["status"], "missing_cli")
+            self.assertEqual(payload["blocking_issues"], [])
+            self.assertTrue(payload["validation_errors"])
+            self.assertIn("codex", payload["validation_errors"][0])
+            self.assertIn("could not be spawned", payload["validation_errors"][0])
+            self.assertNotEqual(payload["status"], "malformed_output")
+            validate_against_schema(payload, "review_decision.schema.json", "missing_cli sidecar")
+
+    def test_claude_missing_cli_does_not_attempt_effort_fallback(self) -> None:
+        with tempfile.TemporaryDirectory(dir=ROOT) as tmp:
+            calls: list[list[str]] = []
+
+            def runner(argv, **_kwargs):
+                calls.append(list(argv))
+                raise FileNotFoundError("[Errno 2] No such file or directory: 'claude'")
+
+            result = supervisor_agents.invoke_claude_review_agent(
+                root=ROOT,
+                review_kind="scaffold",
+                review_cycle_id="cycle_claude_missing_cli",
+                supervisor_session_id="sup_test",
+                job={"review_job_id": "job_claude_missing_cli"},
+                output_dir=Path(tmp).relative_to(ROOT),
+                runner=runner,
+            )
+            self.assertEqual(result.status, "missing_cli")
+            self.assertEqual(len(calls), 1)
+            self.assertFalse(result.fallback_used)
+
+    def test_review_agent_external_sigterm_with_empty_stdout_is_interrupted(self) -> None:
+        with tempfile.TemporaryDirectory(dir=ROOT) as tmp:
+            def runner(_argv, **_kwargs):
+                return SimpleNamespace(returncode=143, stdout="", stderr="")
+
+            result = supervisor_agents.invoke_claude_review_agent(
+                root=ROOT,
+                review_kind="stage_output",
+                review_cycle_id="cycle_sigterm",
+                supervisor_session_id="sup_test",
+                job={"review_job_id": "job_sigterm"},
+                output_dir=Path(tmp).relative_to(ROOT),
+                runner=runner,
+            )
+            self.assertEqual(result.status, "interrupted")
+            self.assertEqual(result.approval_decision, "blocked")
+            payload = json.loads((ROOT / result.decision_path).read_text(encoding="utf-8"))
+            self.assertEqual(payload["status"], "interrupted")
+            self.assertEqual(payload["blocking_issues"], [])
+            self.assertTrue(payload["validation_errors"])
+            self.assertIn("SIGTERM", payload["validation_errors"][0])
+            self.assertIn("143", payload["validation_errors"][0])
+            self.assertNotIn(payload["status"], {"malformed_output", "failed"})
+            validate_against_schema(payload, "review_decision.schema.json", "interrupted sidecar")
+
+    def test_review_agent_sigint_with_truncated_stdout_is_interrupted(self) -> None:
+        with tempfile.TemporaryDirectory(dir=ROOT) as tmp:
+            def runner(_argv, **_kwargs):
+                return SimpleNamespace(returncode=-2, stdout='{"status": "succ', stderr="")
+
+            result = supervisor_agents.invoke_codex_review_agent(
+                root=ROOT,
+                review_kind="stage_output",
+                review_cycle_id="cycle_sigint",
+                supervisor_session_id="sup_test",
+                job={"review_job_id": "job_sigint"},
+                output_dir=Path(tmp).relative_to(ROOT),
+                runner=runner,
+            )
+            self.assertEqual(result.status, "interrupted")
+            payload = json.loads((ROOT / result.decision_path).read_text(encoding="utf-8"))
+            self.assertEqual(payload["blocking_issues"], [])
+            self.assertIn("SIGINT", payload["validation_errors"][0])
+
+    def test_review_agent_kill_code_with_complete_stdout_is_generic_failure(self) -> None:
+        with tempfile.TemporaryDirectory(dir=ROOT) as tmp:
+            decision = _review_decision(actor_role="codex_review_agent", review_cycle_id="cycle_kill_full")
+
+            def runner(_argv, **_kwargs):
+                return SimpleNamespace(returncode=143, stdout=json.dumps(decision), stderr="")
+
+            result = supervisor_agents.invoke_codex_review_agent(
+                root=ROOT,
+                review_kind="stage_output",
+                review_cycle_id="cycle_kill_full",
+                supervisor_session_id="sup_test",
+                job={"review_job_id": "job_kill_full"},
+                output_dir=Path(tmp).relative_to(ROOT),
+                runner=runner,
+            )
+            self.assertEqual(result.status, "failed")
+
+    def test_embedded_sources_pass_through_to_codex_prompt_and_claude_stdin(self) -> None:
+        content = "# Cited Authority\n\nThe playbook contract requires verification commands.\n"
+        job = {
+            "review_job_id": "job_embedded",
+            "embedded_sources": [
+                {
+                    "path": "docs/cited_authority.md",
+                    "sha256": sha256_text(content),
+                    "content": content,
+                }
+            ],
+        }
+        decision = _review_decision(actor_role="codex_review_agent", review_cycle_id="cycle_embed")
+        with tempfile.TemporaryDirectory(dir=ROOT) as tmp:
+            calls: list[list[str]] = []
+            result = supervisor_agents.invoke_codex_review_agent(
+                root=ROOT,
+                review_kind="stage_output",
+                review_cycle_id="cycle_embed",
+                supervisor_session_id="sup_test",
+                job=job,
+                output_dir=Path(tmp).relative_to(ROOT),
+                runner=_fake_runner_with_stdout(decision, calls),
+            )
+            self.assertEqual(result.status, "succeeded")
+            prompt = calls[0][2]
+            self.assertIn(content.strip().splitlines()[-1], prompt)
+            self.assertIn("embedded_sources", prompt)
+            self.assertIn("verbatim text", prompt)
+            self.assertEqual(result.command["embedded_sources_count"], 1)
+            self.assertEqual(result.command["embedded_sources_bytes"], len(content.encode("utf-8")))
+
+        claude_decision = _review_decision(actor_role="claude_review_agent", review_cycle_id="cycle_embed2")
+        with tempfile.TemporaryDirectory(dir=ROOT) as tmp:
+            stdin_payloads: list[str] = []
+
+            def claude_runner(_argv, **kwargs):
+                stdin_payloads.append(kwargs.get("input") or "")
+                return SimpleNamespace(returncode=0, stdout=json.dumps(claude_decision), stderr="")
+
+            result = supervisor_agents.invoke_claude_review_agent(
+                root=ROOT,
+                review_kind="stage_output",
+                review_cycle_id="cycle_embed2",
+                supervisor_session_id="sup_test",
+                job=job,
+                output_dir=Path(tmp).relative_to(ROOT),
+                runner=claude_runner,
+            )
+            self.assertEqual(result.status, "succeeded")
+            self.assertIn("docs/cited_authority.md", stdin_payloads[0])
+            self.assertIn("verification commands", stdin_payloads[0])
+            self.assertEqual(result.command["embedded_sources_count"], 1)
+
+    def test_embedded_sources_over_budget_fails_closed(self) -> None:
+        oversized = "x" * (supervisor_agents.MAX_EMBEDDED_SOURCES_BYTES + 1)
+        job = {
+            "review_job_id": "job_oversized",
+            "embedded_sources": [{"path": "docs/huge.md", "content": oversized}],
+        }
+        with tempfile.TemporaryDirectory(dir=ROOT) as tmp:
+            with self.assertRaises(SystemExit):
+                supervisor_agents.invoke_codex_review_agent(
+                    root=ROOT,
+                    review_kind="stage_output",
+                    review_cycle_id="cycle_oversized",
+                    supervisor_session_id="sup_test",
+                    job=job,
+                    output_dir=Path(tmp).relative_to(ROOT),
+                    runner=_fake_runner_with_stdout({}, []),
+                )
+
+    def test_embedded_sources_malformed_fails_closed(self) -> None:
+        with tempfile.TemporaryDirectory(dir=ROOT) as tmp:
+            for bad_sources in (
+                "not-a-list",
+                [{"content": "text without path"}],
+                [{"path": "docs/a.md", "content": "ok", "sha256": "not-hex"}],
+                [{"path": "docs/a.md"}],
+            ):
+                with self.assertRaises(SystemExit):
+                    supervisor_agents.invoke_codex_review_agent(
+                        root=ROOT,
+                        review_kind="stage_output",
+                        review_cycle_id="cycle_bad_sources",
+                        supervisor_session_id="sup_test",
+                        job={"review_job_id": "job_bad_sources", "embedded_sources": bad_sources},
+                        output_dir=Path(tmp).relative_to(ROOT),
+                        runner=_fake_runner_with_stdout({}, []),
+                    )
 
     def test_consolidation_preserves_recommendation_not_acceptance(self) -> None:
         with tempfile.TemporaryDirectory(dir=ROOT) as tmp:
