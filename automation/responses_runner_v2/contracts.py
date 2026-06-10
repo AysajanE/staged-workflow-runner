@@ -67,12 +67,40 @@ DIRECTORY_SKIP_NAMES = {
     ".hg",
     ".svn",
     ".local",
+    ".mypy_cache",
+    ".pytest_cache",
+    ".ruff_cache",
+    ".venv",
     "node_modules",
     "out",
     "cache",
     "venv",
     "__pycache__",
 }
+
+# Filesystem junk and bytecode files that must never count as workspace
+# source content. Snapshot, hash-manifest, and read-only enforcement walks
+# skip these by file name or suffix so that OS metadata churn (for example
+# Finder rewriting .DS_Store during a review) cannot register as a
+# read_only_violation or destabilize scaffold hashes.
+FILE_SKIP_NAMES = {
+    ".DS_Store",
+    "Thumbs.db",
+    "desktop.ini",
+}
+
+FILE_SKIP_SUFFIXES = {
+    ".pyc",
+    ".pyo",
+}
+
+
+def is_skippable_junk_file(name: str) -> bool:
+    """Return True when a file name is OS junk or bytecode, never source."""
+
+    if name in FILE_SKIP_NAMES:
+        return True
+    return any(name.endswith(suffix) for suffix in FILE_SKIP_SUFFIXES)
 
 RESPONSES_CONTEXT_SUPPORTED_SUFFIXES = {
     ".art",

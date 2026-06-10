@@ -3,12 +3,14 @@ from __future__ import annotations
 import json
 import re
 import shutil
+import subprocess
 import uuid
 from pathlib import Path
 from typing import Any, Iterable
 
 from .contracts import (
     DIRECTORY_SKIP_NAMES,
+    is_skippable_junk_file,
     SUPERVISOR_ARCHIVE_SCHEMA_VERSION,
     SUPERVISOR_SESSION_SCHEMA_VERSION,
     normalize_slug,
@@ -269,6 +271,8 @@ def _iter_files(path: Path) -> Iterable[Path]:
             relative_parts = child.relative_to(path).parts
             if any(part in DIRECTORY_SKIP_NAMES for part in relative_parts[:-1]):
                 continue
+            if is_skippable_junk_file(relative_parts[-1]):
+                continue
             yield child
 
 
@@ -311,8 +315,66 @@ def copy_into_scaffold_version(root: Path, source: str | Path, destination: Path
     return relpath(root, destination)
 
 
+def gitignored_workspace_paths(root: Path) -> frozenset[str]:
+    """Return git-ignored paths under root as posix relpaths (dirs end with /).
+
+    Uses one `git ls-files` invocation so the read-only snapshot can exclude
+    every ignored path, not just statically known junk names. Returns an
+    empty set when git is unavailable, root is not a work tree, or the
+    query fails: enforcement then falls back to the static skip lists and
+    can only over-report, never under-report, source modifications.
+    """
+
+    try:
+        completed = subprocess.run(
+            [
+                "git",
+                "-C",
+                str(root),
+                "ls-files",
+                "--others",
+                "--ignored",
+                "--exclude-standard",
+                "--directory",
+                "-z",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=120,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return frozenset()
+    if completed.returncode != 0:
+        return frozenset()
+    return frozenset(entry for entry in completed.stdout.split("\0") if entry)
+
+
+def _is_gitignored(relative_posix: str, ignored_paths: frozenset[str]) -> bool:
+    if not ignored_paths:
+        return False
+    if relative_posix in ignored_paths or f"{relative_posix}/" in ignored_paths:
+        return True
+    prefix = ""
+    for part in relative_posix.split("/")[:-1]:
+        prefix = f"{prefix}{part}/"
+        if prefix in ignored_paths:
+            return True
+    return False
+
+
 def snapshot_workspace(root: Path) -> dict[str, str]:
+    """Hash workspace source files, excluding junk, caches, and ignored paths.
+
+    This snapshot feeds read-only reviewer enforcement. It must only see
+    real workspace source content: directory caches (DIRECTORY_SKIP_NAMES),
+    OS junk and bytecode files (.DS_Store, Thumbs.db, *.pyc, ...), and
+    git-ignored paths are all excluded so that incidental churn in them can
+    never be classified as a read_only_violation.
+    """
+
     snapshot: dict[str, str] = {}
+    ignored_paths = gitignored_workspace_paths(root)
 
     def walk(path: Path) -> Iterable[Path]:
         try:
@@ -323,6 +385,10 @@ def snapshot_workspace(root: Path) -> dict[str, str]:
             try:
                 relative_parts = child.relative_to(root).parts
                 if any(part in DIRECTORY_SKIP_NAMES for part in relative_parts):
+                    continue
+                if is_skippable_junk_file(relative_parts[-1]):
+                    continue
+                if _is_gitignored("/".join(relative_parts), ignored_paths):
                     continue
                 if child.is_dir():
                     yield from walk(child)
