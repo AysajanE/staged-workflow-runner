@@ -1001,6 +1001,60 @@ class ResponsesRunnerV2SupervisorTests(unittest.TestCase):
             self.assertEqual(rec["operator_decision"], "rejected")
             self.assertIn("Missing applied-change evidence", rec["rejected_reason"])
 
+    def test_acceptance_verifies_reviewer_missing_artifact_claims_against_filesystem(self) -> None:
+        # 2026-06-10 S05 regression: read-only reviewers reported required run
+        # artifacts as missing because their sandbox could not read gitignored
+        # paths; the artifacts existed on disk. Acceptance must verify claims
+        # itself: verified-present claims clear, truly-missing claims become
+        # blocking issues with a schema-valid do_not_approve record (never an
+        # unwritable approve that crashes the supervisor).
+        with tempfile.TemporaryDirectory(dir=ROOT) as tmp:
+            tmp_path = Path(tmp)
+            session = _create_session(tmp_path)
+            present = tmp_path / "present_artifact.json"
+            present.write_text("{}\n", encoding="utf-8")
+            consolidated = _review_decision(
+                actor_role="consolidation_pass",
+                review_cycle_id="cycle_missing_claims",
+                review_kind="consolidation",
+            )
+            consolidated["agent_command_id"] = None
+            consolidated["command"] = None
+            consolidated["read_only_check"] = None
+            consolidated["missing_artifacts"] = [
+                {"path": present.relative_to(ROOT).as_posix(), "required": True, "reason": "Required artifact was missing."},
+            ]
+            consolidated_path = tmp_path / "consolidated.json"
+            consolidated_path.write_text(json.dumps(consolidated, indent=2) + "\n", encoding="utf-8")
+            supervisor.create_review_cycle(root=ROOT, session_ref=session["supervisor_session_id"], review_cycle_id="cycle_missing_claims", review_kind="scaffold")
+            acceptance = supervisor.accept_consolidated_review(
+                root=ROOT,
+                session_ref=session["supervisor_session_id"],
+                review_cycle_id="cycle_missing_claims",
+                consolidated_review=consolidated_path.relative_to(ROOT),
+                accepted_recommendation_ids=[],
+                output=(tmp_path / "acceptance_present.json").relative_to(ROOT),
+            )
+            self.assertEqual(acceptance["approval_decision"], "approve")
+            self.assertEqual(acceptance["missing_artifacts"], [])
+            self.assertIn("Verified present at acceptance", acceptance["summary"])
+
+            consolidated["missing_artifacts"] = [
+                {"path": (tmp_path / "definitely_absent.json").relative_to(ROOT).as_posix(), "required": True, "reason": "Required artifact was missing."},
+            ]
+            consolidated_path.write_text(json.dumps(consolidated, indent=2) + "\n", encoding="utf-8")
+            acceptance = supervisor.accept_consolidated_review(
+                root=ROOT,
+                session_ref=session["supervisor_session_id"],
+                review_cycle_id="cycle_missing_claims",
+                consolidated_review=consolidated_path.relative_to(ROOT),
+                accepted_recommendation_ids=[],
+                output=(tmp_path / "acceptance_absent.json").relative_to(ROOT),
+            )
+            self.assertEqual(acceptance["approval_decision"], "do_not_approve")
+            self.assertEqual(len(acceptance["missing_artifacts"]), 1)
+            self.assertTrue(any("missing at acceptance time" in issue["description"] for issue in acceptance["blocking_issues"]))
+
     def test_rejected_blocking_recommendation_becomes_valid_blocking_issue(self) -> None:
         with tempfile.TemporaryDirectory(dir=ROOT) as tmp:
             tmp_path = Path(tmp)

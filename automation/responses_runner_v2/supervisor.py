@@ -1091,6 +1091,36 @@ def accept_consolidated_review(
         and rec.get("consolidation_recommendation") not in {"duplicate", "already_satisfied", "out_of_scope"}
     ]
     blocking_after_acceptance = [_rejected_blocking_recommendation_issue(rec) for rec in rejected_blocking_recommendations]
+
+    # Acceptance is the accountable step with full workspace access. Read-only
+    # reviewers may report artifacts as missing simply because their sandbox
+    # cannot read them (e.g. gitignored run directories); verify each claim
+    # against the filesystem here. Verified-present claims are cleared with a
+    # note; truly missing required artifacts become blocking issues and yield
+    # a graceful do_not_approve record instead of an unwritable approve.
+    verified_missing: list[dict[str, Any]] = []
+    verified_present_paths: list[str] = []
+    for item in consolidated.get("missing_artifacts", []) or []:
+        entry = dict(item) if isinstance(item, dict) else {"path": str(item), "required": True, "reason": "Required artifact was missing."}
+        path_value = str(entry.get("path") or "")
+        candidate = Path(path_value)
+        if not candidate.is_absolute():
+            candidate = root / path_value
+        if path_value and candidate.exists():
+            verified_present_paths.append(path_value)
+            continue
+        verified_missing.append(entry)
+        if entry.get("required", True):
+            blocking_after_acceptance.append(
+                {
+                    "issue_id": f"missing-artifact-{len(blocking_after_acceptance) + 1}",
+                    "severity": "blocking",
+                    "description": f"Required artifact is missing at acceptance time: {path_value}",
+                    "evidence": [entry.get("reason") or "Required artifact was missing."],
+                    "affected_artifacts": [path_value],
+                }
+            )
+
     approval = "approve" if not blocking_after_acceptance else "do_not_approve"
     decision = {
         "schema_version": REVIEW_DECISION_SCHEMA_VERSION,
@@ -1106,11 +1136,19 @@ def accept_consolidated_review(
         "agent_command_id": None,
         "status": "succeeded",
         "approval_decision": approval,
-        "summary": "Operator selective acceptance record. Accepted recommendations require applied-change evidence.",
+        "summary": (
+            "Operator selective acceptance record. Accepted recommendations require applied-change evidence."
+            + (
+                f" Verified present at acceptance ({len(verified_present_paths)} reviewer-reported paths): "
+                + ", ".join(verified_present_paths)
+                if verified_present_paths
+                else ""
+            )
+        ),
         "markdown_report_path": relpath(root, output_md_path),
         "json_report_path": relpath(root, output_json_path),
         "reviewed_artifacts": consolidated.get("reviewed_artifacts", []),
-        "missing_artifacts": consolidated.get("missing_artifacts", []),
+        "missing_artifacts": verified_missing,
         "blocking_issues": blocking_after_acceptance,
         "non_blocking_improvements": consolidated.get("non_blocking_improvements", []),
         "recommendations": recommendations,
