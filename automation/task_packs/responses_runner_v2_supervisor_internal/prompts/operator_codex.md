@@ -124,3 +124,7 @@ Emit `approval_decision=blocked` and `next_action=blocked` when:
 - reviewer recommendation acceptance would be unsupported or unapplied;
 - side effects exceed allowed paths;
 - the job would violate the one-root policy.
+
+- When emitting `recommendations[].operator_decision`, use EXACTLY one of:
+  `"accepted"`, `"rejected"`, `"deferred"`, `"already_satisfied"`,
+  `"out_of_scope"` (past-participle forms; never "accept"/"reject"/"defer").

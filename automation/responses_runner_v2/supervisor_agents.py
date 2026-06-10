@@ -619,6 +619,32 @@ def _coerce_changes_applied(value: Any, *, default_source: str) -> list[dict[str
     return coerced
 
 
+def _canonical_operator_decision(value: Any) -> str | None:
+    """Normalize per-recommendation operator_decision spellings.
+
+    Agents emit verb forms ("accept", "reject", "defer") for the
+    past-participle enum; unknown spellings pass through untouched so the
+    schema still rejects genuinely invalid values.
+    """
+    raw = str(value or "").strip().lower().replace("-", "_").replace(" ", "_")
+    if not raw:
+        return None
+    aliases = {
+        "accept": "accepted",
+        "accepted": "accepted",
+        "approve": "accepted",
+        "approved": "accepted",
+        "reject": "rejected",
+        "rejected": "rejected",
+        "defer": "deferred",
+        "deferred": "deferred",
+        "already_satisfied": "already_satisfied",
+        "satisfied": "already_satisfied",
+        "out_of_scope": "out_of_scope",
+    }
+    return aliases.get(raw, raw)
+
+
 def _coerce_recommendations(value: Any, *, actor_role: str, default_source: str) -> list[dict[str, Any]]:
     recommendations = value if isinstance(value, list) else ([] if value is None else [value])
     coerced: list[dict[str, Any]] = []
@@ -663,6 +689,12 @@ def _coerce_recommendations(value: Any, *, actor_role: str, default_source: str)
                 default_source=default_source,
                 default_artifact_path=artifact_path,
             )
+        if "operator_decision" in rec:
+            canonical_decision = _canonical_operator_decision(rec.get("operator_decision"))
+            if canonical_decision is None:
+                rec.pop("operator_decision", None)
+            else:
+                rec["operator_decision"] = canonical_decision
         rec.pop("id", None)
         rec.pop("supporting_evidence", None)
         rec.pop("affected_artifact", None)
@@ -796,7 +828,10 @@ def _normalize_agent_decision(
     decision["created_at"] = decision.get("created_at") or runner_now().isoformat()
     decision["supervisor_session_id"] = str(decision.get("supervisor_session_id") or supervisor_session_id)
     decision["review_cycle_id"] = str(decision.get("review_cycle_id") or review_cycle_id)
-    decision["review_kind"] = str(decision.get("review_kind") or review_kind)
+    # The supervisor invoked this review with an explicit kind; the agent's
+    # self-description must never reclassify it (a stage_output review that
+    # self-labels operator_acceptance would import the wrong validation rules).
+    decision["review_kind"] = review_kind
     decision["actor_role"] = actor_role
     decision["agent_command_id"] = command_id
     decision["markdown_report_path"] = relpath(root, markdown_path)

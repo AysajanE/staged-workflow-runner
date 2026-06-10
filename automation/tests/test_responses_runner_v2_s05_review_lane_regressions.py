@@ -118,6 +118,24 @@ class S05ReviewLaneRegressionTests(unittest.TestCase):
         self.assertRegex(decision["decision_id"], r"^[a-z0-9][a-z0-9._-]{0,127}$")
         self.assertEqual(decision["validation_errors"], [])
 
+    def test_cycle7_verbform_operator_decisions_canonicalize(self) -> None:
+        # 2026-06-10 stage-2 regression: the operator fully approved but spelled
+        # per-recommendation operator_decision values as verb forms ("accept",
+        # "reject") instead of the past-participle enum, failing transport.
+        raw_text = (FIXTURES / "cycle7_operator_accept_verbform.stdout.txt").read_text(encoding="utf-8")
+        raw = json.loads(raw_text[raw_text.index("{") : raw_text.rindex("}") + 1])
+        self.assertEqual(raw["status"], "succeeded")
+        self.assertEqual(raw["approval_decision"], "approve")
+        self.assertIn("accept", [r.get("operator_decision") for r in raw["recommendations"]])
+
+        decision = _replay_raw_decision(raw, review_cycle_id="s05_cycle7", actor_role="operator_codex")
+        self.assertEqual(decision["status"], "succeeded")
+        self.assertEqual(decision["approval_decision"], "approve")
+        decisions = [r.get("operator_decision") for r in decision["recommendations"]]
+        self.assertTrue(all(d in {"accepted", "rejected", "deferred", "already_satisfied", "out_of_scope"} for d in decisions if d))
+        self.assertIn("accepted", decisions)
+        self.assertIn("rejected", decisions)
+
     def test_cycle4_raw_approved_dialect_canonicalizes_to_succeeded_approve(self) -> None:
         raw = _load_fixture("cycle4_codex_raw_approved_dialect.stdout.json")
         self.assertEqual(raw["status"], "completed")
