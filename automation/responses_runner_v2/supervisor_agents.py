@@ -791,6 +791,22 @@ def _canonicalize_review_decision_shape(
         canonical["evidence"] = _coerce_evidence(canonical.get("evidence"), default_source=default_source)
     if "validation_errors" in canonical:
         canonical["validation_errors"] = _string_list(canonical.get("validation_errors"))
+        # validation_errors is reserved for supervisor transport/schema reports.
+        # Agents that file semantic findings there (with a succeeded status)
+        # get them re-homed by verdict: rejections -> blocking_issues,
+        # approvals -> non_blocking_improvements. The verdict stays untouched.
+        if canonical.get("validation_errors") and _canonical_status(canonical.get("status")) == "succeeded":
+            misfiled = canonical["validation_errors"]
+            approval = _canonical_approval(canonical.get("approval_decision"))
+            target_key = "blocking_issues" if approval in {"do_not_approve", "blocked"} else "non_blocking_improvements"
+            rehomed = _coerce_issue_items(
+                misfiled,
+                default_prefix="misfiled-validation-finding",
+                include_severity=target_key == "blocking_issues",
+            )
+            existing = canonical.get(target_key)
+            canonical[target_key] = (existing if isinstance(existing, list) else []) + rehomed
+            canonical["validation_errors"] = []
     if "approval_decision" in canonical or "next_action" in canonical:
         canonical["next_action"] = _canonical_next_action(
             canonical.get("next_action"),

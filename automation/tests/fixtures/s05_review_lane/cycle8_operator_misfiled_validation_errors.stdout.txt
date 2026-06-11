@@ -1,0 +1,210 @@
+{
+  "schema_version": "responses_runner_v2.review_decision.v1",
+  "decision_id": "operator_codex_s05_run_20260601_133046_ae09e1ea_gate_and_contract_review_stage_review_20260611t104054z_do_not_approve",
+  "created_at": "2026-06-11T10:40:54Z",
+  "supervisor_session_id": "autokeel-s05-run_20260601_133046_ae09e1ea",
+  "workflow_id": "gstack_design_to_po_playbook",
+  "run_id": "run_20260601_133046_ae09e1ea",
+  "stage_id": "gate_and_contract_review",
+  "review_cycle_id": "gate_and_contract_review_stage_review_20260611t104054z",
+  "review_kind": "stage_output",
+  "actor_role": "operator_codex",
+  "agent_command_id": null,
+  "status": "succeeded",
+  "approval_decision": "do_not_approve",
+  "summary": "Do not approve Stage 4 for advancement. The response artifacts are complete and prior stage bundles validate, but the current Stage 4 packet fails the repository-configured autonomous playbook validator on row 04 and therefore cannot be packaged as an approved review bundle for the next stage.",
+  "markdown_report_path": ".local/autokeel/swr/review_lane/S05-run_20260601_133046_ae09e1ea-gate_and_contract_review/reviewer_notes.md",
+  "json_report_path": ".local/autokeel/swr/review_lane/S05-run_20260601_133046_ae09e1ea-gate_and_contract_review/review_decision.json",
+  "reviewed_artifacts": [
+    {
+      "path": ".local/autokeel/swr/runs/2026-06-01_133046_autokeel-s05-20260601t093046-0400_gstack_design_to_po_playbook/stages/04_gate_and_contract_review/input_manifest.json",
+      "role": "input_manifest_json",
+      "sha256": "8234b4145a278f9d9387310241df0351d050fa5a85a7a239a404944059221379",
+      "bytes": 9223
+    },
+    {
+      "path": ".local/autokeel/swr/runs/2026-06-01_133046_autokeel-s05-20260601t093046-0400_gstack_design_to_po_playbook/stages/04_gate_and_contract_review/input_manifest.md",
+      "role": "input_manifest_markdown",
+      "sha256": "fe8563682ffc5cbdc841f45569a84b9258b1ef5b4b724c81612184e2f2b4c7f7",
+      "bytes": 4503
+    },
+    {
+      "path": ".local/autokeel/swr/runs/2026-06-01_133046_autokeel-s05-20260601t093046-0400_gstack_design_to_po_playbook/stages/04_gate_and_contract_review/request_payload.json",
+      "role": "request_payload",
+      "sha256": "6c9ec576df7ecbf6b4c6c48cbde2868c5bc22f4ef3197f2ad0c0951184817881",
+      "bytes": 10387
+    },
+    {
+      "path": ".local/autokeel/swr/runs/2026-06-01_133046_autokeel-s05-20260601t093046-0400_gstack_design_to_po_playbook/stages/04_gate_and_contract_review/response.final.json",
+      "role": "response_json",
+      "sha256": "6529fb8839e30442a50b563792b650184bf3377037385c571d51a6c86ba6c2e9",
+      "bytes": 32911
+    },
+    {
+      "path": ".local/autokeel/swr/runs/2026-06-01_133046_autokeel-s05-20260601t093046-0400_gstack_design_to_po_playbook/stages/04_gate_and_contract_review/response.final.md",
+      "role": "response_markdown",
+      "sha256": "db006e61f50901c39c46e44d1cf5c92fb02b37a36d8ef5449f51f181992abd2f",
+      "bytes": 33325
+    },
+    {
+      "path": ".local/autokeel/swr/runs/2026-06-01_133046_autokeel-s05-20260601t093046-0400_gstack_design_to_po_playbook/run_manifest.json",
+      "role": "run_manifest",
+      "sha256": "d38fcd652e7690da204cbad9992f49aec9eb187ddf7d2d41ffda8f6a0edd521c",
+      "bytes": 8152
+    },
+    {
+      "path": ".local/autokeel/swr/runs/2026-06-01_133046_autokeel-s05-20260601t093046-0400_gstack_design_to_po_playbook/stages/04_gate_and_contract_review/stage_checkpoint.json",
+      "role": "stage_checkpoint",
+      "sha256": "a641587fb6d15b81d052c9b78062e35eb76ef736f0551fb0ea5926fc5d97dfb7",
+      "bytes": 2356
+    },
+    {
+      "path": ".local/autokeel/swr/review_lane/S05-run_20260601_133046_ae09e1ea-gate_and_contract_review/stage_outcome.json",
+      "role": "stage_outcome",
+      "sha256": "074b18433561fa3b8132a58bcba58f886cf1d028c79b8e13d269b4f5fb7be4ce",
+      "bytes": 1533
+    },
+    {
+      "path": ".local/autokeel/swr/review_lane/S05-run_20260601_133046_ae09e1ea-gate_and_contract_review/stage_review_job.json",
+      "role": "stage_review_job",
+      "sha256": "9d3a2e745c44bb6fa7c6cf1ecf9a53ddf79dc9c98b13dd31425437ad825a6d7f",
+      "bytes": 55609
+    },
+    {
+      "path": ".local/autokeel/swr/review_lane/S05-run_20260601_133046_ae09e1ea-source_authority_map-source_authority_map_stage_review_repair_20260610t1422360400/source_authority_map.review_bundle.json",
+      "role": "prior_stage_review_bundle",
+      "sha256": "b52acbb20b9da356679207e2e5a5ae5ffa0a630b0ea57adbb6cd4f2ecfadea79",
+      "bytes": 4056
+    },
+    {
+      "path": ".local/autokeel/swr/review_lane/S05-run_20260601_133046_ae09e1ea-repo_grounding-repo_grounding_stage_review_repair_20260610t1807120400/repo_grounding.review_bundle.json",
+      "role": "prior_stage_review_bundle",
+      "sha256": "0dbf47c74aca260a59e5cfeb15e3a13c7236309cf918167aae36b6643fc55095",
+      "bytes": 3906
+    },
+    {
+      "path": ".local/autokeel/swr/review_lane/S05-run_20260601_133046_ae09e1ea-execution_row_draft/execution_row_draft.review_bundle.json",
+      "role": "prior_stage_review_bundle",
+      "sha256": "96ce6293fcc94db8c2da992c70c8a4af023ee75233007354232cd9b0c271a593",
+      "bytes": 3470
+    },
+    {
+      "path": "automation/task_packs/gstack_design_to_po_playbook/corpus/markdown_playbook_v1_contract.md",
+      "role": "embedded_contract_authority",
+      "sha256": "c064fb9d5b215204745eae0698b1aa038d36dbc3a90b2ba9a7203013be51ed18",
+      "bytes": 3807
+    },
+    {
+      "path": "docs/gstack/s05-model-lifecycle-autoplan.md",
+      "role": "embedded_primary_authority_autoplan",
+      "sha256": "1854f7e6fc9258a41ff19934bc1cbff6c3cbd514e238795f323254f2d3189285",
+      "bytes": 6981
+    },
+    {
+      "path": "docs/briefs/s05-model-lifecycle.autonomous-brief.md",
+      "role": "embedded_primary_authority_brief",
+      "sha256": "2ec7eb6532d96ee802588d5af4832ce1694a0dcfec20a3af93da68a574da6312",
+      "bytes": 1313
+    },
+    {
+      "path": ".local/autokeel/swr/review_lane/S05-run_20260601_133046_ae09e1ea-gate_and_contract_review/reviewer_notes.md",
+      "role": "markdown_report",
+      "sha256": "c8f423900fa5b230b0d7775c4af9fd22d776e36168365be17fb1217a7247d652",
+      "bytes": 1381
+    }
+  ],
+  "missing_artifacts": [],
+  "blocking_issues": [
+    {
+      "issue_id": "autonomous_validator_rejects_row_04",
+      "severity": "blocking",
+      "description": "The Stage 4 packet claims contract readiness, but the repository-configured autonomous markdown-playbook validator rejects row 04 before plan-orchestrator execution.",
+      "evidence": [
+        "python scripts/validate_playbook_autonomous.py .local/autokeel/swr/runs/2026-06-01_133046_autokeel-s05-20260601t093046-0400_gstack_design_to_po_playbook/stages/04_gate_and_contract_review/response.final.md --json returned status=error.",
+        "Validator error: row 4: sensitive allowed_write_root forbidden: .gitignore.",
+        "Validator error: plan-orchestrator normalization failed: Item 04: deliverable must contain at least one concrete repo-relative path.",
+        ".local/autokeel/swr/runs/2026-06-01_133046_autokeel-s05-20260601t093046-0400_gstack_design_to_po_playbook/stages/04_gate_and_contract_review/response.final.md row 04 uses .gitignore as both deliverable and allowed_write_roots."
+      ],
+      "affected_artifacts": [
+        ".local/autokeel/swr/runs/2026-06-01_133046_autokeel-s05-20260601t093046-0400_gstack_design_to_po_playbook/stages/04_gate_and_contract_review/response.final.md",
+        "scripts/validate_playbook_autonomous.py",
+        "automation/task_packs/gstack_design_to_po_playbook/corpus/markdown_playbook_v1_contract.md"
+      ]
+    }
+  ],
+  "non_blocking_improvements": [],
+  "recommendations": [],
+  "unsupported_claims": [
+    {
+      "claim_id": "contract_compliant_playbook_plan",
+      "claim": "The Stage 4 packet says it hardens the reviewed S05 candidate rows into a contract-compliant playbook plan.",
+      "rejected_reason": "The current repository validator rejects the packet with row 04 errors, so the contract-compliance claim is unsupported for advancement.",
+      "evidence": [
+        ".local/autokeel/swr/runs/2026-06-01_133046_autokeel-s05-20260601t093046-0400_gstack_design_to_po_playbook/stages/04_gate_and_contract_review/response.final.md",
+        "scripts/validate_playbook_autonomous.py output: status=error with row 04 errors"
+      ]
+    },
+    {
+      "claim_id": "dot_prefixed_gitignore_allowed_for_row_04",
+      "claim": "The Stage 4 packet says the only retained dot-prefixed path is .gitignore because the S05 autoplan allows that file for adding the models exclusion.",
+      "rejected_reason": "The S05 autoplan authorizes a narrow .gitignore change, but the active repository validator forbids .gitignore as a sensitive allowed_write_root and plan-orchestrator normalization rejects the row 04 deliverable.",
+      "evidence": [
+        "docs/gstack/s05-model-lifecycle-autoplan.md allows .gitignore only to add the models/ exclusion.",
+        "scripts/validate_playbook_autonomous.py output rejects row 04 allowed_write_root .gitignore and reports a plan-orchestrator normalization failure."
+      ]
+    }
+  ],
+  "evidence": [
+    {
+      "artifact_path": ".local/autokeel/swr/review_lane/S05-run_20260601_133046_ae09e1ea-gate_and_contract_review/stage_outcome.json",
+      "quote_or_summary": "Stage outcome reports response_status=completed, classification=completed_complete_artifact, reviewable=true, review_bundle_allowed=true, rerun_allowed=false, rerun_requires_archive=false, and human_pause_required=false."
+    },
+    {
+      "artifact_path": ".local/autokeel/swr/runs/2026-06-01_133046_autokeel-s05-20260601t093046-0400_gstack_design_to_po_playbook/stages/04_gate_and_contract_review/response.final.json",
+      "quote_or_summary": "Response JSON reports status=completed, incomplete_details=null, error=null, max_output_tokens=128000, output_tokens=33560, and total_tokens=96943; this is not an output-limit incomplete artifact."
+    },
+    {
+      "artifact_path": ".local/autokeel/swr/runs/2026-06-01_133046_autokeel-s05-20260601t093046-0400_gstack_design_to_po_playbook/stages/04_gate_and_contract_review/stage_checkpoint.json",
+      "quote_or_summary": "Stage checkpoint records status=waiting_for_review, terminal=true, review_checkpoint_required=true, response.status=completed, and response_id=resp_0552fd9c5f56307b006a2a8e543bf481a28d084fe88e1289de."
+    },
+    {
+      "artifact_path": ".local/autokeel/swr/runs/2026-06-01_133046_autokeel-s05-20260601t093046-0400_gstack_design_to_po_playbook/run_manifest.json",
+      "quote_or_summary": "Run manifest records Stage 1 source_authority_map, Stage 2 repo_grounding, and Stage 3 execution_row_draft with review_approved=true and approved review bundle paths before Stage 4."
+    },
+    {
+      "artifact_path": ".local/autokeel/swr/review_lane/S05-run_20260601_133046_ae09e1ea-source_authority_map-source_authority_map_stage_review_repair_20260610t1422360400/source_authority_map.review_bundle.json",
+      "quote_or_summary": "scripts/validate_swr_review_bundle.py returned status=ok with no errors or warnings for the Stage 1 review bundle."
+    },
+    {
+      "artifact_path": ".local/autokeel/swr/review_lane/S05-run_20260601_133046_ae09e1ea-repo_grounding-repo_grounding_stage_review_repair_20260610t1807120400/repo_grounding.review_bundle.json",
+      "quote_or_summary": "scripts/validate_swr_review_bundle.py returned status=ok with no errors or warnings for the Stage 2 review bundle."
+    },
+    {
+      "artifact_path": ".local/autokeel/swr/review_lane/S05-run_20260601_133046_ae09e1ea-execution_row_draft/execution_row_draft.review_bundle.json",
+      "quote_or_summary": "scripts/validate_swr_review_bundle.py returned status=ok with no errors or warnings for the Stage 3 review bundle."
+    },
+    {
+      "artifact_path": ".local/autokeel/swr/runs/2026-06-01_133046_autokeel-s05-20260601t093046-0400_gstack_design_to_po_playbook/stages/04_gate_and_contract_review/response.final.md",
+      "quote_or_summary": "The response markdown sha256 is db006e61f50901c39c46e44d1cf5c92fb02b37a36d8ef5449f51f181992abd2f, matching the embedded source digest in the stage review job and the run manifest."
+    },
+    {
+      "artifact_path": "automation/task_packs/gstack_design_to_po_playbook/corpus/markdown_playbook_v1_contract.md",
+      "quote_or_summary": "The embedded contract says AutoKeel runs scripts/validate_playbook_autonomous.py before plan-orchestrator execution and requires semicolon-separated repo-relative write roots, concrete verification commands, no active manual gates, and no human approval claims."
+    },
+    {
+      "artifact_path": "docs/gstack/s05-model-lifecycle-autoplan.md",
+      "quote_or_summary": "The S05 autoplan authorizes .gitignore only to add the models/ exclusion, but also requires model lifecycle deliverables and verification gates to remain within validator-accepted playbook rows."
+    },
+    {
+      "artifact_path": ".local/autokeel/swr/review_lane/S05-run_20260601_133046_ae09e1ea-gate_and_contract_review/reviewer_notes.md",
+      "quote_or_summary": "A do-not-approve markdown review note was written under an allowed review-lane path with sha256 c8f423900fa5b230b0d7775c4af9fd22d776e36168365be17fb1217a7247d652; approved_handoff.md was not created."
+    }
+  ],
+  "command": null,
+  "read_only_check": null,
+  "validation_errors": [
+    "row 4: sensitive allowed_write_root forbidden: .gitignore",
+    "plan-orchestrator normalization failed: Item 04: `deliverable` must contain at least one concrete repo-relative path."
+  ],
+  "next_action": "rerun_after_archive"
+}

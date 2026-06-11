@@ -101,6 +101,25 @@ class S05ReviewLaneRegressionTests(unittest.TestCase):
             self.assertIn("path", artifact)
             self.assertIn("role", artifact)
 
+    def test_cycle8_misfiled_validation_errors_rehome_as_blocking_issues(self) -> None:
+        # 2026-06-11 stage-4 regression: the operator emitted a genuine
+        # semantic rejection (succeeded/do_not_approve) but filed its findings
+        # in validation_errors, which is reserved for transport reports; the
+        # decision was recorded as malformed_output. Misfiled findings now
+        # re-home as blocking_issues and the semantic verdict survives.
+        raw_text = (FIXTURES / "cycle8_operator_misfiled_validation_errors.stdout.txt").read_text(encoding="utf-8")
+        raw = json.loads(raw_text[raw_text.index("{") : raw_text.rindex("}") + 1])
+        self.assertEqual(raw["status"], "succeeded")
+        self.assertEqual(raw["approval_decision"], "do_not_approve")
+        self.assertTrue(raw["validation_errors"])
+
+        decision = _replay_raw_decision(raw, review_cycle_id="s05_cycle8", actor_role="operator_codex")
+        self.assertEqual(decision["status"], "succeeded")
+        self.assertEqual(decision["approval_decision"], "do_not_approve")
+        self.assertEqual(decision["validation_errors"], [])
+        descriptions = " ".join(issue["description"] for issue in decision["blocking_issues"])
+        self.assertIn("sensitive allowed_write_root forbidden", descriptions)
+
     def test_cycle6_uppercase_decision_id_normalizes_instead_of_failing_transport(self) -> None:
         # 2026-06-10 regression: the operator fully approved the regenerated
         # S05 stage-1 artifact but embedded an uppercase ISO timestamp in its
