@@ -14,7 +14,7 @@ Use this authority order:
 
 1. Primary Job Inputs
 2. Reviewed Handoff Inputs
-3. Attached Repository Files
+3. Attached Workspace Evidence (legacy manifest alias: Attached Repository Files)
 4. Reference Context
 </authority_order>
 
@@ -32,7 +32,7 @@ It must independently evaluate and accept only recommendations supported by repo
 </stage_boundary_rules>
 
 <model_migration_rule>
-The target implementation must update model configuration from the GPT-5.4 family to the GPT-5.5 family wherever the runner, examples, docs, schemas, tests, or task packs encode model defaults or expectations.
+The target implementation must update historical GPT-5.4 source configuration to the durable GPT-5.6 alias wherever the runner, examples, docs, schemas, tests, or task packs encode active model defaults or expectations.
 </model_migration_rule>
 
 <prompt_design_rules>
@@ -95,7 +95,7 @@ Before finalizing:
 - verify that every requested section exists;
 - verify that file inventories and file blocks match;
 - verify that review-agent prompts are explicit enough for non-interactive execution;
-- verify that model migration from GPT-5.4 to GPT-5.5 is covered;
+- verify that model migration from historical GPT-5.4 source identifiers to GPT-5.6 is covered;
 - verify that failure handling and human-pause triggers are operational;
 - verify that tests include true red/green evidence.
 </verification_loop>

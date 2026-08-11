@@ -1,0 +1,36 @@
+{
+  "schema_version": "responses_runner_v2.representative_eval_fixture.v1",
+  "case_id": "representative-report-generation",
+  "task_type": "document_report_generation",
+  "objective": "Generate a concise status report from frozen delivery metrics.",
+  "frozen_inputs": {
+    "sources": [
+      {
+        "source_id": "delivery_metrics",
+        "content": "The release completed 18 of 20 planned checks. Two checks remain blocked by missing external credentials."
+      }
+    ]
+  },
+  "expected_output_contract": {
+    "required_keys": ["title", "executive_summary", "findings", "next_steps", "claims", "citations"]
+  },
+  "gold_output": {
+    "title": "Release Readiness Status",
+    "executive_summary": "Eighteen checks completed and two remain externally blocked.",
+    "findings": ["18 of 20 checks completed.", "Two checks require external credentials."],
+    "next_steps": ["Obtain the missing credentials before rerunning the blocked checks."],
+    "claims": [
+      {
+        "claim": "Two checks remain blocked by missing external credentials.",
+        "citation_ids": ["report_metrics"]
+      }
+    ],
+    "citations": [
+      {
+        "citation_id": "report_metrics",
+        "source_id": "delivery_metrics",
+        "quote": "Two checks remain blocked by missing external credentials."
+      }
+    ]
+  }
+}

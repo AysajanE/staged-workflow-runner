@@ -92,9 +92,8 @@ You must not:
 
 Emit exactly one JSON object to stdout. Do not wrap it in markdown.
 
-The JSON must conform to `responses_runner_v2.review_decision.v1` and include:
+The JSON must conform to `responses_runner_v2.reviewer_output.v1` and include:
 
-- `actor_role`: `codex_review_agent`;
 - `status`;
 - `approval_decision`;
 - `summary`;
@@ -113,30 +112,29 @@ These enum values are literal and exhaustive. Any other spelling will be rejecte
 - `status` MUST be exactly `"succeeded"` when you complete the review. Never write `"completed"`, `"complete"`, `"ok"`, `"passed"`, or `"success"`. All other status values (`failed`, `timeout`, `malformed_output`, `read_only_violation`, `missing_cli`, `interrupted`) are supervisor-assigned; do not emit them.
 - `approval_decision` MUST be exactly one of `"approve"`, `"approve_with_conditions"`, `"do_not_approve"`, `"blocked"`. Never write `"approved"`, `"accepted"`, `"rejected"`, or any other variant.
 - `validation_errors` MUST be `[]` and `blocking_issues` MUST be `[]` whenever `approval_decision` is `"approve"` or `"approve_with_conditions"`.
-- `reviewed_artifacts` entries are objects with `path` and `role` string keys only (optional `sha256`, `bytes`).
+- `reviewed_artifacts` entries include `path`, `role`, `sha256`, and `bytes`; use `null` for an unavailable hash or byte count.
 - `next_action` MUST be one of `"proceed_to_consolidation"`, `"proceed_to_operator_acceptance"`, `"create_review_bundle"`, `"create_final_bundle"`, `"rerun_after_archive"`, `"human_pause"`, `"blocked"`.
 
 Minimal complete valid example (shape reference; replace the values with your real findings):
 
 ```json
 {
-  "actor_role": "codex_review_agent",
   "status": "succeeded",
   "approval_decision": "approve",
   "summary": "Stage output satisfies the stage objective and all required checks.",
-  "reviewed_artifacts": [{"path": "stages/01_stage/response.final.md", "role": "stage_output"}],
+  "reviewed_artifacts": [{"path": "stages/01_stage/attempt_001/artifact.md", "role": "stage_output", "sha256": null, "bytes": null}],
   "missing_artifacts": [],
   "blocking_issues": [],
   "non_blocking_improvements": [],
   "recommendations": [],
   "unsupported_claims": [],
-  "evidence": [{"artifact_path": "stages/01_stage/response.final.md", "quote_or_summary": "Required sections are present and grounded."}],
+  "evidence": [{"artifact_path": "stages/01_stage/attempt_001/artifact.md", "source": null, "quote_or_summary": "Required sections are present and grounded."}],
   "validation_errors": [],
   "next_action": "proceed_to_consolidation"
 }
 ```
 
-The supervisor will capture stdout/stderr, validate this JSON, write a sidecar, and run a read-only workspace snapshot check.
+Do not emit identity, command, timestamp, report-path, or read-only-check fields. The supervisor owns those fields, captures stdout/stderr, validates this JSON, writes the decision envelope, and runs the independent read-only checks.
 
 ## Stopping Conditions
 

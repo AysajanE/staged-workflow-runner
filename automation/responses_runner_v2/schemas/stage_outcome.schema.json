@@ -83,6 +83,7 @@
         "completed_complete_artifact",
         "failed_complete_artifact",
         "failed_no_artifact",
+        "cancelled",
         "incomplete_output_limit",
         "blocked_token_preflight",
         "long_running_monitoring_anomaly"
@@ -139,6 +140,7 @@
         "archive_before_rerun",
         "block_and_recover",
         "human_pause",
+        "preserve_cancelled",
         "monitor_without_duplicate_submit"
       ],
       "description": "Recommended recovery, review, or continuation action."

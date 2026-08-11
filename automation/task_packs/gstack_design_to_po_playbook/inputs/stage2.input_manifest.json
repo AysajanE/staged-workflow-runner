@@ -8,9 +8,37 @@
   "reviewed_handoff_inputs": [],
   "attached_repository_files": [
     {
+      "path": ".",
+      "kind": "workspace_inventory",
+      "exclude_globs": [
+        "tmp*/**"
+      ],
+      "notes": "bounded metadata-only workspace inventory for locating source, tests, docs, config, package, and CI surfaces"
+    },
+    {
       "path": "README.md",
       "kind": "file",
       "notes": "top-level repository orientation when present in the active root"
+    },
+    {
+      "path": "pyproject.toml",
+      "kind": "file",
+      "notes": "package metadata and repository-native test configuration"
+    },
+    {
+      "path": "automation/responses_runner_v2/contracts.py",
+      "kind": "file",
+      "notes": "representative runtime contracts and configuration surface"
+    },
+    {
+      "path": "automation/responses_runner_v2/workflow.py",
+      "kind": "file",
+      "notes": "representative staged runner implementation surface"
+    },
+    {
+      "path": "automation/tests/test_responses_runner_v2_gstack_pack.py",
+      "kind": "file",
+      "notes": "repo-native gstack validation and dry-run coverage"
     },
     {
       "path": "automation/task_packs/gstack_design_to_po_playbook/corpus/markdown_playbook_v1_contract.md",

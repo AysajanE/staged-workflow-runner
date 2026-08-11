@@ -1,0 +1,35 @@
+{
+  "schema_version": "responses_runner_v2.representative_eval_fixture.v1",
+  "case_id": "representative-low-risk-transformation",
+  "task_type": "low_risk_transformation",
+  "objective": "Transform a short frozen record into a normalized JSON shape.",
+  "frozen_inputs": {
+    "sources": [
+      {
+        "source_id": "source_record",
+        "content": "Customer: Northwind; Priority: Normal; Region: East"
+      }
+    ]
+  },
+  "expected_output_contract": {
+    "required_keys": ["customer", "priority", "region", "claims", "citations"]
+  },
+  "gold_output": {
+    "customer": "Northwind",
+    "priority": "normal",
+    "region": "east",
+    "claims": [
+      {
+        "claim": "The source record identifies the customer as Northwind.",
+        "citation_ids": ["transform_source"]
+      }
+    ],
+    "citations": [
+      {
+        "citation_id": "transform_source",
+        "source_id": "source_record",
+        "quote": "Customer: Northwind"
+      }
+    ]
+  }
+}

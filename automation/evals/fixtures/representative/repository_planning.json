@@ -1,0 +1,35 @@
+{
+  "schema_version": "responses_runner_v2.representative_eval_fixture.v1",
+  "case_id": "representative-repository-planning",
+  "task_type": "repository_planning",
+  "objective": "Prepare a bounded repository change plan with dependency order and acceptance gates.",
+  "frozen_inputs": {
+    "sources": [
+      {
+        "source_id": "repository_constraints",
+        "content": "The engine owns execution mechanics. The supervisor owns review and acceptance policy. Do not move workflow execution into the supervisor."
+      }
+    ]
+  },
+  "expected_output_contract": {
+    "required_keys": ["phases", "dependencies", "acceptance_criteria", "claims", "citations"]
+  },
+  "gold_output": {
+    "phases": ["Inspect the current boundary.", "Change the policy surface.", "Run focused regression tests."],
+    "dependencies": ["Policy changes depend on the existing engine contract."],
+    "acceptance_criteria": ["No workflow execution logic moves into the supervisor."],
+    "claims": [
+      {
+        "claim": "The plan must preserve the engine and supervisor ownership boundary.",
+        "citation_ids": ["planning_boundary"]
+      }
+    ],
+    "citations": [
+      {
+        "citation_id": "planning_boundary",
+        "source_id": "repository_constraints",
+        "quote": "The engine owns execution mechanics. The supervisor owns review and acceptance policy."
+      }
+    ]
+  }
+}

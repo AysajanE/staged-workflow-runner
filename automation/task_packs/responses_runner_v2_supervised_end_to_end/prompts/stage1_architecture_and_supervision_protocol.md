@@ -51,7 +51,7 @@ Include:
 - failed-with-artifact reviewability
 - failed-without-artifact rerun-as-is with archive
 - incomplete output-limit blocking
-- GPT-5.5 model migration
+- GPT-5.6 model migration
 
 ## 4. Agent Topology Decision
 

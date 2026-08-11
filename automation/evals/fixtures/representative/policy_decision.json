@@ -1,0 +1,35 @@
+{
+  "schema_version": "responses_runner_v2.representative_eval_fixture.v1",
+  "case_id": "representative-policy-decision",
+  "task_type": "policy_operational_decision",
+  "objective": "Recommend an operational response using the frozen escalation policy.",
+  "frozen_inputs": {
+    "sources": [
+      {
+        "source_id": "operations_policy",
+        "content": "A failed integrity check blocks publication. The operator may retry only after recording corrective evidence."
+      }
+    ]
+  },
+  "expected_output_contract": {
+    "required_keys": ["recommendation", "tradeoffs", "next_action", "claims", "citations"]
+  },
+  "gold_output": {
+    "recommendation": "Keep publication blocked until corrective evidence is recorded.",
+    "tradeoffs": ["Publication is delayed.", "The integrity boundary remains enforceable."],
+    "next_action": "Record corrective evidence, rerun the integrity check, and reassess publication.",
+    "claims": [
+      {
+        "claim": "A failed integrity check blocks publication.",
+        "citation_ids": ["policy_block"]
+      }
+    ],
+    "citations": [
+      {
+        "citation_id": "policy_block",
+        "source_id": "operations_policy",
+        "quote": "A failed integrity check blocks publication."
+      }
+    ]
+  }
+}

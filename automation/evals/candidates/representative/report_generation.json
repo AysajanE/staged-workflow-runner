@@ -1,0 +1,31 @@
+{
+  "schema_version": "responses_runner_v2.representative_eval_candidate.v1",
+  "case_id": "representative-report-generation",
+  "task_type": "document_report_generation",
+  "producer": {
+    "kind": "responses_runner_v2_offline_fake_client",
+    "workflow_id": "synthetic_one_pass",
+    "run_id": "frozen_representative_report_generation",
+    "stage_id": "draft_summary",
+    "response_id": "resp_representative_report_generation"
+  },
+  "output": {
+    "title": "Release Readiness Status",
+    "executive_summary": "Eighteen checks completed and two remain externally blocked.",
+    "findings": ["18 of 20 checks completed.", "Two checks require external credentials."],
+    "next_steps": ["Obtain the missing credentials before rerunning the blocked checks."],
+    "claims": [
+      {
+        "claim": "Two checks remain blocked by missing external credentials.",
+        "citation_ids": ["report_metrics"]
+      }
+    ],
+    "citations": [
+      {
+        "citation_id": "report_metrics",
+        "source_id": "delivery_metrics",
+        "quote": "Two checks remain blocked by missing external credentials."
+      }
+    ]
+  }
+}

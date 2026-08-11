@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Responses Runner V2 Operator Acceptance Binding",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "created_at", "supervisor_session_id", "review_cycle_id", "subject_id", "subject_sha256", "quorum_path", "quorum_sha256", "consolidation_path", "consolidation_sha256", "acceptance_path", "acceptance_sha256", "blocker_resolutions", "approval_decision"],
+  "properties": {
+    "schema_version": {"const": "responses_runner_v2.operator_acceptance_binding.v1"},
+    "created_at": {"type": "string", "format": "date-time"},
+    "supervisor_session_id": {"type": "string", "minLength": 1},
+    "review_cycle_id": {"type": "string", "minLength": 1},
+    "subject_id": {"$ref": "#/$defs/sha256"},
+    "subject_sha256": {"$ref": "#/$defs/sha256"},
+    "quorum_path": {"type": "string", "minLength": 1},
+    "quorum_sha256": {"$ref": "#/$defs/sha256"},
+    "consolidation_path": {"type": "string", "minLength": 1},
+    "consolidation_sha256": {"$ref": "#/$defs/sha256"},
+    "acceptance_path": {"type": "string", "minLength": 1},
+    "acceptance_sha256": {"$ref": "#/$defs/sha256"},
+    "blocker_resolutions": {"type": "array", "items": {"type": "object", "required": ["path", "sha256", "blocker_id"], "properties": {"path": {"type": "string"}, "sha256": {"$ref": "#/$defs/sha256"}, "blocker_id": {"type": "string"}}}},
+    "approval_decision": {"enum": ["approve", "do_not_approve"]}
+  },
+  "$defs": {"sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}}
+}

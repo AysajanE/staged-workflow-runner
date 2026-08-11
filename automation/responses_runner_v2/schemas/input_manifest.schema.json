@@ -146,6 +146,31 @@
           "type": "integer",
           "minimum": 0,
           "description": "Describes the `aggregate_bytes` field for this artifact contract."
+        },
+        "inventory_entries": {
+          "type": "array",
+          "maxItems": 2000,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["path", "bytes"],
+            "properties": {
+              "path": {"type": "string", "minLength": 1},
+              "bytes": {"type": "integer", "minimum": 0}
+            }
+          }
+        },
+        "inventory_entry_count": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2000
+        },
+        "inventory_truncated": {
+          "type": "boolean"
+        },
+        "sensitive_entries_omitted": {
+          "type": "integer",
+          "minimum": 0
         }
       }
     },
@@ -165,7 +190,8 @@
         "kind": {
           "enum": [
             "file",
-            "directory"
+            "directory",
+            "workspace_inventory"
           ],
           "description": "Describes the `kind` field for this artifact contract."
         },

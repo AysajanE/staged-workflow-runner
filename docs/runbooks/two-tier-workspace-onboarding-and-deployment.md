@@ -59,10 +59,11 @@ Before moving on, the operator should be clear on these facts:
 - Attachment authority order is fixed:
   1. Primary Job Inputs
   2. Reviewed Handoff Inputs
-  3. Attached Repository Files
+  3. Attached Workspace Evidence (legacy manifest alias: Attached Repository Files)
   4. Reference Context
 - Dry run, resume, refresh, review bundles, and optional sidecar extraction are built into the runner.
-- Live `run` commands should use `--skip-token-count`.
+- Live `run` commands should keep token preflight enabled; `--skip-token-count` is an explicit
+  operator tradeoff, not the default.
 
 ### Step 3: Validate The Runner With The Synthetic Proof Pack
 
@@ -90,10 +91,10 @@ python automation/run_responses_v2.py run \
 What to inspect:
 
 - `.local/automation/responses_runner_v2/runs/<run-id>/run_manifest.json`
-- `.local/automation/responses_runner_v2/runs/<run-id>/stages/01_draft_summary/input_manifest.json`
-- `.local/automation/responses_runner_v2/runs/<run-id>/stages/01_draft_summary/input_manifest.md`
-- `.local/automation/responses_runner_v2/runs/<run-id>/stages/01_draft_summary/request_payload.json`
-- `.local/automation/responses_runner_v2/runs/<run-id>/stages/01_draft_summary/stage_checkpoint.json`
+- `.local/automation/responses_runner_v2/runs/<run-id>/dry_runs/stages/01_draft_summary/input_manifest.json`
+- `.local/automation/responses_runner_v2/runs/<run-id>/dry_runs/stages/01_draft_summary/input_manifest.md`
+- `.local/automation/responses_runner_v2/runs/<run-id>/dry_runs/stages/01_draft_summary/request_payload.json`
+- `.local/automation/responses_runner_v2/runs/<run-id>/dry_runs/stages/01_draft_summary/stage_checkpoint.json`
 
 Tier 1 is complete when the operator understands where artifacts go, how a task pack is wired, and what a correct dry run looks like.
 
@@ -142,7 +143,7 @@ For a new target workspace:
 6. Create the task pack under the target workspace root.
 7. Dry-run the task pack from the target workspace.
 8. Inspect the generated request and manifests.
-9. Launch the first live run from the target workspace with `--skip-token-count --wait`.
+9. Launch the first live run from the target workspace with token preflight enabled and `--wait`.
 
 ## Example Walkthrough
 
@@ -314,7 +315,7 @@ Rules:
 
 - every static path must resolve under `<target-workspace>`
 - only task-defining inputs go into `primary_job_inputs`
-- supporting repo evidence goes into `attached_repository_files`
+- supporting workspace evidence uses the compatibility field `attached_repository_files`
 - lower-authority context goes into `reference_context`
 
 ### Step 12: Write The Workflow Manifest
@@ -326,7 +327,8 @@ For the first task in a new workspace, keep it simple:
 - `one_pass`
 - one stage
 - `no_tools`
-- no `max_input_tokens`
+- `assurance_profile: "critical"`
+- `max_input_tokens: 700000`
 - one primary text output
 - default model posture unless the task has a clear reason to change it
 
@@ -354,10 +356,10 @@ This is important:
 After the dry run, inspect:
 
 - `.local/automation/responses_runner_v2/runs/<run-id>/run_manifest.json`
-- `.local/automation/responses_runner_v2/runs/<run-id>/stages/<stage-dir>/input_manifest.json`
-- `.local/automation/responses_runner_v2/runs/<run-id>/stages/<stage-dir>/input_manifest.md`
-- `.local/automation/responses_runner_v2/runs/<run-id>/stages/<stage-dir>/request_payload.json`
-- `.local/automation/responses_runner_v2/runs/<run-id>/stages/<stage-dir>/stage_checkpoint.json`
+- `.local/automation/responses_runner_v2/runs/<run-id>/dry_runs/stages/<stage-dir>/input_manifest.json`
+- `.local/automation/responses_runner_v2/runs/<run-id>/dry_runs/stages/<stage-dir>/input_manifest.md`
+- `.local/automation/responses_runner_v2/runs/<run-id>/dry_runs/stages/<stage-dir>/request_payload.json`
+- `.local/automation/responses_runner_v2/runs/<run-id>/dry_runs/stages/<stage-dir>/stage_checkpoint.json`
 
 Verify:
 
@@ -378,23 +380,22 @@ cd "<target-workspace>"
 python "<runner-checkout>/automation/run_responses_v2.py" run \
   --root . \
   --workflow-file task_packs/<task-name>/workflows/<workflow-id>.workflow.json \
-  --skip-token-count \
   --wait
 ```
 
-Use `--skip-token-count` for live `run` commands.
+Keep the critical workflow's local and exact token preflight enabled.
 
 ### Step 16: Inspect The Live Artifacts
 
 After completion, inspect:
 
-- `.local/automation/responses_runner_v2/runs/<run-id>/stages/<stage-dir>/response.final.md`
-- `.local/automation/responses_runner_v2/runs/<run-id>/stages/<stage-dir>/response.final.json`
-- `.local/automation/responses_runner_v2/runs/<run-id>/stages/<stage-dir>/uploads.json`
+- `.local/automation/responses_runner_v2/runs/<run-id>/stages/<stage-dir>/<attempt_NNN>/artifact.md`
+- `.local/automation/responses_runner_v2/runs/<run-id>/stages/<stage-dir>/<attempt_NNN>/response.final.json`
+- `.local/automation/responses_runner_v2/runs/<run-id>/stages/<stage-dir>/<attempt_NNN>/uploads.json`
 
 If the workflow later uses sidecar extraction, also inspect:
 
-- `.local/automation/responses_runner_v2/runs/<run-id>/stages/<stage-dir>/output.structured.json`
+- `.local/automation/responses_runner_v2/runs/<run-id>/stages/<stage-dir>/<attempt_NNN>/output.structured.json`
 
 ### Step 17: Use Review Bundles If The Workflow Requires Review Gates
 
@@ -431,7 +432,7 @@ The target workspace is launch-ready when:
 - the canonical source set is under the target workspace root
 - the task pack exists under that root
 - the dry run has been inspected manually
-- the live run will use `--skip-token-count`
+- the live run will keep token preflight enabled
 
 ## Recommended Usage
 

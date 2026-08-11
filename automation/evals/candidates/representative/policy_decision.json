@@ -1,0 +1,30 @@
+{
+  "schema_version": "responses_runner_v2.representative_eval_candidate.v1",
+  "case_id": "representative-policy-decision",
+  "task_type": "policy_operational_decision",
+  "producer": {
+    "kind": "responses_runner_v2_offline_fake_client",
+    "workflow_id": "synthetic_one_pass",
+    "run_id": "frozen_representative_policy_decision",
+    "stage_id": "draft_summary",
+    "response_id": "resp_representative_policy_decision"
+  },
+  "output": {
+    "recommendation": "Keep publication blocked until corrective evidence is recorded.",
+    "tradeoffs": ["Publication is delayed.", "The integrity boundary remains enforceable."],
+    "next_action": "Record corrective evidence, rerun the integrity check, and reassess publication.",
+    "claims": [
+      {
+        "claim": "A failed integrity check blocks publication.",
+        "citation_ids": ["policy_block"]
+      }
+    ],
+    "citations": [
+      {
+        "citation_id": "policy_block",
+        "source_id": "operations_policy",
+        "quote": "A failed integrity check blocks publication."
+      }
+    ]
+  }
+}

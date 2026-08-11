@@ -5,7 +5,10 @@
     "json_array_min_length",
     "json_path_equals",
     "structured_required_keys",
-    "text_required_substrings"
+    "text_required_substrings",
+    "expected_output_contract",
+    "citations_grounded",
+    "runner_candidate_provenance"
   ],
   "cases": [
     {
@@ -101,6 +104,78 @@
         "key_points",
         "open_questions"
       ]
+    },
+    {
+      "id": "representative-critical-coding",
+      "representative_task_type": "critical_coding_implementation",
+      "fixture": "fixtures/representative/critical_coding.json",
+      "fixture_sha256": "a0cfaf81ca63495f806061f811b94ff9379f131b0114c76c224a91b0deaed9a9",
+      "candidate": "candidates/representative/critical_coding.json",
+      "candidate_sha256": "82379f0c2211889c64ed82a6de4d4fcd9a8d69e4a7872fb6c4a18b4eb01cb193",
+      "checks": ["json_required_keys", "json_path_equals", "runner_candidate_provenance", "expected_output_contract", "citations_grounded"],
+      "required_keys": ["schema_version", "case_id", "task_type", "producer", "output"],
+      "json_path": "task_type",
+      "expected_value": "critical_coding_implementation"
+    },
+    {
+      "id": "representative-repository-planning",
+      "representative_task_type": "repository_planning",
+      "fixture": "fixtures/representative/repository_planning.json",
+      "fixture_sha256": "7adc451f3adda45dbdc96db1fd5ddb0c65b5e3e91879b568006c53fe4265bc2b",
+      "candidate": "candidates/representative/repository_planning.json",
+      "candidate_sha256": "9251f0a14c2343a8b0bab9305a4d36bfbb0117b9e7ee4cfcda8589b11178a7df",
+      "checks": ["json_required_keys", "json_path_equals", "runner_candidate_provenance", "expected_output_contract", "citations_grounded"],
+      "required_keys": ["schema_version", "case_id", "task_type", "producer", "output"],
+      "json_path": "task_type",
+      "expected_value": "repository_planning"
+    },
+    {
+      "id": "representative-research-synthesis",
+      "representative_task_type": "multi_document_research",
+      "fixture": "fixtures/representative/research_synthesis.json",
+      "fixture_sha256": "df120811a61e79db210abe862cf6b7da5a606b6b2b9f04e1e40cfbc0a50f5fab",
+      "candidate": "candidates/representative/research_synthesis.json",
+      "candidate_sha256": "16a50314b104d5791463e1c09abc9abb3571ce1f3aef0442f217ade47128a761",
+      "checks": ["json_required_keys", "json_path_equals", "runner_candidate_provenance", "expected_output_contract", "citations_grounded"],
+      "required_keys": ["schema_version", "case_id", "task_type", "producer", "output"],
+      "json_path": "task_type",
+      "expected_value": "multi_document_research"
+    },
+    {
+      "id": "representative-policy-decision",
+      "representative_task_type": "policy_operational_decision",
+      "fixture": "fixtures/representative/policy_decision.json",
+      "fixture_sha256": "50ef7e09b5073743a2281a8adf0d8c582bcfc17e4494343d22944b7812df4792",
+      "candidate": "candidates/representative/policy_decision.json",
+      "candidate_sha256": "b842ab4d316b27f50d61c068e6057b201d9a92e5bd562af771d218611fa3d562",
+      "checks": ["json_required_keys", "json_path_equals", "runner_candidate_provenance", "expected_output_contract", "citations_grounded"],
+      "required_keys": ["schema_version", "case_id", "task_type", "producer", "output"],
+      "json_path": "task_type",
+      "expected_value": "policy_operational_decision"
+    },
+    {
+      "id": "representative-report-generation",
+      "representative_task_type": "document_report_generation",
+      "fixture": "fixtures/representative/report_generation.json",
+      "fixture_sha256": "2adc1f0ce762af842a06a855ea837fed346328a9dc0d772f7a73ea737991457a",
+      "candidate": "candidates/representative/report_generation.json",
+      "candidate_sha256": "b7e79ac311652cac59a4e4d31053766834ca13224ebbcf57a189f55be2841ae9",
+      "checks": ["json_required_keys", "json_path_equals", "runner_candidate_provenance", "expected_output_contract", "citations_grounded"],
+      "required_keys": ["schema_version", "case_id", "task_type", "producer", "output"],
+      "json_path": "task_type",
+      "expected_value": "document_report_generation"
+    },
+    {
+      "id": "representative-low-risk-transformation",
+      "representative_task_type": "low_risk_transformation",
+      "fixture": "fixtures/representative/low_risk_transformation.json",
+      "fixture_sha256": "e37471b04742f9e47478ec1be3fdea2a7703452f4bbceaa2cc3d4db56a8948aa",
+      "candidate": "candidates/representative/low_risk_transformation.json",
+      "candidate_sha256": "137faa5f4a012af33c83f9483af95120fa5316181d250f0eb169b3e180a4d948",
+      "checks": ["json_required_keys", "json_path_equals", "runner_candidate_provenance", "expected_output_contract", "citations_grounded"],
+      "required_keys": ["schema_version", "case_id", "task_type", "producer", "output"],
+      "json_path": "task_type",
+      "expected_value": "low_risk_transformation"
     }
   ]
 }

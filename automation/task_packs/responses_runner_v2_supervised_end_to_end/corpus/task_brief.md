@@ -64,7 +64,7 @@ Automated reviews must evaluate:
 
 ## Model Migration Rule
 
-The final packet must update model configuration from `gpt-5.4` / `gpt-5.4-pro` to GPT-5.5 family models wherever appropriate.
+The final packet must update model configuration from historical `gpt-5.4` / `gpt-5.4-pro` source identifiers to the durable GPT-5.6 alias wherever appropriate.
 
 At minimum, this must address:
 

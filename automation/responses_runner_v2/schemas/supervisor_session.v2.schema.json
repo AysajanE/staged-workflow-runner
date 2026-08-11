@@ -1,0 +1,157 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Responses Runner V2 Supervisor Session V2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "revision", "supervisor_session_id", "created_at", "updated_at", "workspace_root",
+    "operator_boundary", "status", "current_phase", "clarified_task_brief", "policy",
+    "model_defaults", "retry_budget", "monitoring_policy", "scaffold_versions",
+    "dry_run_validations", "runs", "stage_outcomes", "monitoring_events", "review_cycles",
+    "review_agent_invocations", "consolidations", "operator_acceptance_records",
+    "human_pauses", "archives", "approved_review_bundles", "final_bundle",
+    "validation_results", "command_log", "errors"
+  ],
+  "properties": {
+    "schema_version": {"const": "responses_runner_v2.supervisor_session.v2"},
+    "revision": {"type": "integer", "minimum": 1},
+    "supervisor_session_id": {"$ref": "#/$defs/id"},
+    "created_at": {"type": "string", "format": "date-time"},
+    "updated_at": {"type": "string", "format": "date-time"},
+    "workspace_root": {"type": "string", "minLength": 1},
+    "operator_boundary": {"const": "headless_discrete_codex_exec_with_deterministic_supervisor_cli"},
+    "status": {"enum": ["created", "clarified", "scaffold_staged", "scaffold_reviewing", "ready_to_launch", "stage_running", "waiting_for_review", "blocked", "completed", "failed"]},
+    "current_phase": {"enum": ["clarification", "scaffold", "scaffold_review", "stage_execution", "monitoring", "classification", "review", "acceptance", "bundle_creation", "finalization", "recovery"]},
+    "clarified_task_brief": {
+      "type": "object", "additionalProperties": false,
+      "required": ["path", "sha256", "accepted_at", "summary"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "accepted_at": {"type": "string", "format": "date-time"},
+        "summary": {"type": "string", "minLength": 1}
+      }
+    },
+    "policy": {"type": "object"},
+    "model_defaults": {
+      "type": "object", "additionalProperties": false,
+      "required": ["primary", "structural", "primary_reasoning_mode", "prompt_cache_mode", "prompt_cache_ttl", "max_output_tokens", "primary_reasoning_effort", "structural_reasoning_effort", "primary_verbosity", "structural_verbosity"],
+      "properties": {
+        "primary": {"const": "gpt-5.6"},
+        "structural": {"const": "gpt-5.6"},
+        "primary_reasoning_mode": {"const": "pro"},
+        "prompt_cache_mode": {"const": "implicit"},
+        "prompt_cache_ttl": {"const": "30m"},
+        "max_output_tokens": {"const": 128000},
+        "primary_reasoning_effort": {"const": "xhigh"},
+        "structural_reasoning_effort": {"enum": ["medium", "high", "xhigh"]},
+        "primary_verbosity": {"const": "high"},
+        "structural_verbosity": {"enum": ["medium", "high"]}
+      }
+    },
+    "retry_budget": {"type": "object"},
+    "monitoring_policy": {"type": "object"},
+    "scaffold_versions": {"type": "array", "items": {"type": "object"}},
+    "dry_run_validations": {"type": "array", "items": {"type": "object"}},
+    "launch_reservations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "launch_intent_id", "intent_sha256", "accepted_subject_id", "review_cycle_id",
+          "acceptance_binding_sha256", "scaffold_version_id", "scaffold_sha256",
+          "workflow_path", "workflow_sha256", "runtime", "runtime_sha256", "run_dir",
+          "status", "owner_token", "recovery_count", "created_at", "updated_at"
+        ],
+        "properties": {
+          "launch_intent_id": {"type": "string", "pattern": "^launch_[a-f0-9]{64}$"},
+          "intent_sha256": {"$ref": "#/$defs/sha256"},
+          "accepted_subject_id": {"$ref": "#/$defs/id"},
+          "review_cycle_id": {"$ref": "#/$defs/id"},
+          "acceptance_binding_sha256": {"$ref": "#/$defs/sha256"},
+          "scaffold_version_id": {"$ref": "#/$defs/id"},
+          "scaffold_sha256": {"$ref": "#/$defs/sha256"},
+          "workflow_path": {"type": "string", "minLength": 1},
+          "workflow_sha256": {"$ref": "#/$defs/sha256"},
+          "runtime": {"type": "object"},
+          "runtime_sha256": {"$ref": "#/$defs/sha256"},
+          "run_dir": {"type": "string", "minLength": 1},
+          "status": {"enum": ["reserved", "registered"]},
+          "owner_token": {"type": "string", "pattern": "^[a-f0-9]{32}$"},
+          "recovery_count": {"type": "integer", "minimum": 0},
+          "created_at": {"type": "string", "format": "date-time"},
+          "updated_at": {"type": "string", "format": "date-time"},
+          "registered_at": {"type": "string", "format": "date-time"},
+          "registered_run_id": {"$ref": "#/$defs/id"},
+          "result": {"type": "object"}
+        }
+      }
+    },
+    "rerun_reservations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "rerun_intent_id", "intent_sha256", "archive_manifest_path", "archive_sha256",
+          "archive_id", "run_dir", "run_id", "stage_id", "workflow_path",
+          "workflow_sha256", "runtime", "runtime_sha256", "baseline_attempt_ids",
+          "baseline_current_attempt_id", "status", "owner_token", "recovery_count",
+          "created_at", "updated_at"
+        ],
+        "properties": {
+          "rerun_intent_id": {"type": "string", "pattern": "^rerun_[a-f0-9]{64}$"},
+          "intent_sha256": {"$ref": "#/$defs/sha256"},
+          "archive_manifest_path": {"type": "string", "minLength": 1},
+          "archive_sha256": {"$ref": "#/$defs/sha256"},
+          "archive_id": {"$ref": "#/$defs/id"},
+          "run_dir": {"type": "string", "minLength": 1},
+          "run_id": {"$ref": "#/$defs/id"},
+          "stage_id": {"$ref": "#/$defs/id"},
+          "workflow_path": {"type": "string", "minLength": 1},
+          "workflow_sha256": {"$ref": "#/$defs/sha256"},
+          "runtime": {"type": "object"},
+          "runtime_sha256": {"$ref": "#/$defs/sha256"},
+          "baseline_attempt_ids": {
+            "type": "array",
+            "items": {"type": "string", "pattern": "^attempt_[0-9]{3,}$"},
+            "uniqueItems": true
+          },
+          "baseline_current_attempt_id": {
+            "anyOf": [
+              {"type": "string", "pattern": "^attempt_[0-9]{3,}$"},
+              {"type": "null"}
+            ]
+          },
+          "status": {"enum": ["reserved", "registered"]},
+          "owner_token": {"type": "string", "pattern": "^[a-f0-9]{32}$"},
+          "recovery_count": {"type": "integer", "minimum": 0},
+          "created_at": {"type": "string", "format": "date-time"},
+          "updated_at": {"type": "string", "format": "date-time"},
+          "registered_at": {"type": "string", "format": "date-time"},
+          "registered_run_id": {"$ref": "#/$defs/id"},
+          "result": {"type": "object"}
+        }
+      }
+    },
+    "runs": {"type": "array", "items": {"type": "object", "required": ["run_id", "workflow_id", "run_dir", "run_manifest_path", "status"]}},
+    "stage_outcomes": {"type": "array", "items": {"type": "object"}},
+    "monitoring_events": {"type": "array", "items": {"type": "object"}},
+    "review_cycles": {"type": "array", "items": {"type": "object", "required": ["review_cycle_id", "review_kind", "artifacts_reviewed", "operator_provisional_record", "review_agent_outputs", "consolidation", "acceptance_status"]}},
+    "review_agent_invocations": {"type": "array", "items": {"type": "object"}},
+    "consolidations": {"type": "array", "items": {"type": "object"}},
+    "operator_acceptance_records": {"type": "array", "items": {"type": "string"}},
+    "human_pauses": {"type": "array", "items": {"type": "object"}},
+    "archives": {"type": "array", "items": {"type": "object"}},
+    "approved_review_bundles": {"type": "array", "items": {"type": "object"}},
+    "final_bundle": {"anyOf": [{"type": "object"}, {"type": "null"}]},
+    "validation_results": {"type": "array", "items": {"type": "object"}},
+    "command_log": {"type": "array", "items": {"type": "object"}},
+    "errors": {"type": "array", "items": {"type": "object"}}
+  },
+  "$defs": {
+    "id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{0,127}$"},
+    "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+  }
+}

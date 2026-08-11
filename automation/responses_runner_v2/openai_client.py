@@ -6,6 +6,7 @@ import os
 import time
 import uuid
 from pathlib import Path
+from collections.abc import Iterator
 from typing import Any, Callable
 from urllib import error, parse, request
 
@@ -21,12 +22,29 @@ from .contracts import (
 
 
 RETRYABLE_HTTP_STATUS_CODES = {408, 409, 429, 500, 502, 503, 504}
+SAFE_RETRY_METHODS = {"GET", "HEAD", "OPTIONS"}
+
+OUTCOME_NOT_APPLICABLE = "not_applicable"
+OUTCOME_KNOWN_REJECTED = "known_rejected"
+OUTCOME_AMBIGUOUS = "ambiguous"
+MULTIPART_CHUNK_BYTES = 1024 * 1024
 
 
 class ApiError(RuntimeError):
-    def __init__(self, message: str, *, status_code: int | None = None):
+    def __init__(
+        self,
+        message: str,
+        *,
+        status_code: int | None = None,
+        outcome_certainty: str = OUTCOME_NOT_APPLICABLE,
+    ):
         super().__init__(message)
         self.status_code = status_code
+        self.outcome_certainty = outcome_certainty
+
+    @property
+    def outcome_unknown(self) -> bool:
+        return self.outcome_certainty == OUTCOME_AMBIGUOUS
 
 
 def load_dotenv(path: Path) -> dict[str, str]:
@@ -80,7 +98,28 @@ def _decode_http_error(exc: error.HTTPError) -> str:
     return f"{exc.code} {exc.reason}: {text}"
 
 
-def _encode_multipart(fields: dict[str, str], file_field_name: str, file_path: Path) -> tuple[str, bytes]:
+class _MultipartBody:
+    """One-shot iterable body that never copies the uploaded file into memory."""
+
+    def __init__(self, *, prefix: bytes, file_path: Path, suffix: bytes) -> None:
+        self._prefix = prefix
+        self._file_path = file_path
+        self._suffix = suffix
+        self.content_length = len(prefix) + file_path.stat().st_size + len(suffix)
+
+    def __iter__(self) -> Iterator[bytes]:
+        yield self._prefix
+        with self._file_path.open("rb") as handle:
+            for chunk in iter(lambda: handle.read(MULTIPART_CHUNK_BYTES), b""):
+                yield chunk
+        yield self._suffix
+
+
+def _encode_multipart(
+    fields: dict[str, str],
+    file_field_name: str,
+    file_path: Path,
+) -> tuple[str, _MultipartBody]:
     boundary = f"----ResponsesRunnerV2Boundary{uuid.uuid4().hex}"
     chunks: list[bytes] = []
     for name, value in fields.items():
@@ -96,10 +135,9 @@ def _encode_multipart(fields: dict[str, str], file_field_name: str, file_path: P
             f"Content-Type: {mime_type}\r\n\r\n"
         ).encode("utf-8")
     )
-    chunks.append(file_path.read_bytes())
-    chunks.append(b"\r\n")
-    chunks.append(f"--{boundary}--\r\n".encode("utf-8"))
-    return boundary, b"".join(chunks)
+    prefix = b"".join(chunks)
+    suffix = b"\r\n" + f"--{boundary}--\r\n".encode("utf-8")
+    return boundary, _MultipartBody(prefix=prefix, file_path=file_path, suffix=suffix)
 
 
 class OpenAIClient:
@@ -127,22 +165,51 @@ class OpenAIClient:
         *,
         max_retries: int | None = None,
     ) -> bytes:
-        attempts = max_retries if max_retries is not None else self.request_max_retries
+        method = req.get_method().upper()
+        retries_are_safe = method in SAFE_RETRY_METHODS
+        attempts = max_retries if max_retries is not None else (
+            self.request_max_retries if retries_are_safe else 1
+        )
+        attempts = max(1, attempts)
         for attempt in range(1, attempts + 1):
             try:
                 with request.urlopen(req, timeout=self.timeout_seconds) as response:
                     return response.read()
             except error.HTTPError as exc:
                 message = _decode_http_error(exc)
-                if exc.code in RETRYABLE_HTTP_STATUS_CODES and attempt < attempts:
+                if retries_are_safe and exc.code in RETRYABLE_HTTP_STATUS_CODES and attempt < attempts:
                     time.sleep(_retry_delay_seconds(attempt))
                     continue
-                raise ApiError(message, status_code=exc.code) from exc
+                certainty = OUTCOME_NOT_APPLICABLE
+                if not retries_are_safe:
+                    certainty = (
+                        OUTCOME_AMBIGUOUS
+                        if exc.code == 408 or exc.code >= 500
+                        else OUTCOME_KNOWN_REJECTED
+                    )
+                raise ApiError(
+                    message,
+                    status_code=exc.code,
+                    outcome_certainty=certainty,
+                ) from exc
             except error.URLError as exc:
-                if attempt < attempts:
+                if retries_are_safe and attempt < attempts:
                     time.sleep(_retry_delay_seconds(attempt))
                     continue
-                raise ApiError(f"Transport error: {exc.reason}") from exc
+                certainty = OUTCOME_NOT_APPLICABLE if retries_are_safe else OUTCOME_AMBIGUOUS
+                raise ApiError(
+                    f"Transport error: {exc.reason}",
+                    outcome_certainty=certainty,
+                ) from exc
+            except (TimeoutError, ConnectionError) as exc:
+                if retries_are_safe and attempt < attempts:
+                    time.sleep(_retry_delay_seconds(attempt))
+                    continue
+                certainty = OUTCOME_NOT_APPLICABLE if retries_are_safe else OUTCOME_AMBIGUOUS
+                raise ApiError(
+                    f"Transport error: {exc}",
+                    outcome_certainty=certainty,
+                ) from exc
         raise AssertionError("unreachable")
 
     def json_request(
@@ -164,13 +231,33 @@ class OpenAIClient:
         try:
             result = json.loads(raw.decode("utf-8"))
         except json.JSONDecodeError as exc:
-            raise ApiError(f"Expected JSON response from {url}.") from exc
+            certainty = (
+                OUTCOME_NOT_APPLICABLE
+                if method.upper() in SAFE_RETRY_METHODS
+                else OUTCOME_AMBIGUOUS
+            )
+            raise ApiError(
+                f"Expected JSON response from {url}.",
+                outcome_certainty=certainty,
+            ) from exc
         if not isinstance(result, dict):
-            raise ApiError(f"Expected JSON object response from {url}.")
+            certainty = (
+                OUTCOME_NOT_APPLICABLE
+                if method.upper() in SAFE_RETRY_METHODS
+                else OUTCOME_AMBIGUOUS
+            )
+            raise ApiError(
+                f"Expected JSON object response from {url}.",
+                outcome_certainty=certainty,
+            )
         return result
 
     def create_response(self, payload: dict[str, Any]) -> dict[str, Any]:
-        return self.json_request("POST", "/responses", payload=payload)
+        return self.json_request("POST", "/responses", payload=payload, max_retries=1)
+
+    def cancel_response(self, response_id: str) -> dict[str, Any]:
+        quoted = parse.quote(response_id, safe="")
+        return self.json_request("POST", f"/responses/{quoted}/cancel", max_retries=1)
 
     def retrieve_response(self, response_id: str) -> dict[str, Any]:
         quoted = parse.quote(response_id, safe="")
@@ -203,14 +290,23 @@ class OpenAIClient:
             headers={
                 "Authorization": f"Bearer {self.api_key}",
                 "Content-Type": f"multipart/form-data; boundary={boundary}",
-                "Content-Length": str(len(body)),
+                "Content-Length": str(body.content_length),
             },
             method="POST",
         )
-        raw = self._raw_request(req)
-        payload = json.loads(raw.decode("utf-8"))
+        raw = self._raw_request(req, max_retries=1)
+        try:
+            payload = json.loads(raw.decode("utf-8"))
+        except json.JSONDecodeError as exc:
+            raise ApiError(
+                "Expected JSON object response from file upload.",
+                outcome_certainty=OUTCOME_AMBIGUOUS,
+            ) from exc
         if not isinstance(payload, dict):
-            raise ApiError("Expected JSON object response from file upload.")
+            raise ApiError(
+                "Expected JSON object response from file upload.",
+                outcome_certainty=OUTCOME_AMBIGUOUS,
+            )
         return payload
 
     def wait_for_terminal_response(

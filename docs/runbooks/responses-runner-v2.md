@@ -14,11 +14,12 @@ It also covers the additive supervisor lane for end-to-end AI-operated execution
   - Claude Code CLI available as `claude`
   - non-interactive execution allowed in the current shell
 
-## Current Operator Default
+## Token-preflight default
 
-Until token-preflight service reliability is confirmed for the deployment environment, live workflow submissions may use `--skip-token-count` only when an operator explicitly accepts that operational tradeoff.
-
-This is an operational default, not a runner-engine requirement.
+Keep token preflight enabled. Critical workflows also require a conservative pre-upload input
+budget, so an exact-count service failure blocks submission and triggers upload cleanup instead
+of silently continuing. `--skip-token-count` is an exceptional operator override, not a runbook
+default.
 
 ## Workspace Root Contract
 
@@ -42,12 +43,29 @@ Implications:
 
 Use:
 
-- primary generation: `gpt-5.5-pro`
-- structural processing: `gpt-5.5`
-- committed GPT-5.5-family prompt cache retention: `24h`
+- primary generation: durable alias `gpt-5.6` with `reasoning.mode=pro`
+- structural processing: durable alias `gpt-5.6` with standard reasoning mode
+- prompt caching: implicit mode with `ttl=30m`
+- prompt-cache routing: stable compatible-lane keys by default; use `--prompt-cache-key-strategy legacy_stage_v1` only for paired comparison
 - locked high-stakes self-improvement max output: `128000`
 
-The workflow loader rejects GPT-5.5-family committed profiles that omit `24h` or use stale in-memory cache posture.
+The workflow loader rejects GPT-5.6 profiles that omit the supported 30-minute cache TTL
+or use an unsupported reasoning mode. Stage verbosity and terminal `high` versus `xhigh`
+reasoning remain measurement-gated experiments.
+
+## Assurance And Stage-Scoped Inputs
+
+Workflow manifest v2 requires an `assurance_profile`. Existing packs remain `critical`, which
+requires an explicit `max_input_tokens` budget on every stage. The broader `reviewed`,
+`standard`, and `fast` profiles are visible in persisted policy but must not be described as
+critical.
+
+Use `--input-binding-file <bindings.json>` when an operator input should be visible only to
+named stages. A binding declares a stable id, root-confined path, authority, and either workflow
+scope or an explicit stage list. The offline contract example is under
+`automation/examples/responses_runner_v2_evidence_synthesis/`.
+Use the same flag on supervisor `dry-run-scaffold`, `launch`, and `rerun-archived`; an existing
+run rejects any binding drift from its frozen contract.
 
 ## Generic Runner Smoke Test
 
@@ -63,9 +81,9 @@ python automation/run_responses_v2.py run \
 That command should create a run directory under `.local/automation/responses_runner_v2/runs/` and write, at minimum:
 
 - `run_manifest.json`
-- `stages/01_draft_summary/input_manifest.json`
-- `stages/01_draft_summary/request_payload.json`
-- `stages/01_draft_summary/stage_checkpoint.json`
+- `dry_runs/stages/01_draft_summary/input_manifest.json`
+- `dry_runs/stages/01_draft_summary/request_payload.json`
+- `dry_runs/stages/01_draft_summary/stage_checkpoint.json`
 
 ## Live Run
 
@@ -75,7 +93,6 @@ To submit the same synthetic workflow live and wait for completion:
 python automation/run_responses_v2.py run \
   --root . \
   --workflow-file automation/examples/responses_runner_v2_synthetic/workflows/one_pass.workflow.json \
-  --skip-token-count \
   --wait
 ```
 
@@ -88,7 +105,6 @@ python $KEEL_ROOT/tools/staged-workflow-runner/automation/run_responses_v2.py ru
   --root /path/to/target-workspace \
   --workflow-file task_packs/example/workflows/example.workflow.json \
   --primary-job-input docs/approved_brief.md \
-  --skip-token-count \
   --wait
 ```
 
@@ -117,8 +133,8 @@ python automation/create_review_bundle_v2.py \
   --workflow-id synthetic_reviewed_three_stage \
   --source-stage-id proposal \
   --source-run-id <run_id> \
-  --primary-artifact-markdown <run_dir>/stages/01_proposal/response.final.md \
-  --response-artifact-json <run_dir>/stages/01_proposal/response.final.json \
+  --primary-artifact-markdown <run_dir>/stages/01_proposal/<attempt_NNN>/artifact.md \
+  --response-artifact-json <run_dir>/stages/01_proposal/<attempt_NNN>/response.final.json \
   --reviewer-notes notes.md
 ```
 
@@ -130,7 +146,6 @@ python automation/run_responses_v2.py run \
   --workflow-file automation/examples/responses_runner_v2_synthetic/workflows/reviewed_three_stage.workflow.json \
   --run-dir <run_dir> \
   --review-bundle review_bundle.json \
-  --skip-token-count \
   --wait
 ```
 
@@ -157,7 +172,33 @@ python automation/run_responses_v2.py refresh \
 
 Use `refresh` when you only want the latest remote status recorded locally. Use `resume` when you want the runner to continue through terminal completion and artifact finalization.
 
-If a remote stage is already terminal but you are missing `response.final.md`, `output.structured.json`, or `sidecar.response.*`, that is a local finalization gap. Use `resume` on the stage to write final artifacts. `refresh` is status-only and will not backfill them.
+If a remote stage is already terminal but you are missing `artifact.md`, `response.final.md`,
+`output.structured.json`, or `sidecar.response.*`, that is a local finalization gap. Use
+`resume` on the stage to write final artifacts. `refresh` records
+`remote_terminal_pending_finalization`; it never backfills artifacts or reports completion.
+
+The same CLI also provides `cancel` for a known response id, `recover-uploads` for idempotent
+remote-file cleanup, and `usage-report` for normalized primary/sidecar attempt totals. Reviewer
+CLI attempts are recorded separately under the supervisor session. Build their report with:
+
+```bash
+python automation/run_responses_supervisor_v2.py usage-report --root . \
+  --session <supervisor_session_id>
+```
+
+Reviewer token counters remain `null` when the canonical Codex or Claude CLI does not expose
+them; duration, status, model, retries, and zero-upload counts are still recorded per invocation.
+An explicit retention
+action uses a hash-bound tombstone:
+
+```bash
+python automation/run_responses_v2.py purge --root . \
+  --target-dir <run_or_session_dir> \
+  --category raw_request \
+  --reason "retention window elapsed"
+```
+
+If interrupted, repeat with `--resume-tombstone <tombstone_path>`.
 
 ## Supervisor Lane Overview
 

@@ -56,11 +56,11 @@ This file is the **type system + invariants**. Everything else depends on it. Ke
 
 | Concept | What it does |
 |---|---|
-| `RUNNER_VERSION = "responses_runner_v2.2026-03-17"` | Stamped into every run for replay |
-| `WORKFLOW_SCHEMA_VERSION = "responses_runner_v2.workflow_manifest.v1"` (and 10 sibling versions) | Wire-protocol-style versioning per artifact type |
-| `AUTHORITY_ORDER` | `Primary → Reviewed Handoff → Repository → Reference` — the model's hierarchy |
+| `RUNNER_VERSION = "responses_runner_v2.2026-08-11"` | Stamped into every run for replay |
+| `WORKFLOW_SCHEMA_VERSION = "responses_runner_v2.workflow_manifest.v2"` (alongside versioned sibling artifacts) | Wire-protocol-style versioning per artifact type |
+| `AUTHORITY_ORDER` | `Primary → Reviewed Handoff → Workspace Evidence → Reference` — the model's hierarchy; `Attached Repository Files` remains a compatibility alias |
 | `COMMON_RUNNER_INSTRUCTIONS` | The boilerplate prepended to every request, telling the model the authority order |
-| `MODEL_CAPS` | Locked map: only `gpt-5.5` and `gpt-5.5-pro` accepted |
+| `MODEL_CAPS` | Capability map for durable `gpt-5.6` and explicit family variants, with frozen legacy 5.5 compatibility |
 | `validate_model_options()` | `SystemExit`s on max_output_tokens overage, wrong cache retention, structured-output mismatch |
 | `repo_root()` | Workspace-root resolver: explicit → env var → cwd |
 | `resolve_under_root()` | **The single chokepoint that prevents path escape** — `SystemExit` if a path resolves outside root |
@@ -75,7 +75,7 @@ This file is the **type system + invariants**. Everything else depends on it. Ke
 
 Translates JSON workflow manifests into `WorkflowDefinition` dataclasses with **resolved, root-confined paths**. The validator catches misconfiguration *at load time*, not at request time:
 
-- Refuses GPT-5.5-family profiles that don't set `prompt_cache_retention="24h"` (line 52-56)
+- Refuses GPT-5.6 profiles that use an unsupported reasoning mode or cache TTL
 - Refuses `background=True` with `store=False` (line 105-106) — the engine uses background mode to survive process death; without `store=true` you'd lose the response
 - Validates stage uniqueness, ordering, and carry-forward references
 - Validates `workflow_mode` matches stage count (`one_pass`=1, `two_pass`=2, `reviewed_three_stage`=3, or `custom_ordered`=any)
@@ -127,8 +127,11 @@ _determine_next_stage  ← decides which stage to run (respects review gates)
 
 Key behaviors:
 
-- **Token preflight is a fail-closed gate** (workflow.py:422-531). It calls `POST /responses/input_tokens` first; an overage is *terminal* — never retried, no fallback even if API fails. Treats unbounded token spend as a safety property. The bypass is `--skip-token-count` (operator must explicitly accept the risk).
-- **Two checkpoint writes** — one right after the API responds (which in background mode is usually `queued`), one after polling reaches terminal status. The first is enough to resume from.
+- **Token preflight is a fail-closed gate.** A conservative request plan is checked before
+  upload, then exact counting runs when enabled. Critical jobs never silently continue after a
+  count failure.
+- **Durable attempt transitions** record staging, upload, preflight, submit intent, response id,
+  remote terminal state, finalization, and the final outcome under an immutable attempt directory.
 - **Auto-progression is gated** (workflow.py:1144-1154). The engine only loops to the next stage when *all four* are true: stage completed, has next, gate=auto, `--wait` was passed, and the operator didn't pin a specific `--stage`. Anything else stops the run.
 - **Three resume modes** correspond to operator intent:
   - `FRESH_SUBMIT` — first run of a stage
@@ -137,13 +140,14 @@ Key behaviors:
 
 ### 3.5 OpenAI Client: `openai_client.py`
 
-A 240-line **stdlib-only** HTTP client. No `requests`, no `httpx` — just `urllib`. Hand-rolled multipart uploads (lines 83-102). This means the core engine has zero third-party runtime dependencies.
+A standard-library HTTP client: no `requests` or `httpx`, just `urllib`. The package still
+requires `jsonschema` for full Draft 2020-12 validation before contract coercion.
 
 Notable: retries on `{408, 409, 429, 500, 502, 503, 504}` with exponential backoff (capped at 30s). `wait_for_terminal_response` polls and writes a checkpoint on every poll via the `checkpoint_callback`, so even a polling-only run keeps the local `response.latest.json` current.
 
 ### 3.6 Sidecar Extraction: `sidecar.py`
 
-When a stage configures `output.sidecar`, the engine runs a *second*, structured-output Responses call after the primary completes. It uploads the primary's markdown + raw response JSON as input, asks the structural model (`gpt-5.5`) to extract a strict-JSON-schema-conformant payload, and writes it to `output.structured.json` plus `sidecar.response.{json,md}`. This separates "creative generation" (primary) from "machine-ingestible structure" (sidecar) — the primary doesn't have to fight schema constraints while reasoning.
+When a stage configures `output.sidecar`, the engine runs a *second*, structured-output Responses call after the primary completes. It uploads the primary's markdown and asks the structural model (`gpt-5.6`, standard reasoning mode) to extract a strict-JSON-schema-conformant payload, and writes it to `output.structured.json` plus sidecar diagnostics. This separates primary generation from machine-ingestible structure.
 
 ### 3.7 Review Bundle: `review_bundle.py`
 
@@ -151,7 +155,10 @@ The handoff contract between gated stages. A bundle JSON references files (paths
 
 ### 3.8 Artifacts: `artifacts.py`
 
-Owns the on-disk run layout. Creates `runs/{ts}_{run_name}_{workflow_id}/`, the `stages/NN_stage_id/` subdirectories, the run manifest, and the response markdown rendering. The markdown renderer (`write_response_pair`, lines 300-363) produces the human-friendly `response.final.md` with token usage, source citations, tool-call summaries, and uploads payload — alongside the raw `response.final.json`.
+Owns the on-disk run layout. Creates `runs/{ts}_{run_name}_{workflow_id}/`, immutable
+`stages/NN_stage_id/attempt_NNN/` namespaces, the run manifest, and response artifacts.
+`artifact.md` contains only the clean assistant deliverable used downstream;
+`response.final.json` and the diagnostic `response.final.md` remain recovery evidence.
 
 ---
 
@@ -258,7 +265,6 @@ The supervisor's terminal artifact. Schema-validated payload (`final_implementat
 python automation/run_responses_v2.py run \
   --root . \
   --workflow-file automation/examples/.../one_pass.workflow.json \
-  --skip-token-count \
   --wait
 ```
 
@@ -266,12 +272,12 @@ python automation/run_responses_v2.py run \
 2. `run_workflow()` loads the workflow JSON (validates schema_version + model caps), creates `runs/{ts}_..._{workflow_id}/`, writes initial `run_manifest.json` with `status="created"`.
 3. `_determine_next_stage()` → finds stage 1, status `prepared`.
 4. `_build_stage_runtime_manifest()` → resolves the input manifest (walks dirs, hashes files).
-5. Files are uploaded. The rendered `input_manifest.md` is uploaded *first* and wired into the request as the manifest_file_id.
-6. Request payload is built: instructions = `COMMON_RUNNER_INSTRUCTIONS + shared_instructions.md + stage_instructions.md (if any)`. Content blocks are role-labeled in authority order.
-7. Token preflight unless skipped. Run with `--skip-token-count` only when an operator accepts that the model might consume more tokens than budgeted.
-8. `POST /responses` → checkpoint #1 written. With `background: true`, the response comes back as `queued` immediately.
+5. A content-addressed request plan and conservative context estimate are written before upload.
+6. Files are uploaded with an immediate per-file journal; exact token preflight then runs.
+7. A submit intent and request hash are persisted before the one-shot `POST /responses`.
+8. The returned response id is persisted immediately. Ambiguous POST failure becomes `submission_outcome_unknown`, never an automatic retry.
 9. `--wait` polls until terminal. Each poll rewrites `response.latest.json`.
-10. Once terminal: structured output extracted (if json_schema), sidecar runs (if configured), final markdown rendered, checkpoint #2 written, run_manifest updated.
+10. Once terminal: local state becomes `remote_terminal_pending_finalization`; `artifact.md`, raw evidence, validators, and optional sidecar output are completed before final status publication.
 11. If `gate=auto` and there's a next stage, the runner loops. Otherwise it returns the run_manifest path and exits.
 
 ### Path B: Supervisor Lane (full self-improvement loop)
@@ -296,7 +302,7 @@ End-to-end:
    - `consolidate` — dedup; output is advisory (`next_action: proceed_to_operator_acceptance`)
    - `accept --accept-recommendation rec_001 --applied-change-evidence ./evidence.json` — operator selects which to accept; **must supply changes_applied + validation_evidence + rationale or it gets auto-rejected**
    - If approval: scaffold is `accepted`. `assert_scaffold_launch_allowed()` would now pass.
-5. **Launch stage 1 via the engine** (`run_responses_v2.py run --workflow-file ...`). Same flow as Path A. Stage 1 output writes to `stages/01_architecture_and_supervision_protocol/response.final.{md,json}`.
+5. **Launch stage 1 via the engine** (`run_responses_v2.py run --workflow-file ...`). Same flow as Path A. Stage 1 writes clean output and raw evidence under `stages/01_architecture_and_supervision_protocol/<attempt_NNN>/`.
 6. **Classify stage 1**: `classify --run-dir ... --stage architecture_and_supervision_protocol`. Reads checkpoint, returns `outcome.v1` JSON. If `completed_complete_artifact` → reviewable.
 7. **Stage 1 review cycle** (review_kind = `stage_output`): operator → reviewers → consolidate → accept.
 8. **Bundle**: `create-bundle` with the acceptance_record. Bundle JSON includes file hashes; the bundle is what stage 2 will consume as `Reviewed Handoff Inputs`.
@@ -307,7 +313,7 @@ End-to-end:
 > **Insight**
 > - The four-stage pack is *self-referential*: it asks the model to design a supervised end-to-end pack while running through one. This is why review_kind values include `final_packet` and the prompts reference `review_agent_requirements.md` — the artifact being authored is the same kind of artifact that's reviewing it.
 > - Every artifact under the run directory has a stable hash chain: `workflow_manifest.sha256` → run_manifest → stage_checkpoint references response.final.json by sha256 → review_bundle's artifact_hashes → next stage's input_manifest references the bundle. A `tar` of the run + session is reconstructible.
-> - Carry-forward is deliberately cheap: it just attaches the prior stage's `response.final.md` (or the review bundle's primary_artifact_markdown) under `reference_context`. No prompt-stuffing, no summarization — the model gets the actual approved text.
+> - Carry-forward is deliberately cheap: it just attaches the prior stage's clean `artifact.md` (or the review bundle's primary artifact) under `reference_context`. No prompt-stuffing, no summarization — the model gets the actual approved text.
 
 ---
 
@@ -318,15 +324,18 @@ End-to-end:
 ├── runs/{ts}_{run_name}_{workflow_id}/
 │   ├── run_manifest.json                    ← top-level state
 │   └── stages/{NN_stage_id}/
-│       ├── input_manifest.{json,md}         ← resolved attachments + role labels
-│       ├── request_payload.json             ← exact body sent to /responses
-│       ├── token_preflight.{json|.error.json}
-│       ├── uploads.json                     ← file_id ↔ source_path mapping
-│       ├── response.latest.json             ← updated on each poll
-│       ├── response.final.{json,md}         ← finalized after terminal status
-│       ├── output.structured.json           ← if json_schema or sidecar configured
-│       ├── sidecar.response.{json,md}       ← if sidecar configured
-│       └── stage_checkpoint.json            ← lifecycle state, durable resume point
+│       └── attempt_NNN/
+│           ├── input_manifest.{json,md}     ← resolved attachments + role labels
+│           ├── request_plan.json            ← deterministic symbolic plan
+│           ├── request_payload.json         ← exact body sent to /responses
+│           ├── token_preflight.{json|.error.json}
+│           ├── uploads.json                 ← file_id ↔ source_path mapping
+│           ├── response.latest.json         ← updated on each poll
+│           ├── response.final.{json,md}     ← raw and diagnostic evidence
+│           ├── artifact.md                  ← clean downstream deliverable
+│           ├── output.structured.json       ← if json_schema or sidecar configured
+│           ├── sidecar.response.{json,md}   ← if sidecar configured
+│           └── stage_checkpoint.json        ← lifecycle state, durable resume point
 └── supervisor_sessions/{session_id}/
     ├── supervisor_session.json              ← schema-validated state
     ├── scaffolds/{version}/source/ + hash_manifest.json
@@ -365,5 +374,5 @@ CI (`.github/workflows/ci.yml`) runs the unittest suite plus dry-run smokes for 
 8. **Read-only enforcement is mechanical.** Workspace snapshot diff before/after the agent runs.
 9. **Failure has six discrete shapes.** Each maps to a distinct recovery path. Incomplete and blocked outcomes never auto-progress.
 10. **Archive-before-rerun is mandatory** for `failed_no_artifact`. Same hashes required to rerun → no silent re-experimentation.
-11. **Stdlib-only HTTP client.** Engine has zero third-party runtime deps; `jsonschema`/`pytest` are optional.
-12. **Locked model posture.** `gpt-5.5-pro` / `gpt-5.5`, 24h cache, xhigh reasoning, 128000 max output. Validation refuses anything else at load time.
+11. **Stdlib-only HTTP transport.** The network client uses `urllib`; `jsonschema` is a required contract-validation dependency and `pytest` is optional.
+12. **Locked model posture.** Durable `gpt-5.6`; primary `reasoning.mode=pro` at xhigh, structural standard mode at high or medium; implicit 30-minute cache TTL; 128000 max output. Verbosity and terminal high/xhigh changes remain A/B gated.

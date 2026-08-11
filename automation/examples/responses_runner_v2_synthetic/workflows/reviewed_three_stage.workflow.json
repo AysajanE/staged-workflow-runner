@@ -1,9 +1,10 @@
 {
-  "schema_version": "responses_runner_v2.workflow_manifest.v1",
+  "schema_version": "responses_runner_v2.workflow_manifest.v2",
   "workflow_id": "synthetic_reviewed_three_stage",
   "workflow_name": "Synthetic Reviewed Three Stage",
   "workflow_mode": "reviewed_three_stage",
   "description": "Reviewed three-stage synthetic workflow that exercises review bundles and sidecar output.",
+  "assurance_profile": "critical",
   "shared_instructions_file": "../shared_instructions.md",
   "operator_requirements": {
     "minimum_primary_job_inputs": 0,
@@ -12,16 +13,20 @@
   "defaults": {
     "model_roles": {
       "primary_generation": {
-        "model": "gpt-5.5-pro",
+        "model": "gpt-5.6",
         "reasoning_effort": "xhigh",
+        "reasoning_mode": "pro",
         "verbosity": "high",
-        "prompt_cache_retention": "24h"
+        "prompt_cache_mode": "implicit",
+        "prompt_cache_ttl": "30m"
       },
       "structural_processing": {
-        "model": "gpt-5.5",
-        "reasoning_effort": "xhigh",
+        "model": "gpt-5.6",
+        "reasoning_effort": "high",
+        "reasoning_mode": "standard",
         "verbosity": "medium",
-        "prompt_cache_retention": "24h"
+        "prompt_cache_mode": "implicit",
+        "prompt_cache_ttl": "30m"
       }
     },
     "request": {
@@ -59,7 +64,7 @@
       "input_manifest_file": "../inputs/reviewed_stage1.input_manifest.json",
       "tool_profile_file": "../tools/no_tools.profile.json",
       "model_role": "primary_generation",
-      "max_input_tokens": 120000,
+      "max_input_tokens": 700000,
       "max_output_tokens": 3000,
       "gate": "review_required",
       "output": {
@@ -74,7 +79,7 @@
       "input_manifest_file": "../inputs/reviewed_stage2.input_manifest.json",
       "tool_profile_file": "../tools/no_tools.profile.json",
       "model_role": "primary_generation",
-      "max_input_tokens": 120000,
+      "max_input_tokens": 700000,
       "max_output_tokens": 3000,
       "gate": "review_required",
       "carry_forward": {
@@ -95,7 +100,7 @@
       "input_manifest_file": "../inputs/reviewed_stage3.input_manifest.json",
       "tool_profile_file": "../tools/no_tools.profile.json",
       "model_role": "primary_generation",
-      "max_input_tokens": 120000,
+      "max_input_tokens": 700000,
       "max_output_tokens": 4000,
       "gate": "terminal",
       "carry_forward": {

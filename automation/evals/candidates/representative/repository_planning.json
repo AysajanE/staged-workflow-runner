@@ -1,0 +1,30 @@
+{
+  "schema_version": "responses_runner_v2.representative_eval_candidate.v1",
+  "case_id": "representative-repository-planning",
+  "task_type": "repository_planning",
+  "producer": {
+    "kind": "responses_runner_v2_offline_fake_client",
+    "workflow_id": "synthetic_one_pass",
+    "run_id": "frozen_representative_repository_planning",
+    "stage_id": "draft_summary",
+    "response_id": "resp_representative_repository_planning"
+  },
+  "output": {
+    "phases": ["Inspect the current boundary.", "Change the policy surface.", "Run focused regression tests."],
+    "dependencies": ["Policy changes depend on the existing engine contract."],
+    "acceptance_criteria": ["No workflow execution logic moves into the supervisor."],
+    "claims": [
+      {
+        "claim": "The plan must preserve the engine and supervisor ownership boundary.",
+        "citation_ids": ["planning_boundary"]
+      }
+    ],
+    "citations": [
+      {
+        "citation_id": "planning_boundary",
+        "source_id": "repository_constraints",
+        "quote": "The engine owns execution mechanics. The supervisor owns review and acceptance policy."
+      }
+    ]
+  }
+}

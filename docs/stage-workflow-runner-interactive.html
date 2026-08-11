@@ -508,7 +508,7 @@ policy: staging, gating, multi-agent review, failure classification, recovery.</
         <div class="authority" style="margin-top:12px;">
           <div class="auth-row"><span class="auth-rank auth-1">1</span><div><div class="auth-name">Primary Job Inputs</div><div class="auth-desc">the actual task input</div></div><div class="auth-bar"><div style="width:100%;background:var(--gate)"></div></div></div>
           <div class="auth-row"><span class="auth-rank auth-2">2</span><div><div class="auth-name">Reviewed Handoff Inputs</div><div class="auth-desc">approved output from an earlier gated stage</div></div><div class="auth-bar"><div style="width:75%;background:var(--supervisor)"></div></div></div>
-          <div class="auth-row"><span class="auth-rank auth-3">3</span><div><div class="auth-name">Attached Repository Files</div><div class="auth-desc">repo evidence</div></div><div class="auth-bar"><div style="width:50%;background:var(--engine)"></div></div></div>
+          <div class="auth-row"><span class="auth-rank auth-3">3</span><div><div class="auth-name">Attached Workspace Evidence</div><div class="auth-desc">documents or repo evidence</div></div><div class="auth-bar"><div style="width:50%;background:var(--engine)"></div></div></div>
           <div class="auth-row"><span class="auth-rank auth-4">4</span><div><div class="auth-name">Reference Context</div><div class="auth-desc">carry-forward / background</div></div><div class="auth-bar"><div style="width:25%;background:var(--text-dim)"></div></div></div>
         </div>
         <p style="margin-top:12px;"><strong>For you:</strong> when output looks wrong, open
@@ -564,7 +564,8 @@ policy: staging, gating, multi-agent review, failure classification, recovery.</
       validates the workflow, expands input manifests, uploads files, builds the request,
       runs token preflight, submits to the Responses API, polls / resumes / refreshes,
       finalizes artifacts, runs the sidecar extraction, and validates review bundles.
-      Eight modules; <strong>zero third-party runtime dependencies</strong>. You can
+      The HTTP transport remains standard-library based, while <code>jsonschema</code> is a
+      required runtime dependency for contract validation. You can
       operate this lane entirely on its own — manually creating review bundles with
       <code>create_review_bundle_v2.py</code> when a stage needs review.</p>
     </div>
@@ -594,8 +595,8 @@ policy: staging, gating, multi-agent review, failure classification, recovery.</
     <span class="label">Notable</span>
     <p>The engine's HTTP client is <strong>standard-library only</strong> —
     <code>urllib</code>, not <code>requests</code> or <code>httpx</code>, with hand-rolled
-    multipart upload. The core engine has <strong>zero third-party runtime
-    dependencies</strong>. <code>jsonschema</code> and <code>pytest</code> are optional.</p>
+    multipart upload. <code>jsonschema</code> is required for Draft 2020-12 contract
+    validation; <code>pytest</code> remains optional.</p>
   </div>
 </section>
 
@@ -897,7 +898,7 @@ policy: staging, gating, multi-agent review, failure classification, recovery.</
       </div>
       <div class="step-panel" data-panel="4">
         <div class="sp-title">5 · Token preflight</div>
-        <span class="sp-tag">engine · fail-closed gate (skip with --skip-token-count)</span>
+        <span class="sp-tag">engine · conservative plus exact fail-closed gate</span>
         <p>The engine can call <code>POST /responses/input_tokens</code>. If the count
         exceeds a configured <code>max_input_tokens</code>, the stage is marked
         <code>blocked</code> and the process exits — terminal, no retry, no fallback.
@@ -975,7 +976,7 @@ policy: staging, gating, multi-agent review, failure classification, recovery.</
       + [ <span class="c-gate">"role: Stage Input Manifest"</span>      &rarr; input_manifest.md ]  <span class="c-cmt"># model TOC, uploaded first</span>
       + [ <span class="c-gate">"role: Primary Job Inputs"</span>        &rarr; files... ]
       + [ <span class="c-sup">"role: Reviewed Handoff Inputs"</span>   &rarr; files... ]
-      + [ <span class="c-key">"role: Attached Repository Files"</span> &rarr; files... ]
+      + [ <span class="c-key">"role: Attached Workspace Evidence"</span> &rarr; files... ]
       + [ "role: Reference Context"          &rarr; files... ]   <span class="c-cmt"># strict authority order</span></pre>
 
   <div class="callout engine">
@@ -1288,8 +1289,8 @@ Stage 4  final_drop_in_packet                       <span class="c-gate">termina
   <div class="callout supervisor">
     <span class="label">The locked model posture</span>
     <p>The loader rejects anything else <em>at load time</em>: primary generation
-    <code>gpt-5.5-pro</code>, structural processing <code>gpt-5.5</code>, GPT-5.5-family
-    prompt cache retention <code>24h</code>, high-stakes reasoning effort
+    durable <code>gpt-5.6</code> with <code>reasoning.mode=pro</code>, structural processing
+    on <code>gpt-5.6</code> standard mode, implicit prompt caching with <code>ttl=30m</code>, high-stakes reasoning effort
     <code>xhigh</code> (structural <code>high</code>/<code>medium</code>), locked max
     output <code>128000</code>.</p>
   </div>
@@ -1323,17 +1324,19 @@ Stage 4  final_drop_in_packet                       <span class="c-gate">termina
 ├─ <span class="t-dir">runs/</span>{timestamp}_{run_name}_{workflow_id}/
 │  ├─ <span class="t-key">run_manifest.json</span>            <span class="t-cmt"># top-level run state + per-stage summary</span>
 │  └─ <span class="t-dir">stages/</span>{NN_stage_id}/
-│     ├─ <span class="t-key">input_manifest.json</span>        <span class="t-cmt"># resolved attachments (machine)</span>
-│     ├─ <span class="t-key">input_manifest.md</span>          <span class="t-cmt"># resolved attachments (human + model TOC)</span>
-│     ├─ <span class="t-key">request_payload.json</span>       <span class="t-cmt"># the EXACT body sent to /responses</span>
-│     ├─ <span class="t-key">token_preflight.json</span>       <span class="t-cmt"># or token_preflight.error.json</span>
-│     ├─ <span class="t-key">uploads.json</span>               <span class="t-cmt"># file_id ↔ source_path + lifecycle</span>
-│     ├─ <span class="t-key">response.latest.json</span>       <span class="t-cmt"># rewritten on every poll</span>
-│     ├─ <span class="t-key">response.final.json</span>        <span class="t-cmt"># finalized raw response</span>
-│     ├─ <span class="t-key">response.final.md</span>          <span class="t-cmt"># human render: usage, sources, tools</span>
-│     ├─ <span class="t-key">output.structured.json</span>     <span class="t-cmt"># if json_schema OR sidecar configured</span>
-│     ├─ <span class="t-key">sidecar.response.json/.md</span>   <span class="t-cmt"># if sidecar configured</span>
-│     └─ <span class="t-key">stage_checkpoint.json</span>      <span class="t-cmt"># durable, resumable stage state</span>
+│     └─ <span class="t-dir">attempt_NNN/</span>
+│        ├─ <span class="t-key">input_manifest.json</span>     <span class="t-cmt"># resolved attachments (machine)</span>
+│        ├─ <span class="t-key">input_manifest.md</span>       <span class="t-cmt"># resolved attachments (human + model TOC)</span>
+│        ├─ <span class="t-key">request_plan.json</span>       <span class="t-cmt"># deterministic symbolic plan</span>
+│        ├─ <span class="t-key">request_payload.json</span>    <span class="t-cmt"># exact body sent to /responses</span>
+│        ├─ <span class="t-key">token_preflight.json</span>    <span class="t-cmt"># or token_preflight.error.json</span>
+│        ├─ <span class="t-key">uploads.json</span>            <span class="t-cmt"># file_id ↔ source_path + lifecycle</span>
+│        ├─ <span class="t-key">response.latest.json</span>    <span class="t-cmt"># rewritten on every poll</span>
+│        ├─ <span class="t-key">response.final.json</span>     <span class="t-cmt"># raw recovery evidence</span>
+│        ├─ <span class="t-key">artifact.md</span>             <span class="t-cmt"># clean downstream deliverable</span>
+│        ├─ <span class="t-key">output.structured.json</span>  <span class="t-cmt"># if json_schema OR sidecar configured</span>
+│        ├─ <span class="t-key">sidecar.response.json/.md</span> <span class="t-cmt"># if sidecar configured</span>
+│        └─ <span class="t-key">stage_checkpoint.json</span>   <span class="t-cmt"># durable, resumable stage state</span>
 └─ <span class="t-sup">supervisor_sessions/</span>{session_id}/
    ├─ <span class="t-key">supervisor_session.json</span>     <span class="t-cmt"># schema-validated single source of truth</span>
    ├─ <span class="t-dir">scaffolds/</span>  <span class="t-dir">examinations/</span>  <span class="t-dir">dry_runs/</span>
@@ -1344,12 +1347,12 @@ Stage 4  final_drop_in_packet                       <span class="c-gate">termina
   <h3>Where to look when something is wrong</h3>
   <table>
     <tr><th>Question</th><th>First file to open</th></tr>
-    <tr><td>Why did the model produce that?</td><td><code>stages/NN/input_manifest.md</code> — check what attached, in which role</td></tr>
-    <tr><td>What exactly did we send?</td><td><code>stages/NN/request_payload.json</code></td></tr>
-    <tr><td>What is the current stage state?</td><td><code>stages/NN/stage_checkpoint.json</code></td></tr>
+    <tr><td>Why did the model produce that?</td><td><code>stages/NN/attempt_NNN/input_manifest.md</code> — check what attached, in which role</td></tr>
+    <tr><td>What exactly did we send?</td><td><code>stages/NN/attempt_NNN/request_payload.json</code></td></tr>
+    <tr><td>What is the current stage state?</td><td><code>stages/NN/attempt_NNN/stage_checkpoint.json</code></td></tr>
     <tr><td>What is the overall run state?</td><td><code>run_manifest.json</code></td></tr>
-    <tr><td>Did token preflight pass?</td><td><code>stages/NN/token_preflight.json</code> / <code>.error.json</code></td></tr>
-    <tr><td>What did the model actually say?</td><td><code>stages/NN/response.final.md</code></td></tr>
+    <tr><td>Did token preflight pass?</td><td><code>stages/NN/attempt_NNN/token_preflight.json</code> / <code>.error.json</code></td></tr>
+    <tr><td>What is the clean deliverable?</td><td><code>stages/NN/attempt_NNN/artifact.md</code></td></tr>
     <tr><td>What does the supervisor think?</td><td><code>supervisor_session.json</code> — status, phase, errors[], human_pauses[]</td></tr>
     <tr><td>Why did a review fail?</td><td><code>review_cycles/&lt;id&gt;/agents/*.readonly.diff.md</code> + the <code>.stderr.txt</code></td></tr>
     <tr><td>Why was a rerun blocked?</td><td><code>archives/&lt;id&gt;/supervisor_archive.json</code> — compare the hashes</td></tr>
@@ -1376,7 +1379,7 @@ Stage 4  final_drop_in_packet                       <span class="c-gate">termina
     <div class="xcard" data-card><div class="xhead"><span class="xnum">03</span><span class="xtitle">Stage</span><span class="xchev">&#9656;</span></div><div class="xbody"><p>One unit of work = one Responses API call (plus an optional sidecar call). Stages are ordered by <code>stage_number</code>.</p></div></div>
     <div class="xcard" data-card><div class="xhead"><span class="xnum">04</span><span class="xtitle">Gate</span><span class="xchev">&#9656;</span></div><div class="xbody"><p>A stage's progression rule: <code>auto</code> (engine may continue), <code>review_required</code> (stop — output must be reviewed and bundled first), <code>terminal</code> (last stage).</p></div></div>
     <div class="xcard" data-card><div class="xhead"><span class="xnum">05</span><span class="xtitle">Input manifest</span><span class="xchev">&#9656;</span></div><div class="xbody"><p>The per-stage <code>*.input_manifest.json</code>. Declares the <em>static</em> attachment set, grouped into the four authority roles. The engine merges it with operator inputs and carry-forward at runtime, then renders <code>input_manifest.md</code>.</p></div></div>
-    <div class="xcard" data-card><div class="xhead"><span class="xnum">06</span><span class="xtitle">Authority order</span><span class="xchev">&#9656;</span></div><div class="xbody"><p>The fixed ranking of attachment roles: Primary Job Inputs &rarr; Reviewed Handoff Inputs &rarr; Attached Repository Files &rarr; Reference Context. Encoded as data, stated in every request.</p></div></div>
+    <div class="xcard" data-card><div class="xhead"><span class="xnum">06</span><span class="xtitle">Authority order</span><span class="xchev">&#9656;</span></div><div class="xbody"><p>The fixed ranking of attachment roles: Primary Job Inputs &rarr; Reviewed Handoff Inputs &rarr; Attached Workspace Evidence &rarr; Reference Context. The legacy JSON field remains <code>attached_repository_files</code> for compatibility.</p></div></div>
     <div class="xcard" data-card><div class="xhead"><span class="xnum">07</span><span class="xtitle">Review bundle</span><span class="xchev">&#9656;</span></div><div class="xbody"><p>The approval contract passed <em>between</em> gated stages. A JSON file referencing the approved markdown, raw response JSON, and reviewer notes — each with its SHA-256. Loading it re-hashes everything and refuses on mismatch.</p></div></div>
     <div class="xcard" data-card><div class="xhead"><span class="xnum">08</span><span class="xtitle">Run manifest</span><span class="xchev">&#9656;</span></div><div class="xbody"><p><code>run_manifest.json</code> — the top-level durable state of one run: workflow id, the workflow manifest's hash, the ordered stage list, and a per-stage summary.</p></div></div>
     <div class="xcard" data-card><div class="xhead"><span class="xnum">09</span><span class="xtitle">Stage checkpoint</span><span class="xchev">&#9656;</span></div><div class="xbody"><p><code>stage_checkpoint.json</code> — the durable, resumable state of one stage: status, the <code>response_id</code>, token-preflight result, and pointers to every artifact. Written twice per stage.</p></div></div>
@@ -1385,7 +1388,7 @@ Stage 4  final_drop_in_packet                       <span class="c-gate">termina
     <div class="xcard" data-card><div class="xhead"><span class="xnum">12</span><span class="xtitle">Scaffold</span><span class="xchev">&#9656;</span></div><div class="xbody"><p>A task pack staged <em>into</em> a supervisor session and hashed, so the supervisor can gate it — examine, dry-run, review — before any live stage runs.</p></div></div>
     <div class="xcard" data-card><div class="xhead"><span class="xnum">13</span><span class="xtitle">Review cycle</span><span class="xchev">&#9656;</span></div><div class="xbody"><p>One pass of the supervisor's review loop on a scaffold, a stage output, a final packet, or a recovery path: operator &rarr; 2 independent reviewers &rarr; consolidation &rarr; operator acceptance.</p></div></div>
     <div class="xcard" data-card><div class="xhead"><span class="xnum">14</span><span class="xtitle">Resume mode</span><span class="xchev">&#9656;</span></div><div class="xbody"><p>How a checkpoint was produced: <code>fresh_submit</code> (first run), <code>resume_response_id</code> (rehydrate a stored id and finalize), <code>refresh_status_only</code> (just poll, do not finalize).</p></div></div>
-    <div class="xcard" data-card><div class="xhead"><span class="xnum">15</span><span class="xtitle">Token preflight</span><span class="xchev">&#9656;</span></div><div class="xbody"><p>A fail-closed gate: before live submission the engine can count input tokens; over the configured limit is terminal — no retry, no fallback. Skipped with <code>--skip-token-count</code>.</p></div></div>
+    <div class="xcard" data-card><div class="xhead"><span class="xnum">15</span><span class="xtitle">Token preflight</span><span class="xchev">&#9656;</span></div><div class="xbody"><p>A fail-closed gate: a conservative local estimate runs before upload, followed by exact input counting when enabled. Critical jobs do not silently continue after an overage or count failure.</p></div></div>
     <div class="xcard" data-card><div class="xhead"><span class="xnum">16</span><span class="xtitle">Final implementation bundle</span><span class="xchev">&#9656;</span></div><div class="xbody"><p>The supervisor's terminal artifact. Schema-validated; requires <code>file_inventory</code> and <code>emitted_files</code> to be the identical set of paths, all three agent reviews, and an approving operator acceptance.</p></div></div>
   </div>
 

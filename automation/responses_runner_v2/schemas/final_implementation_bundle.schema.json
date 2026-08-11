@@ -1,8 +1,18 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "Responses Runner V2 Final Implementation Bundle",
+  "title": "Responses Runner V2 Final Implementation Bundle v1/v2",
   "type": "object",
   "additionalProperties": false,
+  "allOf": [
+    {
+      "if": {"properties": {"schema_version": {"const": "responses_runner_v2.final_implementation_bundle.v1"}}},
+      "then": {"properties": {"model_migration_summary": {"required": ["prompt_cache_retention"]}}}
+    },
+    {
+      "if": {"properties": {"schema_version": {"const": "responses_runner_v2.final_implementation_bundle.v2"}}},
+      "then": {"properties": {"model_migration_summary": {"required": ["prompt_cache_options"]}}}
+    }
+  ],
   "required": [
     "schema_version",
     "packet_version",
@@ -22,7 +32,10 @@
   ],
   "properties": {
     "schema_version": {
-      "const": "responses_runner_v2.final_implementation_bundle.v1",
+      "enum": [
+        "responses_runner_v2.final_implementation_bundle.v1",
+        "responses_runner_v2.final_implementation_bundle.v2"
+      ],
       "description": "Schema version identifier for this artifact contract."
     },
     "packet_version": {
@@ -97,26 +110,44 @@
       "description": "Operator selective-acceptance record for final recommendations."
     },
     "model_migration_summary": {
+      "oneOf": [
+      {
       "type": "object",
       "additionalProperties": true,
       "required": [
         "primary_generation_model",
+        "primary_reasoning_mode",
         "structural_processing_model",
-        "prompt_cache_retention",
+        "structural_reasoning_mode",
+        "prompt_cache_options",
         "surfaces_updated"
       ],
       "properties": {
         "primary_generation_model": {
-          "const": "gpt-5.5-pro",
+          "const": "gpt-5.6",
           "description": "Describes the `primary_generation_model` field for this artifact contract."
         },
+        "primary_reasoning_mode": {
+          "const": "pro",
+          "description": "Required GPT-5.6 reasoning mode for high-stakes primary generation."
+        },
         "structural_processing_model": {
-          "const": "gpt-5.5",
+          "const": "gpt-5.6",
           "description": "Describes the `structural_processing_model` field for this artifact contract."
         },
-        "prompt_cache_retention": {
-          "const": "24h",
-          "description": "Describes the `prompt_cache_retention` field for this artifact contract."
+        "structural_reasoning_mode": {
+          "const": "standard",
+          "description": "Required GPT-5.6 reasoning mode for structural processing."
+        },
+        "prompt_cache_options": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["mode", "ttl"],
+          "properties": {
+            "mode": {"const": "implicit"},
+            "ttl": {"const": "30m"}
+          },
+          "description": "GPT-5.6 prompt cache mode and supported TTL."
         },
         "surfaces_updated": {
           "type": "array",
@@ -128,7 +159,32 @@
           "description": "Describes the `surfaces_updated` field for this artifact contract."
         }
       },
-      "description": "Summary of model-default and workflow posture migration."
+      "not": {"required": ["prompt_cache_retention"]},
+      "description": "Current GPT-5.6 model-default and workflow posture."
+      },
+      {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "primary_generation_model",
+          "structural_processing_model",
+          "prompt_cache_retention",
+          "surfaces_updated"
+        ],
+        "properties": {
+          "primary_generation_model": {"const": "gpt-5.5-pro"},
+          "structural_processing_model": {"const": "gpt-5.5"},
+          "prompt_cache_retention": {"const": "24h"},
+          "surfaces_updated": {
+            "type": "array",
+            "minItems": 1,
+            "items": {"type": "string", "minLength": 1}
+          }
+        },
+        "not": {"required": ["prompt_cache_options"]},
+        "description": "Frozen v1 GPT-5.5 model posture retained only for historical bundle validation."
+      }
+      ]
     },
     "failure_policy_summary": {
       "type": "array",

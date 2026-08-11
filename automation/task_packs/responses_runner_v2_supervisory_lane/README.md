@@ -82,7 +82,6 @@ Run stage 1 live and wait:
 python automation/run_responses_v2.py run \
   --root . \
   --workflow-file automation/task_packs/responses_runner_v2_supervisory_lane/workflows/three_stage.workflow.json \
-  --skip-token-count \
   --wait
 ```
 
@@ -95,8 +94,8 @@ python automation/create_review_bundle_v2.py \
   --workflow-id responses_runner_v2_supervisory_lane_self_improvement \
   --source-stage-id architecture_blueprint \
   --source-run-id <run_id> \
-  --primary-artifact-markdown <run_dir>/stages/01_architecture_blueprint/response.final.md \
-  --response-artifact-json <run_dir>/stages/01_architecture_blueprint/response.final.json \
+  --primary-artifact-markdown <run_dir>/stages/01_architecture_blueprint/<attempt_NNN>/artifact.md \
+  --response-artifact-json <run_dir>/stages/01_architecture_blueprint/<attempt_NNN>/response.final.json \
   --reviewer-notes <run_dir>/stage1.review.md
 ```
 
@@ -108,7 +107,6 @@ python automation/run_responses_v2.py run \
   --workflow-file automation/task_packs/responses_runner_v2_supervisory_lane/workflows/three_stage.workflow.json \
   --run-dir <run_dir> \
   --review-bundle <run_dir>/stage1.review_bundle.json \
-  --skip-token-count \
   --wait
 ```
 
@@ -116,7 +114,7 @@ Repeat the same pattern for stage 2 review and then continue to stage 3.
 
 ## Operational Notes
 
-- Use `--skip-token-count` for live runs unless the service-side token-preflight issue is known to be resolved.
+- Keep conservative and exact token preflight enabled for live critical runs.
 - Web search is enabled in all three stages. Stage 1 has the highest tool-call budget because it does the broadest external and currentness-sensitive research; stages 2 and 3 taper that budget as the task narrows into drafting and hardening. In stage 2, search should be selective and used only when it can materially change the draft contract, validation matrix, or a boundary-locking file.
 - Stage 2 should not emit the whole package. Its job is to lock the exact inventory, file contracts, and the smallest necessary set of boundary-critical full files so stage 3 can finish the package without reopening architecture.
 - Stage 3 should emit the whole package and preserve the approved stage-2 contract unless the stage-2 review explicitly reopens part of it.

@@ -1,0 +1,47 @@
+{
+  "schema_version": "responses_runner_v2.representative_eval_fixture.v1",
+  "case_id": "representative-research-synthesis",
+  "task_type": "multi_document_research",
+  "objective": "Synthesize two frozen evidence documents without unsupported conclusions.",
+  "frozen_inputs": {
+    "sources": [
+      {
+        "source_id": "study_alpha",
+        "content": "Study Alpha observed a 12 percent reduction in processing time across 40 trials."
+      },
+      {
+        "source_id": "study_beta",
+        "content": "Study Beta reported no material change in error rate across 35 trials."
+      }
+    ]
+  },
+  "expected_output_contract": {
+    "required_keys": ["synthesis", "limitations", "claims", "citations"]
+  },
+  "gold_output": {
+    "synthesis": "The frozen studies report faster processing without a measured error-rate change.",
+    "limitations": ["The two studies used different trial counts.", "The fixtures do not establish causality."],
+    "claims": [
+      {
+        "claim": "Study Alpha reported a 12 percent processing-time reduction.",
+        "citation_ids": ["alpha_result"]
+      },
+      {
+        "claim": "Study Beta reported no material error-rate change.",
+        "citation_ids": ["beta_result"]
+      }
+    ],
+    "citations": [
+      {
+        "citation_id": "alpha_result",
+        "source_id": "study_alpha",
+        "quote": "Study Alpha observed a 12 percent reduction in processing time across 40 trials."
+      },
+      {
+        "citation_id": "beta_result",
+        "source_id": "study_beta",
+        "quote": "Study Beta reported no material change in error rate across 35 trials."
+      }
+    ]
+  }
+}

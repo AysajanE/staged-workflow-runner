@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Responses Runner V2 Immutable Review Subject",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "created_at", "subject_id", "supervisor_session_id",
+    "review_cycle_id", "review_kind", "scaffold_version_id", "scaffold_sha256",
+    "workflow_id", "workflow_asset_sha256", "run_id", "stage_id", "attempt_id",
+    "attempt_dir", "checkpoint_path", "checkpoint_sha256", "run_manifest_path",
+    "run_manifest_sha256", "run_contract_path", "run_contract_sha256", "reviewed_artifact_manifest_path",
+    "reviewed_artifact_manifest_sha256", "frozen_job_path", "frozen_job_sha256",
+    "review_input_path", "review_input_sha256", "final_packet_draft_path",
+    "final_packet_draft_sha256"
+  ],
+  "properties": {
+    "schema_version": {"const": "responses_runner_v2.review_subject.v1"},
+    "created_at": {"type": "string", "format": "date-time"},
+    "subject_id": {"$ref": "#/$defs/sha256"},
+    "supervisor_session_id": {"type": "string", "minLength": 1},
+    "review_cycle_id": {"type": "string", "minLength": 1},
+    "review_kind": {"enum": ["scaffold", "stage_output", "final_packet", "recovery"]},
+    "scaffold_version_id": {"$ref": "#/$defs/nullableString"},
+    "scaffold_sha256": {"$ref": "#/$defs/nullableSha256"},
+    "workflow_id": {"$ref": "#/$defs/nullableString"},
+    "workflow_asset_sha256": {"$ref": "#/$defs/nullableSha256"},
+    "run_id": {"$ref": "#/$defs/nullableString"},
+    "stage_id": {"$ref": "#/$defs/nullableString"},
+    "attempt_id": {"$ref": "#/$defs/nullableString"},
+    "attempt_dir": {"$ref": "#/$defs/nullableString"},
+    "checkpoint_path": {"$ref": "#/$defs/nullableString"},
+    "checkpoint_sha256": {"$ref": "#/$defs/nullableSha256"},
+    "run_manifest_path": {"$ref": "#/$defs/nullableString"},
+    "run_manifest_sha256": {"$ref": "#/$defs/nullableSha256"},
+    "run_contract_path": {"$ref": "#/$defs/nullableString"},
+    "run_contract_sha256": {"$ref": "#/$defs/nullableSha256"},
+    "reviewed_artifact_manifest_path": {"type": "string", "minLength": 1},
+    "reviewed_artifact_manifest_sha256": {"$ref": "#/$defs/sha256"},
+    "frozen_job_path": {"type": "string", "minLength": 1},
+    "frozen_job_sha256": {"$ref": "#/$defs/sha256"},
+    "review_input_path": {"type": "string", "minLength": 1},
+    "review_input_sha256": {"$ref": "#/$defs/sha256"},
+    "final_packet_draft_path": {"$ref": "#/$defs/nullableString"},
+    "final_packet_draft_sha256": {"$ref": "#/$defs/nullableSha256"}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "nullableSha256": {"anyOf": [{"$ref": "#/$defs/sha256"}, {"type": "null"}]},
+    "nullableString": {"anyOf": [{"type": "string", "minLength": 1}, {"type": "null"}]}
+  }
+}

@@ -2,14 +2,14 @@
 
 This file records the official-source prompting constraints that this task pack must preserve.
 
-## OpenAI GPT-5.5 Guidance
+## OpenAI GPT-5.6 Guidance
 
 Official source URLs:
 
 - https://developers.openai.com/api/docs/guides/latest-model
 - https://developers.openai.com/api/docs/guides/prompt-guidance
-- https://developers.openai.com/api/docs/models/gpt-5.5
-- https://developers.openai.com/api/docs/models/gpt-5.5-pro
+- https://developers.openai.com/api/docs/models/gpt-5.6-sol
+- https://developers.openai.com/api/docs/guides/prompt-caching
 - https://developers.openai.com/codex/noninteractive
 - https://developers.openai.com/codex/cli/reference
 
@@ -17,9 +17,11 @@ Design implications for this task:
 
 - Prompt for outcome, success criteria, constraints, allowed side effects, evidence rules, output format, and stopping conditions.
 - Do not copy older process-heavy prompt stacks blindly.
-- Use `gpt-5.5-pro` for high-stakes long-running primary generation.
-- Use `gpt-5.5` for structural or lower-latency processing when sufficient.
+- Use durable alias `gpt-5.6` with `reasoning.mode=pro` for high-stakes long-running primary generation.
+- Use `gpt-5.6` in standard reasoning mode for structural processing.
+- Use `prompt_cache_options` with implicit mode and `ttl=30m`; do not use the deprecated 5.5-era retention field.
 - Use `reasoning_effort: xhigh` only where maximum intelligence matters more than latency/cost.
+- Preserve existing verbosity and terminal-stage high/xhigh posture until A/B evidence supports changing it.
 - Use `codex exec` as the canonical non-interactive Codex CLI command.
 
 ## Anthropic Claude Guidance
@@ -46,7 +48,7 @@ Design implications for this task:
 
 The final implementation must produce prompt artifacts that are:
 
-- concise enough for GPT-5.5 and Claude Opus to follow;
+- concise enough for GPT-5.6 and Claude Opus to follow;
 - explicit enough for non-interactive operation;
 - structured enough to prevent review drift;
 - grounded in artifacts and repo paths;

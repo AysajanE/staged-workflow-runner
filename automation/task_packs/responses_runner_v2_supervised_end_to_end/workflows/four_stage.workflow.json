@@ -1,9 +1,10 @@
 {
-  "schema_version": "responses_runner_v2.workflow_manifest.v1",
+  "schema_version": "responses_runner_v2.workflow_manifest.v2",
   "workflow_id": "responses_runner_v2_supervised_end_to_end_self_improvement",
   "workflow_name": "Responses Runner V2 Supervised End To End Self Improvement",
   "workflow_mode": "custom_ordered",
   "description": "Generate the full drop-in-ready packet for an end-to-end supervisory lane with Codex and Claude non-interactive review agents.",
+  "assurance_profile": "critical",
   "shared_instructions_file": "../shared_instructions.md",
   "operator_requirements": {
     "minimum_primary_job_inputs": 0,
@@ -13,16 +14,20 @@
   "defaults": {
     "model_roles": {
       "primary_generation": {
-        "model": "gpt-5.5-pro",
+        "model": "gpt-5.6",
         "reasoning_effort": "xhigh",
+        "reasoning_mode": "pro",
         "verbosity": "high",
-        "prompt_cache_retention": "24h"
+        "prompt_cache_mode": "implicit",
+        "prompt_cache_ttl": "30m"
       },
       "structural_processing": {
-        "model": "gpt-5.5",
+        "model": "gpt-5.6",
         "reasoning_effort": "high",
+        "reasoning_mode": "standard",
         "verbosity": "medium",
-        "prompt_cache_retention": "24h"
+        "prompt_cache_mode": "implicit",
+        "prompt_cache_ttl": "30m"
       }
     },
     "request": {
@@ -59,6 +64,7 @@
       "input_manifest_file": "../inputs/stage1.input_manifest.json",
       "tool_profile_file": "../tools/stage1_web_search.profile.json",
       "model_role": "primary_generation",
+      "max_input_tokens": 700000,
       "max_output_tokens": 128000,
       "gate": "review_required",
       "output": {
@@ -73,6 +79,7 @@
       "input_manifest_file": "../inputs/stage2.input_manifest.json",
       "tool_profile_file": "../tools/stage2_web_search.profile.json",
       "model_role": "primary_generation",
+      "max_input_tokens": 700000,
       "max_output_tokens": 128000,
       "gate": "review_required",
       "carry_forward": {
@@ -93,6 +100,7 @@
       "task_file": "../prompts/stage3_draft_drop_in_packet.md",
       "input_manifest_file": "../inputs/stage3.input_manifest.json",
       "model_role": "primary_generation",
+      "max_input_tokens": 700000,
       "max_output_tokens": 128000,
       "gate": "review_required",
       "carry_forward": {
@@ -115,6 +123,7 @@
       "input_manifest_file": "../inputs/stage4.input_manifest.json",
       "model_role": "primary_generation",
       "reasoning_effort": "high",
+      "max_input_tokens": 700000,
       "max_output_tokens": 128000,
       "gate": "terminal",
       "carry_forward": {

@@ -18,6 +18,7 @@ from .supervisor_artifacts import write_json_artifact
 OUTCOME_COMPLETED_COMPLETE = "completed_complete_artifact"
 OUTCOME_FAILED_COMPLETE = "failed_complete_artifact"
 OUTCOME_FAILED_NO_ARTIFACT = "failed_no_artifact"
+OUTCOME_CANCELLED = "cancelled"
 OUTCOME_INCOMPLETE_OUTPUT_LIMIT = "incomplete_output_limit"
 OUTCOME_BLOCKED_PREFLIGHT = "blocked_token_preflight"
 OUTCOME_MONITORING_ANOMALY = "long_running_monitoring_anomaly"
@@ -65,7 +66,9 @@ def _response_markdown_path(checkpoint: dict[str, Any]) -> str | None:
     artifacts_payload = checkpoint.get("artifacts")
     if not isinstance(artifacts_payload, dict):
         return None
-    value = artifacts_payload.get("response_final_markdown_path")
+    value = artifacts_payload.get("artifact_markdown_path") or artifacts_payload.get(
+        "response_final_markdown_path"
+    )
     return value if isinstance(value, str) else None
 
 
@@ -189,7 +192,7 @@ def classify_stage_outcome(
     status = str(checkpoint.get("status", ""))
     token_preflight = checkpoint.get("token_preflight") if isinstance(checkpoint.get("token_preflight"), dict) else {}
 
-    if status == "blocked" or token_preflight.get("status") == "failed_closed":
+    if status in {"blocked", "blocked_preflight"} or token_preflight.get("status") == "failed_closed":
         pause = None
         outcome_id = f"outcome_{checkpoint.get('run_id', 'unknown')}_{checkpoint.get('stage_id', 'unknown')}"
         if human_pause_output is not None:
@@ -218,6 +221,69 @@ def classify_stage_outcome(
             human_pause=pause,
         )
 
+    non_rerunnable_states = {
+        "staging",
+        "staging_inputs",
+        "uploading",
+        "preflight",
+        "preflight_passed",
+        "submitting",
+        "submitted",
+        "in_progress",
+        "remote_terminal_pending_finalization",
+        "finalized",
+        "cancelling",
+        "submission_outcome_unknown",
+    }
+    if status in non_rerunnable_states:
+        unknown_submission = status == "submission_outcome_unknown"
+        pending_finalization = status in {
+            "remote_terminal_pending_finalization",
+            "finalized",
+        }
+        pause = None
+        if human_pause_output is not None and unknown_submission:
+            pause = build_human_pause(
+                root=root,
+                output_path=human_pause_output,
+                pause_id=f"pause_{checkpoint.get('run_id', 'unknown')}_{checkpoint.get('stage_id', 'unknown')}_submission",
+                trigger="The mutating submission outcome is unknown.",
+                artifact_to_present=relpath(root, resolved_checkpoint),
+                decision_required="Reconcile provider-side evidence before any rerun or cancellation.",
+                safe_continuation_action="Do not submit again while the original request may exist.",
+                related_outcome_id=f"outcome_{checkpoint.get('run_id', 'unknown')}_{checkpoint.get('stage_id', 'unknown')}",
+            )
+        return _outcome_payload(
+            root=root,
+            checkpoint_path=resolved_checkpoint,
+            checkpoint=checkpoint,
+            classification=OUTCOME_MONITORING_ANOMALY,
+            detection_signals=[f"checkpoint.status={status}", "duplicate submission is prohibited"],
+            completeness_checklist=[
+                _checklist_item(
+                    item="terminal_finalization",
+                    passed=False,
+                    detail=(
+                        "Remote response is terminal but local finalization is pending"
+                        if pending_finalization
+                        else "Submission remains live or its outcome is uncertain"
+                    ),
+                )
+            ],
+            action=(
+                "resume_finalization"
+                if pending_finalization
+                else "operator_reconciliation"
+                if unknown_submission
+                else "refresh_existing_response"
+            ),
+            reviewable=False,
+            review_bundle_allowed=False,
+            rerun_allowed=False,
+            human_pause_required=unknown_submission,
+            human_pause=pause,
+        )
+
     response_payload = _response_json(root, checkpoint) or {}
     response_status = str(response_payload.get("status") or checkpoint.get("response", {}).get("status") or "")
     substantive, substantive_reason, markdown_path = _has_substantive_markdown(root, checkpoint)
@@ -230,7 +296,7 @@ def classify_stage_outcome(
             detail="response JSON exists" if final_json_present else "response JSON missing",
         ),
         _checklist_item(
-            item="response_final_markdown",
+            item="artifact_markdown",
             passed=substantive,
             detail=substantive_reason,
             path=markdown_path,
@@ -283,6 +349,21 @@ def classify_stage_outcome(
             reviewable=False,
             review_bundle_allowed=False,
             rerun_allowed=True,
+            human_pause_required=False,
+        )
+
+    if response_status == "cancelled" or status == "cancelled":
+        return _outcome_payload(
+            root=root,
+            checkpoint_path=resolved_checkpoint,
+            checkpoint=checkpoint,
+            classification=OUTCOME_CANCELLED,
+            detection_signals=[f"response.status={response_status or status}", "stage was explicitly cancelled"],
+            completeness_checklist=checklist,
+            action="preserve_cancelled",
+            reviewable=False,
+            review_bundle_allowed=False,
+            rerun_allowed=False,
             human_pause_required=False,
         )
 

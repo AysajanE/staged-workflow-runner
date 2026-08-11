@@ -16,12 +16,15 @@ It is not a normal paid-stage workflow pack. It is the supervisor's local instru
 
 Supervisor-generated workflows and scaffolds use:
 
-- primary generation: `gpt-5.5-pro`;
-- structural processing: `gpt-5.5`;
-- committed GPT-5.5-family prompt cache retention: `24h`;
+- primary generation: durable `gpt-5.6` with `reasoning.mode=pro`;
+- structural processing: durable `gpt-5.6` in standard mode;
+- prompt cache options: implicit mode with `ttl=30m`;
 - high-stakes primary reasoning effort: `xhigh`;
 - structural reasoning effort: `high` or `medium`;
 - max output for locked high-stakes self-improvement stages: `128000`.
+
+Existing verbosity and terminal-stage high/xhigh choices are changed only after an A/B
+measurement, not as part of model migration.
 
 ## Files
 

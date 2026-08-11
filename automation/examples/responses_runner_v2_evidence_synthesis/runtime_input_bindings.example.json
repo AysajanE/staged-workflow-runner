@@ -1,0 +1,53 @@
+{
+  "schema_version": "responses_runner_v2.runtime_input_bindings.v1",
+  "bindings": [
+    {
+      "binding_id": "decision_question",
+      "path": "automation/examples/responses_runner_v2_evidence_synthesis/corpus/decision_question.md",
+      "authority": "primary_job_input",
+      "scope": {
+        "type": "stages",
+        "stage_ids": [
+          "source_register",
+          "final_decision_brief"
+        ]
+      }
+    },
+    {
+      "binding_id": "finance_evidence",
+      "path": "automation/examples/responses_runner_v2_evidence_synthesis/corpus/finance_evidence.md",
+      "authority": "reference_context",
+      "scope": {
+        "type": "stages",
+        "stage_ids": [
+          "source_register",
+          "evidence_synthesis"
+        ]
+      }
+    },
+    {
+      "binding_id": "customer_evidence",
+      "path": "automation/examples/responses_runner_v2_evidence_synthesis/corpus/customer_evidence.md",
+      "authority": "reference_context",
+      "scope": {
+        "type": "stages",
+        "stage_ids": [
+          "source_register",
+          "evidence_synthesis"
+        ]
+      }
+    },
+    {
+      "binding_id": "vendor_evidence",
+      "path": "automation/examples/responses_runner_v2_evidence_synthesis/corpus/vendor_evidence.md",
+      "authority": "reference_context",
+      "scope": {
+        "type": "stages",
+        "stage_ids": [
+          "source_register",
+          "evidence_synthesis"
+        ]
+      }
+    }
+  ]
+}

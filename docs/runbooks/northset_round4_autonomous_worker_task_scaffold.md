@@ -1,6 +1,6 @@
 ## Scaffold Overview
 
-Five stages keep Round 4 tight: scope/pre-check, worker contract, trial/settlement design, audit/adversarial readiness, and terminal playbook emission. The prompt style uses outcome-first GPT‑5.5 guidance, exact output structures, and validation rules; the sidecars use strict structured-output schemas; and both model roles use 24h prompt cache retention where supported. ([OpenAI Developers][1])
+Five stages keep Round 4 tight: scope/pre-check, worker contract, trial/settlement design, audit/adversarial readiness, and terminal playbook emission. The prompt style uses outcome-first GPT‑5.6 guidance, exact output structures, and validation rules; the sidecars use strict structured-output schemas; and both model roles use implicit prompt caching with a 30-minute TTL. ([OpenAI Developers][1])
 
 ## File Listings
 
@@ -8,11 +8,12 @@ Five stages keep Round 4 tight: scope/pre-check, worker contract, trial/settleme
 
 ```json
 {
-  "schema_version": "responses_runner_v2.workflow_manifest.v1",
+  "schema_version": "responses_runner_v2.workflow_manifest.v2",
   "workflow_id": "round-four-autonomous-worker-v1",
   "workflow_name": "Round Four Autonomous Worker Playbook V1",
   "workflow_mode": "custom_ordered",
   "description": "Reviewed five-stage workflow for turning the 2026-05-04 Round 4 focus memo into a direct markdown_playbook_v1 artifact for plan_orchestrator_v3. The generated playbook must implement the first autonomous V2 verified-issue worker settlement with audit-grade adversarial readiness, without implementing the protocol work inside this task pack.",
+  "assurance_profile": "critical",
   "shared_instructions_file": "../shared_instructions.md",
   "operator_requirements": {
     "minimum_primary_job_inputs": 1,
@@ -22,16 +23,20 @@ Five stages keep Round 4 tight: scope/pre-check, worker contract, trial/settleme
   "defaults": {
     "model_roles": {
       "primary_generation": {
-        "model": "gpt-5.5-pro",
+        "model": "gpt-5.6",
         "reasoning_effort": "xhigh",
+        "reasoning_mode": "pro",
         "verbosity": "high",
-        "prompt_cache_retention": "24h"
+        "prompt_cache_mode": "implicit",
+        "prompt_cache_ttl": "30m"
       },
       "structural_processing": {
-        "model": "gpt-5.5",
+        "model": "gpt-5.6",
         "reasoning_effort": "high",
+        "reasoning_mode": "standard",
         "verbosity": "medium",
-        "prompt_cache_retention": "24h"
+        "prompt_cache_mode": "implicit",
+        "prompt_cache_ttl": "30m"
       }
     },
     "request": {
@@ -68,6 +73,7 @@ Five stages keep Round 4 tight: scope/pre-check, worker contract, trial/settleme
       "input_manifest_file": "../inputs/stage1.input_manifest.json",
       "tool_profile_file": "../tools/no_tools.profile.json",
       "model_role": "primary_generation",
+      "max_input_tokens": 700000,
       "max_output_tokens": 128000,
       "gate": "review_required",
       "output": {
@@ -86,6 +92,7 @@ Five stages keep Round 4 tight: scope/pre-check, worker contract, trial/settleme
       "input_manifest_file": "../inputs/stage2.input_manifest.json",
       "tool_profile_file": "../tools/stage2_openai_agent_docs_web_search.profile.json",
       "model_role": "primary_generation",
+      "max_input_tokens": 700000,
       "max_output_tokens": 128000,
       "gate": "review_required",
       "carry_forward": {
@@ -107,6 +114,7 @@ Five stages keep Round 4 tight: scope/pre-check, worker contract, trial/settleme
       "input_manifest_file": "../inputs/stage3.input_manifest.json",
       "tool_profile_file": "../tools/no_tools.profile.json",
       "model_role": "primary_generation",
+      "max_input_tokens": 700000,
       "max_output_tokens": 128000,
       "gate": "review_required",
       "carry_forward": {
@@ -131,6 +139,7 @@ Five stages keep Round 4 tight: scope/pre-check, worker contract, trial/settleme
       "input_manifest_file": "../inputs/stage4.input_manifest.json",
       "tool_profile_file": "../tools/stage4_capability_security_web_search.profile.json",
       "model_role": "primary_generation",
+      "max_input_tokens": 700000,
       "max_output_tokens": 128000,
       "gate": "review_required",
       "carry_forward": {
@@ -156,6 +165,7 @@ Five stages keep Round 4 tight: scope/pre-check, worker contract, trial/settleme
       "input_manifest_file": "../inputs/stage5.input_manifest.json",
       "tool_profile_file": "../tools/no_tools.profile.json",
       "model_role": "primary_generation",
+      "max_input_tokens": 700000,
       "max_output_tokens": 128000,
       "gate": "terminal",
       "carry_forward": {
@@ -203,7 +213,7 @@ This task pack plans that work only. Do not implement the Round 4 protocol work 
 </goal>
 
 <model_family_prompting_rules>
-Prompts in this pack are written for the GPT-5.5 model family with outcome-first task statements, explicit constraints, narrow tool budgets, exact output structures, and concrete validation rules.
+Prompts in this pack are written for GPT-5.6 with outcome-first task statements, explicit constraints, narrow tool budgets, exact output structures, and concrete validation rules.
 
 Use these operating principles in every stage:
 - Put the target outcome, non-negotiable rules, and output shape before detailed context.
@@ -220,7 +230,7 @@ Among attached materials, follow the fixed `responses_runner_v2` authority order
 
 1. Primary Job Inputs
 2. Reviewed Handoff Inputs
-3. Attached Repository Files
+3. Attached Workspace Evidence (legacy manifest alias: Attached Repository Files)
 4. Reference Context
 
 If two sources conflict, prefer the higher-authority source. If a lower-authority source reveals a hard protocol contradiction, preserve the contradiction explicitly and do not silently merge the claims.
@@ -2893,14 +2903,17 @@ class RoundFourAutonomousWorkerPackTests(unittest.TestCase):
         self.assertEqual(workflow.operator_requirements["maximum_primary_job_inputs"], 1)
         self.assertFalse(workflow.operator_requirements["allow_reference_context"])
 
-        self.assertEqual(workflow.model_roles["primary_generation"].model, "gpt-5.5-pro")
+        self.assertEqual(workflow.model_roles["primary_generation"].model, "gpt-5.6")
         self.assertEqual(workflow.model_roles["primary_generation"].reasoning_effort, "xhigh")
-        self.assertEqual(workflow.model_roles["primary_generation"].prompt_cache_retention, "24h")
-        self.assertEqual(workflow.model_roles["structural_processing"].model, "gpt-5.5")
+        self.assertEqual(workflow.model_roles["primary_generation"].reasoning_mode, "pro")
+        self.assertEqual(workflow.model_roles["primary_generation"].prompt_cache_ttl, "30m")
+        self.assertEqual(workflow.model_roles["structural_processing"].model, "gpt-5.6")
         self.assertEqual(workflow.model_roles["structural_processing"].reasoning_effort, "high")
-        self.assertEqual(workflow.model_roles["structural_processing"].prompt_cache_retention, "24h")
+        self.assertEqual(workflow.model_roles["structural_processing"].reasoning_mode, "standard")
+        self.assertEqual(workflow.model_roles["structural_processing"].prompt_cache_ttl, "30m")
 
         for stage in workflow.stages:
+            self.assertEqual(stage.max_input_tokens, 700000)
             self.assertEqual(stage.max_output_tokens, 128000)
             self.assertEqual(stage.model_role.value, "primary_generation")
             self.assertIsNotNone(stage.output.sidecar)
@@ -3054,7 +3067,7 @@ class RoundFourAutonomousWorkerPackTests(unittest.TestCase):
         authority_terms = [
             "Primary Job Inputs",
             "Reviewed Handoff Inputs",
-            "Attached Repository Files",
+            "Attached Workspace Evidence",
             "Reference Context",
         ]
         positions = [shared.index(term) for term in authority_terms]
@@ -3163,6 +3176,6 @@ if __name__ == "__main__":
 
 ## Validation Notes
 
-The test locks the five-stage order, model roles, 128000 token ceilings, prompt-cache retention, sidecar presence, web-tool limits, existing repo-relative attachments, strict sidecar schemas, prompt table headers, shared authority order, and forbidden-path exclusions.
+The test locks the five-stage order, model roles, 700000 input and 128000 output token ceilings, prompt-cache options, sidecar presence, web-tool limits, existing repo-relative attachments, strict sidecar schemas, prompt table headers, shared authority order, and forbidden-path exclusions.
 
 [1]: https://developers.openai.com/api/docs/guides/prompt-guidance "https://developers.openai.com/api/docs/guides/prompt-guidance"

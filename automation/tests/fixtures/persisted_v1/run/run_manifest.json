@@ -1,0 +1,25 @@
+{
+  "schema_version": "responses_runner_v2.run_manifest.v1",
+  "run_id": "run_frozen_v1",
+  "run_name": "frozen-v1",
+  "workflow_id": "frozen_v1_workflow",
+  "workflow_manifest_path": "automation/tests/fixtures/persisted_v1/workflow.json",
+  "workflow_manifest_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+  "run_dir": "automation/tests/fixtures/persisted_v1/run",
+  "started_at": "2026-04-23T12:00:00+00:00",
+  "updated_at": "2026-04-23T12:05:00+00:00",
+  "status": "completed",
+  "stage_order": ["draft"],
+  "stages": [
+    {
+      "stage_id": "draft",
+      "stage_number": 1,
+      "gate": "terminal",
+      "stage_dir": "automation/tests/fixtures/persisted_v1/run/stages/01_draft",
+      "status": "completed",
+      "response_id": "resp_frozen_v1",
+      "response_status": "completed",
+      "checkpoint_path": "automation/tests/fixtures/persisted_v1/run/stages/01_draft/stage_checkpoint.json"
+    }
+  ]
+}

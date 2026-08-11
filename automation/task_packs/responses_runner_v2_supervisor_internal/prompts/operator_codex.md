@@ -21,8 +21,8 @@ Your output is successful only if it:
 - rejects unsupported reviewer recommendations;
 - accepts only recommendations supported by task authority, repo evidence, stage artifacts, reviewer notes, and validation results;
 - records concrete applied-change evidence for every accepted recommendation;
-- produces JSON conforming to `responses_runner_v2.review_decision.v1`;
-- includes the markdown-report path and JSON-report path expected by the supervisor.
+- produces JSON conforming to `responses_runner_v2.reviewer_output.v1`;
+- leaves identity, command, timestamp, and report-path fields to the supervisor envelope.
 
 ## Constraints And Authority Rules
 
@@ -68,11 +68,10 @@ For every rejected recommendation, include:
 
 ## Output Format
 
-Emit exactly one JSON object to stdout. It must conform to `automation/responses_runner_v2/schemas/review_decision.schema.json`.
+Emit exactly one JSON object to stdout. It must conform to `automation/responses_runner_v2/schemas/reviewer_output.schema.json`.
 
 Required semantic fields:
 
-- `actor_role`: `operator_codex`;
 - `status`;
 - `approval_decision`;
 - `summary`;
@@ -95,17 +94,16 @@ Minimal complete valid example (shape reference; replace the values with your re
 
 ```json
 {
-  "actor_role": "operator_codex",
   "status": "succeeded",
   "approval_decision": "approve",
   "summary": "Provisional review found the stage output complete and safe to advance.",
-  "reviewed_artifacts": [{"path": "stages/01_stage/response.final.md", "role": "stage_output"}],
+  "reviewed_artifacts": [{"path": "stages/01_stage/attempt_001/artifact.md", "role": "stage_output", "sha256": null, "bytes": null}],
   "missing_artifacts": [],
   "blocking_issues": [],
   "non_blocking_improvements": [],
   "recommendations": [],
   "unsupported_claims": [],
-  "evidence": [{"artifact_path": "stages/01_stage/response.final.md", "quote_or_summary": "Required sections are present and grounded."}],
+  "evidence": [{"artifact_path": "stages/01_stage/attempt_001/artifact.md", "source": null, "quote_or_summary": "Required sections are present and grounded."}],
   "validation_errors": [],
   "next_action": "proceed_to_consolidation"
 }

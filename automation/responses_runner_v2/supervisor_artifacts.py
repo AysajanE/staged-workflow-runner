@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+import fcntl
 import json
+import os
 import re
 import shutil
 import subprocess
+import tempfile
 import uuid
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -20,15 +24,72 @@ from .contracts import (
     schema_dir,
     sha256_file,
     sha256_text,
-    write_json,
-    write_text,
 )
 
 SUPERVISOR_OUTPUT_ROOT = ".local/automation/responses_runner_v2/supervisor_sessions"
+PRIVATE_FILE_MODE = 0o600
+PRIVATE_DIR_MODE = 0o700
+SUPERVISOR_SESSION_SCHEMA_BY_VERSION = {
+    "responses_runner_v2.supervisor_session.v1": "supervisor_session.schema.json",
+    "responses_runner_v2.supervisor_session.v2": "supervisor_session.v2.schema.json",
+}
 
 
 class SchemaValidationError(RuntimeError):
     pass
+
+
+def _fsync_directory(path: Path) -> None:
+    descriptor = os.open(path, os.O_RDONLY)
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+
+
+def _atomic_write_bytes(path: Path, content: bytes) -> Path:
+    """Atomically replace a supervisor artifact with owner-only permissions."""
+
+    parent_existed = path.parent.exists()
+    path.parent.mkdir(parents=True, exist_ok=True, mode=PRIVATE_DIR_MODE)
+    if not parent_existed:
+        os.chmod(path.parent, PRIVATE_DIR_MODE)
+    descriptor, temporary_name = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
+    temporary = Path(temporary_name)
+    try:
+        os.fchmod(descriptor, PRIVATE_FILE_MODE)
+        with os.fdopen(descriptor, "wb") as handle:
+            handle.write(content)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, path)
+        os.chmod(path, PRIVATE_FILE_MODE)
+        _fsync_directory(path.parent)
+    except BaseException:
+        temporary.unlink(missing_ok=True)
+        raise
+    return path
+
+
+def write_private_text(path: Path, text: str) -> Path:
+    return _atomic_write_bytes(path, text.encode("utf-8"))
+
+
+def write_private_json(path: Path, payload: Any) -> Path:
+    return write_private_text(path, json.dumps(payload, indent=2, ensure_ascii=False) + "\n")
+
+
+@contextmanager
+def _session_write_lock(session_path: Path) -> Iterable[None]:
+    lock_path = session_path / ".supervisor_session.lock"
+    descriptor = os.open(lock_path, os.O_CREAT | os.O_RDWR, PRIVATE_FILE_MODE)
+    try:
+        os.fchmod(descriptor, PRIVATE_FILE_MODE)
+        fcntl.flock(descriptor, fcntl.LOCK_EX)
+        yield
+    finally:
+        fcntl.flock(descriptor, fcntl.LOCK_UN)
+        os.close(descriptor)
 
 
 def _schema_path(schema_filename: str) -> Path:
@@ -168,7 +229,7 @@ def write_json_validated(path: Path, payload: Any, schema_filename: str, label: 
         validate_against_schema(payload, schema_filename, label)
     except SchemaValidationError as exc:
         raise SystemExit(str(exc)) from exc
-    return write_json(path, payload)
+    return write_private_json(path, payload)
 
 
 def load_json_validated(path: Path, schema_filename: str, label: str) -> dict[str, Any]:
@@ -185,22 +246,32 @@ def load_json_validated(path: Path, schema_filename: str, label: str) -> dict[st
     return payload
 
 
+def _supervisor_session_schema(payload: dict[str, Any]) -> str:
+    version = payload.get("schema_version")
+    schema_filename = SUPERVISOR_SESSION_SCHEMA_BY_VERSION.get(str(version))
+    if schema_filename is None:
+        supported = ", ".join(sorted(SUPERVISOR_SESSION_SCHEMA_BY_VERSION))
+        raise SystemExit(f"Unsupported supervisor session schema_version {version!r}; expected one of: {supported}.")
+    return schema_filename
+
+
 def new_supervisor_session_id(prefix: str = "sup") -> str:
     return f"{prefix}_{runner_now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
 
 
 def supervisor_sessions_root(root: Path) -> Path:
     path = resolve_under_root(root, SUPERVISOR_OUTPUT_ROOT, must_exist=False)
-    path.mkdir(parents=True, exist_ok=True)
+    path.mkdir(parents=True, exist_ok=True, mode=PRIVATE_DIR_MODE)
+    os.chmod(path, PRIVATE_DIR_MODE)
     return path
 
 
 def create_session_dir(root: Path, session_id: str | None = None) -> tuple[str, Path]:
     session_id = normalize_slug(session_id or new_supervisor_session_id())
     path = supervisor_sessions_root(root) / session_id
-    path.mkdir(parents=False, exist_ok=False)
+    path.mkdir(parents=False, exist_ok=False, mode=PRIVATE_DIR_MODE)
     for child in ("commands", "review_cycles", "scaffolds", "archives", "final_bundle", "human_pauses", "monitoring", "dry_runs"):
-        (path / child).mkdir(parents=True, exist_ok=True)
+        (path / child).mkdir(parents=True, exist_ok=True, mode=PRIVATE_DIR_MODE)
     return session_id, path
 
 
@@ -218,9 +289,28 @@ def session_manifest_path(session_path: Path) -> Path:
 def load_session(root: Path, session_ref: str | Path) -> dict[str, Any]:
     path = session_dir(root, session_ref)
     manifest_path = session_manifest_path(path)
-    payload = load_json_validated(manifest_path, "supervisor_session.schema.json", "supervisor session")
+    try:
+        raw_payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise SystemExit(f"Invalid JSON for supervisor session: {manifest_path}: {exc}") from exc
+    if not isinstance(raw_payload, dict):
+        raise SystemExit(f"Supervisor session must be a JSON object: {manifest_path}")
+    schema_filename = _supervisor_session_schema(raw_payload)
+    try:
+        validate_against_schema(raw_payload, schema_filename, "supervisor session")
+    except SchemaValidationError as exc:
+        raise SystemExit(str(exc)) from exc
+    payload = raw_payload
     payload["_session_dir"] = relpath(root, path)
     payload["_manifest_path"] = relpath(root, manifest_path)
+    if payload.get("schema_version") == SUPERVISOR_SESSION_SCHEMA_VERSION:
+        payload["_revision"] = int(payload["revision"])
+    else:
+        revision_path = path / ".supervisor_session.revision"
+        try:
+            payload["_revision"] = int(revision_path.read_text(encoding="utf-8").strip())
+        except (FileNotFoundError, ValueError):
+            payload["_revision"] = 0
     return payload
 
 
@@ -228,12 +318,49 @@ def write_session(root: Path, session_path: Path, payload: dict[str, Any]) -> di
     writable = {key: value for key, value in payload.items() if not key.startswith("_")}
     writable["updated_at"] = runner_now().isoformat()
     manifest_path = session_manifest_path(session_path)
-    tmp = manifest_path.with_suffix(".json.tmp")
-    write_json_validated(tmp, writable, "supervisor_session.schema.json", "supervisor session")
-    tmp.replace(manifest_path)
+    revision_path = session_path / ".supervisor_session.revision"
+    expected_revision = payload.get("_revision")
+    schema_version = writable.get("schema_version")
+    is_v2 = schema_version == SUPERVISOR_SESSION_SCHEMA_VERSION
+    with _session_write_lock(session_path):
+        if manifest_path.exists() and is_v2:
+            try:
+                current_payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+                current_revision = int(current_payload["revision"])
+            except (json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
+                raise SystemExit(
+                    "Existing v2 supervisor session has no valid in-manifest revision; "
+                    "recover it before updating."
+                ) from exc
+        else:
+            try:
+                current_revision = int(revision_path.read_text(encoding="utf-8").strip())
+            except (FileNotFoundError, ValueError):
+                current_revision = 0
+        if manifest_path.exists() and expected_revision is None:
+            raise SystemExit("Supervisor session update requires a loaded _revision for compare-and-swap.")
+        if expected_revision is not None and int(expected_revision) != current_revision:
+            raise SystemExit(
+                "Supervisor session revision conflict: "
+                f"expected {expected_revision}, current {current_revision}. Reload before retrying."
+            )
+        next_revision = current_revision + 1
+        if is_v2:
+            writable["revision"] = next_revision
+        try:
+            validate_against_schema(writable, _supervisor_session_schema(writable), "supervisor session")
+        except SchemaValidationError as exc:
+            raise SystemExit(str(exc)) from exc
+        write_private_json(manifest_path, writable)
+        if not is_v2:
+            write_private_text(revision_path, f"{next_revision}\n")
     loaded = dict(writable)
     loaded["_session_dir"] = relpath(root, session_path)
     loaded["_manifest_path"] = relpath(root, manifest_path)
+    loaded["_revision"] = next_revision
+    payload["_revision"] = next_revision
+    if is_v2:
+        payload["revision"] = next_revision
     return loaded
 
 
@@ -242,13 +369,13 @@ def write_json_artifact(root: Path, path: str | Path, payload: Any, schema_filen
     if schema_filename:
         write_json_validated(resolved, payload, schema_filename, label)
     else:
-        write_json(resolved, payload)
+        write_private_json(resolved, payload)
     return relpath(root, resolved)
 
 
 def write_text_artifact(root: Path, path: str | Path, text: str) -> str:
     resolved = resolve_under_root(root, path, must_exist=False)
-    write_text(resolved, text)
+    write_private_text(resolved, text)
     return relpath(root, resolved)
 
 
@@ -363,7 +490,7 @@ def _is_gitignored(relative_posix: str, ignored_paths: frozenset[str]) -> bool:
     return False
 
 
-def snapshot_workspace(root: Path) -> dict[str, str]:
+def snapshot_workspace(root: Path, *, include_paths: Iterable[str | Path] = ()) -> dict[str, str]:
     """Hash workspace source files, excluding junk, caches, and ignored paths.
 
     This snapshot feeds read-only reviewer enforcement. It must only see
@@ -401,6 +528,17 @@ def snapshot_workspace(root: Path) -> dict[str, str]:
         if not file_path.is_file():
             continue
         snapshot[file_path.relative_to(root).as_posix()] = sha256_file(file_path)
+
+    # Explicit review inputs are evidence even when they live in ignored
+    # runner directories such as .local. Include only declared targets so
+    # unrelated runtime churn cannot create false read-only failures.
+    for raw_path in include_paths:
+        explicit = resolve_under_root(root, raw_path, must_exist=False)
+        if not explicit.exists():
+            continue
+        candidates = [explicit] if explicit.is_file() else sorted(path for path in explicit.rglob("*") if path.is_file())
+        for file_path in candidates:
+            snapshot[file_path.relative_to(root).as_posix()] = sha256_file(file_path)
     return snapshot
 
 
@@ -438,7 +576,21 @@ def _safe_load_json(path: Path) -> dict[str, Any] | None:
     return payload if isinstance(payload, dict) else None
 
 
-def _stage_dir_from_run(run_dir: Path, stage_id: str) -> Path | None:
+def _stage_dir_from_run(
+    root: Path,
+    run_dir: Path,
+    stage_id: str,
+    stage_summary: dict[str, Any],
+) -> Path | None:
+    """Resolve the immutable current attempt, with the v1 stage root as fallback."""
+
+    current_attempt_id = stage_summary.get("current_attempt_id")
+    for attempt in stage_summary.get("attempts", []):
+        if not isinstance(attempt, dict) or attempt.get("attempt_id") != current_attempt_id:
+            continue
+        attempt_dir = attempt.get("attempt_dir")
+        if isinstance(attempt_dir, str) and attempt_dir:
+            return resolve_under_root(root, attempt_dir, must_exist=False)
     stages = sorted((run_dir / "stages").glob(f"*_{stage_id}"))
     return stages[0] if stages else None
 
@@ -447,7 +599,6 @@ def compute_request_evidence(root: Path, run_dir: str | Path, stage_id: str) -> 
     resolved_run_dir = resolve_under_root(root, run_dir, must_exist=True)
     run_manifest_path = resolved_run_dir / "run_manifest.json"
     run_manifest = _safe_load_json(run_manifest_path) or {}
-    stage_dir = _stage_dir_from_run(resolved_run_dir, stage_id)
     evidence_files: list[dict[str, Any]] = []
     if run_manifest_path.exists():
         evidence_files.append(artifact_record(root, run_manifest_path, "run_manifest"))
@@ -457,6 +608,7 @@ def compute_request_evidence(root: Path, run_dir: str | Path, stage_id: str) -> 
         if isinstance(item, dict) and item.get("stage_id") == stage_id:
             stage_summary = item
             break
+    stage_dir = _stage_dir_from_run(root, resolved_run_dir, stage_id, stage_summary)
 
     candidate_paths: list[tuple[str, Path]] = []
     if stage_dir is not None:
@@ -487,7 +639,7 @@ def compute_request_evidence(root: Path, run_dir: str | Path, stage_id: str) -> 
 
     model_tool_settings: dict[str, Any] = {}
     if isinstance(request_payload, dict):
-        for key in ("model", "reasoning", "text", "max_output_tokens", "prompt_cache_retention", "tools", "tool_choice", "max_tool_calls", "parallel_tool_calls", "service_tier"):
+        for key in ("model", "reasoning", "text", "max_output_tokens", "prompt_cache_options", "prompt_cache_retention", "tools", "tool_choice", "max_tool_calls", "parallel_tool_calls", "service_tier"):
             if key in request_payload:
                 model_tool_settings[key] = request_payload[key]
 

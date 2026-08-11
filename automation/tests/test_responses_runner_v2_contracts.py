@@ -35,9 +35,9 @@ class ResponsesRunnerV2ContractsTests(unittest.TestCase):
         self.assertEqual(contracts.normalize_prompt_cache_retention("24h"), "24h")
         self.assertIsNone(contracts.normalize_prompt_cache_retention(None))
 
-    def test_engine_defaults_are_gpt55_family(self) -> None:
-        self.assertEqual(contracts.DEFAULT_PRIMARY_MODEL, "gpt-5.5-pro")
-        self.assertEqual(contracts.DEFAULT_STRUCTURAL_MODEL, "gpt-5.5")
+    def test_engine_defaults_are_durable_gpt56_alias(self) -> None:
+        self.assertEqual(contracts.DEFAULT_PRIMARY_MODEL, "gpt-5.6")
+        self.assertEqual(contracts.DEFAULT_STRUCTURAL_MODEL, "gpt-5.6")
 
     def test_gpt55_base_model_caps_and_prompt_cache_validation(self) -> None:
         self.assertEqual(contracts.base_model_name("gpt-5.5-pro-2026-04-23"), "gpt-5.5-pro")
@@ -71,7 +71,7 @@ class ResponsesRunnerV2ContractsTests(unittest.TestCase):
         self.assertEqual(workflow.workflow_mode, "reviewed_three_stage")
         self.assertEqual(len(workflow.stages), 3)
         self.assertEqual(workflow.stages[1].carry_forward.review_bundle_from_stage_id, "proposal")
-        self.assertTrue(workflow.stages[1].carry_forward.review_bundle_include_response_artifact_json)
+        self.assertFalse(workflow.stages[1].carry_forward.review_bundle_include_response_artifact_json)
 
     def test_load_workflow_definition_can_disable_raw_review_bundle_json_for_stage(self) -> None:
         with tempfile.TemporaryDirectory(dir=ROOT) as tmp:

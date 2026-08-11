@@ -9,7 +9,12 @@ from automation.responses_runner_v2.contracts import RuntimeOptions
 from automation.responses_runner_v2.review_bundle import create_review_bundle
 from automation.responses_runner_v2.workflow import run_workflow
 
-from automation.tests.test_responses_runner_v2_workflow import FakeClient
+from automation.tests.test_responses_runner_v2_workflow import (
+    FakeClient,
+    SequenceClient,
+    _completed_response,
+    _stage_dir,
+)
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -56,14 +61,20 @@ class ResponsesRunnerV2ExamplePackTests(unittest.TestCase):
                 root=ROOT,
             )
             run_manifest = json.loads((ROOT / result["run_manifest_path"]).read_text(encoding="utf-8"))
-            stage_dir = ROOT / run_manifest["stages"][0]["stage_dir"]
+            stage_dir = _stage_dir(run_manifest)
             self.assertEqual(run_manifest["status"], "completed")
             self.assertTrue((stage_dir / "output.structured.json").exists())
 
     def test_reviewed_three_stage_proof_path(self) -> None:
         with tempfile.TemporaryDirectory(dir=ROOT) as tmp:
             output_root = Path(tmp).relative_to(ROOT)
-            client = FakeClient()
+            client = SequenceClient(
+                [
+                    _completed_response("resp_proposal", text="Synthetic proposal"),
+                    _completed_response("resp_revision", text="Synthetic revision"),
+                    _completed_response("resp_final", text="Synthetic final delivery"),
+                ]
+            )
 
             stage1 = run_workflow(
                 workflow_file="automation/examples/responses_runner_v2_synthetic/workflows/reviewed_three_stage.workflow.json",
@@ -79,6 +90,7 @@ class ResponsesRunnerV2ExamplePackTests(unittest.TestCase):
             run_dir = ROOT / stage1["run_dir"]
             run_manifest = json.loads((run_dir / "run_manifest.json").read_text(encoding="utf-8"))
             run_id = run_manifest["run_id"]
+            proposal_stage_dir = _stage_dir(run_manifest, "proposal")
 
             notes1 = run_dir / "stage1.review.md"
             notes1.write_text("# approved\n", encoding="utf-8")
@@ -89,8 +101,8 @@ class ResponsesRunnerV2ExamplePackTests(unittest.TestCase):
                 workflow_id="synthetic_reviewed_three_stage",
                 source_stage_id="proposal",
                 source_run_id=run_id,
-                primary_artifact_markdown=(run_dir / "stages/01_proposal/response.final.md").relative_to(ROOT),
-                response_artifact_json=(run_dir / "stages/01_proposal/response.final.json").relative_to(ROOT),
+                primary_artifact_markdown=(proposal_stage_dir / "artifact.md").relative_to(ROOT),
+                response_artifact_json=(proposal_stage_dir / "response.final.json").relative_to(ROOT),
                 reviewer_notes=notes1.relative_to(ROOT),
             )
 
@@ -106,6 +118,8 @@ class ResponsesRunnerV2ExamplePackTests(unittest.TestCase):
                 root=ROOT,
             )
             self.assertEqual(stage2["status"], "waiting_for_review")
+            run_manifest = json.loads((run_dir / "run_manifest.json").read_text(encoding="utf-8"))
+            revision_stage_dir = _stage_dir(run_manifest, "revision")
 
             notes2 = run_dir / "stage2.review.md"
             notes2.write_text("# approved\n", encoding="utf-8")
@@ -116,8 +130,8 @@ class ResponsesRunnerV2ExamplePackTests(unittest.TestCase):
                 workflow_id="synthetic_reviewed_three_stage",
                 source_stage_id="revision",
                 source_run_id=run_id,
-                primary_artifact_markdown=(run_dir / "stages/02_revision/response.final.md").relative_to(ROOT),
-                response_artifact_json=(run_dir / "stages/02_revision/response.final.json").relative_to(ROOT),
+                primary_artifact_markdown=(revision_stage_dir / "artifact.md").relative_to(ROOT),
+                response_artifact_json=(revision_stage_dir / "response.final.json").relative_to(ROOT),
                 reviewer_notes=notes2.relative_to(ROOT),
             )
 
@@ -134,7 +148,7 @@ class ResponsesRunnerV2ExamplePackTests(unittest.TestCase):
             )
 
             final_manifest = json.loads((ROOT / final_result["run_manifest_path"]).read_text(encoding="utf-8"))
-            final_stage_dir = ROOT / final_manifest["stages"][-1]["stage_dir"]
+            final_stage_dir = _stage_dir(final_manifest, index=-1)
             self.assertEqual(final_manifest["status"], "completed")
             self.assertTrue((final_stage_dir / "output.structured.json").exists())
 

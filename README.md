@@ -2,7 +2,10 @@
 
 [![CI](https://github.com/AysajanE/staged-workflow-runner/actions/workflows/ci.yml/badge.svg)](https://github.com/AysajanE/staged-workflow-runner/actions/workflows/ci.yml)
 
-A manifest-driven runner for high-stakes staged OpenAI Responses workflows. The runner is designed to execute complex tasks from explicit task packs, preserve durable local evidence, support reviewed handoffs between stages, and optionally operate through an additive supervisor lane.
+A manifest-driven runner for high-stakes staged OpenAI Responses workflows. It supports
+important coding, business, research, and operational tasks from explicit task packs, preserves
+durable local evidence, supports reviewed handoffs, and optionally operates through an additive
+supervisor lane.
 
 ## Current Status
 
@@ -13,6 +16,7 @@ This repository is ready to publish as a standalone source repository for the ru
 - Review-bundle CLI: `automation/create_review_bundle_v2.py`.
 - Supervisor CLI: `automation/run_responses_supervisor_v2.py`.
 - Synthetic proof pack: included under `automation/examples/responses_runner_v2_synthetic/`.
+- Offline document-evidence example: included under `automation/examples/responses_runner_v2_evidence_synthesis/`.
 - Supervisor/self-improvement packs and the high-stakes gstack-to-PO playbook lane: included under `automation/task_packs/`.
 - Local run outputs, secrets, caches, and scratch archives are intentionally excluded from Git.
 
@@ -25,14 +29,18 @@ The first release intentionally preserves the tested internal layout and names: 
 - Workflow manifests, input manifests, static attachments, review bundles, supervisor sessions, archives, and run outputs must stay under that root.
 - Dual-root mode is deliberately deferred for the first release.
 - Task behavior belongs in task-pack files: prompts, manifests, tool profiles, schemas, and reviewed handoff bundles.
+- Workflow v2 records an assurance profile. Existing packs use `critical` and declare a
+  per-stage `max_input_tokens` budget.
+- Runtime input-binding files can scope a named operator input to the whole workflow or to an
+  explicit stage set.
 
 ## Requirements
 
 - Python 3.10 or newer.
 - `OPENAI_API_KEY` in the environment, or a `.env` file in the active workspace root for live OpenAI runs.
 - For local development, create a Python 3.10+ environment and install this checkout with `python -m pip install -e .`.
-- No mandatory third-party runtime package for the core runner; the HTTP client uses the Python standard library.
-- Optional: `jsonschema` for full JSON Schema validation. A limited fallback validator is built in for supervisor artifacts.
+- `jsonschema` is a core dependency so persisted and task-pack contracts are validated with
+  Draft 2020-12 before dataclass coercion.
 - Optional for tests: `pytest`. The repository test suite also runs with standard-library `unittest`.
 - Supervisor review automation additionally requires:
   - Codex CLI available as `codex`, installed and authenticated according to [OpenAI Codex CLI documentation](https://help.openai.com/en/articles/11096431-openai-codex-ci-getting-started);
@@ -41,14 +49,19 @@ The first release intentionally preserves the tested internal layout and names: 
 
 ## Model Defaults
 
-Runtime and committed workflow defaults use the GPT-5.5 family:
+Runtime and committed workflow defaults use the durable GPT-5.6 alias:
 
-- primary generation: `gpt-5.5-pro`
-- structural processing: `gpt-5.5`
-- committed GPT-5.5-family prompt cache retention: `24h`
+- primary generation: `gpt-5.6`, `reasoning.mode=pro`
+- structural processing: `gpt-5.6`, standard reasoning mode
+- prompt caching: `prompt_cache_options={"mode":"implicit","ttl":"30m"}`
+- prompt-cache routing: stable keys per workflow/version/model role; `legacy_stage_v1` remains available for paired A/B measurement
 - high-stakes primary reasoning effort: `xhigh`
 - structural reasoning effort: `high` or `medium`
+- context window: `1050000`; maximum output tokens: `128000`
 - locked high-stakes self-improvement max output tokens: `128000`
+
+Changing stage verbosity or moving terminal stages between `high` and `xhigh` remains an
+A/B-tested optimization, not part of the model migration.
 
 ## Quick Start
 
@@ -67,13 +80,23 @@ python automation/run_responses_v2.py run \
   --dry-run
 ```
 
+Validate the non-coding evidence-synthesis example entirely offline:
+
+```bash
+python -m unittest automation.tests.test_responses_runner_v2_evidence_synthesis_example
+```
+
+Its checked-in binding file can be supplied to a real run with
+`--input-binding-file automation/examples/responses_runner_v2_evidence_synthesis/runtime_input_bindings.example.json`.
+The supervisor accepts the same binding file for scaffold dry runs, accepted launches, and
+archive-authorized reruns, so its stage scope is preserved by the frozen run contract.
+
 Run the same proof pack live and wait for completion:
 
 ```bash
 python automation/run_responses_v2.py run \
   --root . \
   --workflow-file automation/examples/responses_runner_v2_synthetic/workflows/one_pass.workflow.json \
-  --skip-token-count \
   --wait
 ```
 
@@ -83,7 +106,6 @@ Use this checkout against an external target workspace:
 python $KEEL_ROOT/tools/staged-workflow-runner/automation/run_responses_v2.py run \
   --root /path/to/target-workspace \
   --workflow-file task_packs/example/workflows/example.workflow.json \
-  --skip-token-count \
   --wait
 ```
 
@@ -141,8 +163,10 @@ For every scaffold and non-terminal stage, the required supervisor review loop i
 - `automation/run_responses_v2.py` — generic runner CLI.
 - `automation/create_review_bundle_v2.py` — approved review-bundle CLI.
 - `automation/run_responses_supervisor_v2.py` — supervisor CLI.
-- `automation/run_responses_v2_eval.py` — lightweight eval and freeze-gate helper.
+- `automation/run_responses_v2_eval.py` — deterministic eval and freeze-gate helper; representative cases keep hash-bound inputs/gold separate from offline runner candidate artifacts.
 - `automation/examples/responses_runner_v2_synthetic/` — bounded proof pack.
+- `automation/examples/responses_runner_v2_evidence_synthesis/` — offline, non-coding evidence and citation example.
+- `automation/responses_runner_v2/schemas/final_delivery_bundle.schema.json` — domain-neutral terminal delivery contract; implementation packets remain the stricter implementation-specific extension.
 - `automation/task_packs/responses_runner_v2_supervisor_internal/` — supervisor prompt and command-template library.
 - `automation/task_packs/responses_runner_v2_supervised_end_to_end/` — current four-stage self-improvement pack.
 - `automation/task_packs/responses_runner_v2_supervisory_lane/` — legacy three-stage supervisory-lane pack kept as historical regression coverage.

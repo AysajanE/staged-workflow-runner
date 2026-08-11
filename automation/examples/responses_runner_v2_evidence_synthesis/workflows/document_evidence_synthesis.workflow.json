@@ -1,0 +1,134 @@
+{
+  "schema_version": "responses_runner_v2.workflow_manifest.v2",
+  "workflow_id": "document_evidence_synthesis",
+  "workflow_name": "Document Evidence Synthesis",
+  "workflow_mode": "reviewed_three_stage",
+  "description": "Non-coding synthesis of bounded documents into an advisory decision brief.",
+  "assurance_profile": "reviewed",
+  "shared_instructions_file": "../shared_instructions.md",
+  "operator_requirements": {
+    "minimum_primary_job_inputs": 0,
+    "maximum_primary_job_inputs": 0,
+    "allow_reference_context": false
+  },
+  "defaults": {
+    "model_roles": {
+      "primary_generation": {
+        "model": "gpt-5.6",
+        "reasoning_effort": "xhigh",
+        "reasoning_mode": "pro",
+        "verbosity": "high",
+        "prompt_cache_mode": "implicit",
+        "prompt_cache_ttl": "30m"
+      },
+      "structural_processing": {
+        "model": "gpt-5.6",
+        "reasoning_effort": "high",
+        "reasoning_mode": "standard",
+        "verbosity": "medium",
+        "prompt_cache_mode": "implicit",
+        "prompt_cache_ttl": "30m"
+      }
+    },
+    "request": {
+      "background": true,
+      "store": true,
+      "parallel_tool_calls": true,
+      "max_tool_calls": 1,
+      "service_tier": "default",
+      "token_preflight": {
+        "enabled": true,
+        "max_retries": 2,
+        "retryable_http_status_codes": [
+          429,
+          500,
+          502,
+          503,
+          504
+        ],
+        "on_retryable_service_failure": "fail_closed"
+      },
+      "file_uploads": {
+        "purpose": "user_data",
+        "delete_on_completion": false,
+        "expires_after_seconds": 604800
+      }
+    }
+  },
+  "stages": [
+    {
+      "stage_id": "source_register",
+      "stage_number": 1,
+      "title": "Source Register",
+      "task_file": "../prompts/stage1_source_register.md",
+      "input_manifest_file": "../inputs/stage1.input_manifest.json",
+      "model_role": "primary_generation",
+      "max_input_tokens": 700000,
+      "max_output_tokens": 8000,
+      "gate": "review_required",
+      "citation_policy": {
+        "allowed_locator_types": ["operator_input", "workspace_file"]
+      },
+      "post_output_validators": [
+        {"validator_id": "evidence_references_v1", "gate": "blocking"}
+      ],
+      "output": {
+        "primary_format": "text"
+      }
+    },
+    {
+      "stage_id": "evidence_synthesis",
+      "stage_number": 2,
+      "title": "Evidence Synthesis",
+      "task_file": "../prompts/stage2_evidence_synthesis.md",
+      "input_manifest_file": "../inputs/stage2.input_manifest.json",
+      "model_role": "primary_generation",
+      "max_input_tokens": 700000,
+      "max_output_tokens": 12000,
+      "gate": "review_required",
+      "citation_policy": {
+        "allowed_locator_types": ["workspace_file", "stage_artifact"]
+      },
+      "post_output_validators": [
+        {"validator_id": "evidence_references_v1", "gate": "blocking"}
+      ],
+      "carry_forward": {
+        "reference_context_from_stage_ids": [
+          "source_register"
+        ],
+        "review_bundle_from_stage_id": "source_register",
+        "review_bundle_include_response_artifact_json": false
+      },
+      "output": {
+        "primary_format": "text"
+      }
+    },
+    {
+      "stage_id": "final_decision_brief",
+      "stage_number": 3,
+      "title": "Final Decision Brief",
+      "task_file": "../prompts/stage3_final_decision_brief.md",
+      "input_manifest_file": "../inputs/stage3.input_manifest.json",
+      "model_role": "primary_generation",
+      "max_input_tokens": 700000,
+      "max_output_tokens": 10000,
+      "gate": "terminal",
+      "citation_policy": {
+        "allowed_locator_types": ["operator_input", "stage_artifact"]
+      },
+      "post_output_validators": [
+        {"validator_id": "evidence_references_v1", "gate": "blocking"}
+      ],
+      "carry_forward": {
+        "reference_context_from_stage_ids": [
+          "evidence_synthesis"
+        ],
+        "review_bundle_from_stage_id": "evidence_synthesis",
+        "review_bundle_include_response_artifact_json": false
+      },
+      "output": {
+        "primary_format": "text"
+      }
+    }
+  ]
+}

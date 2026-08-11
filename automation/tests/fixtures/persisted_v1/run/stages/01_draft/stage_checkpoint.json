@@ -1,0 +1,26 @@
+{
+  "schema_version": "responses_runner_v2.stage_checkpoint.v1",
+  "run_id": "run_frozen_v1",
+  "stage_id": "draft",
+  "stage_number": 1,
+  "updated_at": "2026-04-23T12:05:00+00:00",
+  "status": "completed",
+  "terminal": true,
+  "resume_mode": "fresh_submit",
+  "request_payload_path": "automation/tests/fixtures/persisted_v1/run/stages/01_draft/request_payload.json",
+  "input_manifest_json_path": "automation/tests/fixtures/persisted_v1/run/stages/01_draft/input_manifest.json",
+  "input_manifest_markdown_path": "automation/tests/fixtures/persisted_v1/run/stages/01_draft/input_manifest.md",
+  "token_preflight": {"status": "succeeded", "attempts": 1, "input_tokens": 42},
+  "response": {
+    "id": "resp_frozen_v1",
+    "status": "completed",
+    "model": "gpt-5.5-pro",
+    "background": true,
+    "store": true
+  },
+  "artifacts": {
+    "stage_dir": "automation/tests/fixtures/persisted_v1/run/stages/01_draft",
+    "response_final_json_path": "automation/tests/fixtures/persisted_v1/response.final.json",
+    "response_final_markdown_path": "automation/tests/fixtures/persisted_v1/artifact.md"
+  }
+}

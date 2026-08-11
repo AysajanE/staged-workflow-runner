@@ -77,8 +77,9 @@ class ResponsesRunnerV2ReviewBundleTests(unittest.TestCase):
             )
             entries = expand_review_bundle_inputs(bundle)
 
-        self.assertGreaterEqual(len(entries), 4)
+        self.assertEqual(len(entries), 3)
         self.assertEqual(entries[0].path, "review_bundle.json")
+        self.assertNotIn("response.final.json", [entry.path for entry in entries])
 
     def test_expand_review_bundle_inputs_can_exclude_raw_response_json(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

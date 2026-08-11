@@ -1,5 +1,5 @@
 {
-  "schema_version": "responses_runner_v2.supervisor_command_template.v1",
+  "schema_version": "responses_runner_v2.supervisor_command_template.v2",
   "agent": "consolidation_pass",
   "canonical_command": "python3 automation/run_responses_supervisor_v2.py consolidate",
   "argv_template": [
@@ -22,6 +22,7 @@
     "{consolidated_review_json_path}"
   ],
   "cwd": "{workspace_root}",
+  "timeout_seconds": 1800,
   "required_inputs": [
     "{operator_provisional_review_path}",
     "{codex_review_json_path}",

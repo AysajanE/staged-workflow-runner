@@ -1,0 +1,18 @@
+{
+  "schema_version": "responses_runner_v2.review_bundle.v1",
+  "workflow_id": "frozen_v1_workflow",
+  "source_stage_id": "draft",
+  "source_run_id": "run_frozen_v1",
+  "created_at": "2026-04-23T12:06:00+00:00",
+  "review_status": "approved",
+  "primary_artifact_markdown": "automation/tests/fixtures/persisted_v1/artifact.md",
+  "response_artifact_json": "automation/tests/fixtures/persisted_v1/response.final.json",
+  "reviewer_notes": "automation/tests/fixtures/persisted_v1/reviewer_notes.md",
+  "artifact_hashes": {
+    "primary_artifact_markdown_sha256": "040cc5cf0b82e2b6bd0121b7a2f6ff44b6d10e2b7fb20bdb916e67a74f4a28bd",
+    "response_artifact_json_sha256": "d377e542393d5e0e1b6059d98ab1c0050b179fecd367c48a68cd47d3c61a15e4",
+    "reviewer_notes_sha256": "6c57565540b17dbe2666dc8fca3a03fdc7168277b85c50a8748556a895c880a6"
+  },
+  "locked_decisions": ["Preserve frozen v1 evidence."],
+  "open_dependencies": []
+}

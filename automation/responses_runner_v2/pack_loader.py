@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from .contracts import (
+    ASSURANCE_PROFILES,
     AttachmentEntry,
     CarryForwardConfig,
     FileUploadPolicy,
@@ -14,8 +15,10 @@ from .contracts import (
     ModelRoleProfile,
     OutputConfig,
     OutputSidecarConfig,
+    PostOutputValidator,
     RequestDefaults,
     ROLE_TO_FIELD,
+    RuntimeInputBinding,
     TokenPreflightPolicy,
     WORKFLOW_SCHEMA_VERSION,
     base_model_name,
@@ -27,6 +30,11 @@ from .contracts import (
     require_keys,
     resolve_under_root,
     validate_model_options,
+)
+from .schema_validation import (
+    persisted_schema_filename,
+    validate_contract,
+    workflow_schema_filename,
 )
 
 
@@ -50,14 +58,29 @@ def _parse_model_role_profile(
     prompt_cache_retention = payload.get("prompt_cache_retention")
     if prompt_cache_retention is not None:
         prompt_cache_retention = str(prompt_cache_retention)
+    reasoning_mode = payload.get("reasoning_mode")
+    prompt_cache_mode = payload.get("prompt_cache_mode")
+    prompt_cache_ttl = payload.get("prompt_cache_ttl")
     if base_model_name(model).startswith("gpt-5.5") and prompt_cache_retention != "24h":
         raise SystemExit(
             f"GPT-5.5-family model role {model!r} must explicitly set prompt_cache_retention=24h."
         )
+    if base_model_name(model).startswith("gpt-5.6"):
+        if prompt_cache_retention is not None:
+            raise SystemExit(
+                f"GPT-5.6-family model role {model!r} must not use prompt_cache_retention."
+            )
+        if prompt_cache_mode not in {None, "implicit", "explicit"}:
+            raise SystemExit("prompt_cache_mode must be implicit or explicit.")
+        if prompt_cache_ttl not in {None, "30m"}:
+            raise SystemExit("GPT-5.6 currently supports prompt_cache_ttl=30m only.")
     return ModelRoleProfile(
         model=model,
         reasoning_effort=reasoning_effort,
         verbosity=verbosity,
+        reasoning_mode=str(reasoning_mode) if reasoning_mode is not None else None,
+        prompt_cache_mode=(str(prompt_cache_mode) if prompt_cache_mode is not None else None),
+        prompt_cache_ttl=(str(prompt_cache_ttl) if prompt_cache_ttl is not None else None),
         prompt_cache_retention=prompt_cache_retention,
     )
 
@@ -168,6 +191,8 @@ def _parse_stage(
     root: Path,
     base_dir: Path,
     payload: dict[str, Any],
+    *,
+    legacy_v1_defaults: bool = False,
 ) -> StageDefinition:
     require_keys(
         payload,
@@ -198,8 +223,20 @@ def _parse_stage(
             else None
         ),
         review_bundle_include_response_artifact_json=bool(
-            carry_forward_payload.get("review_bundle_include_response_artifact_json", True)
+            carry_forward_payload.get(
+                "review_bundle_include_response_artifact_json",
+                legacy_v1_defaults,
+            )
         ),
+    )
+    validator_payloads = payload.get("post_output_validators", [])
+    post_output_validators = tuple(
+        PostOutputValidator(
+            validator_id=str(item["validator_id"]),
+            gate=str(item.get("gate", "blocking")),
+            timeout_seconds=float(item.get("timeout_seconds", 10.0)),
+        )
+        for item in validator_payloads
     )
     output = _parse_output_config(root, base_dir, payload["output"], model_role)
     return StageDefinition(
@@ -250,6 +287,8 @@ def _parse_stage(
         gate=GateType(str(payload["gate"])),
         carry_forward=carry_forward,
         output=output,
+        post_output_validators=post_output_validators,
+        citation_policy=dict(payload.get("citation_policy", {})),
     )
 
 
@@ -263,10 +302,11 @@ def load_workflow_definition(
     root = root or repo_root()
     workflow_path = resolve_under_root(root, workflow_file, must_exist=True)
     payload = load_json(workflow_path, "workflow manifest")
-    if payload.get("schema_version") != WORKFLOW_SCHEMA_VERSION:
-        raise SystemExit(
-            f"Unexpected workflow schema_version in {workflow_path}: {payload.get('schema_version')!r}"
-        )
+    validate_contract(
+        payload,
+        workflow_schema_filename(payload.get("schema_version")),
+        label=f"workflow manifest {workflow_path}",
+    )
     require_keys(
         payload,
         [
@@ -305,15 +345,28 @@ def load_workflow_definition(
     stages_payload = payload["stages"]
     if not isinstance(stages_payload, list) or not stages_payload:
         raise SystemExit("workflow.stages must be a non-empty list.")
-    stages = tuple(_parse_stage(root, base_dir, item) for item in stages_payload)
+    stages = tuple(
+        _parse_stage(
+            root,
+            base_dir,
+            item,
+            legacy_v1_defaults=(
+                payload.get("schema_version") == "responses_runner_v2.workflow_manifest.v1"
+            ),
+        )
+        for item in stages_payload
+    )
     stage_ids = {stage.stage_id for stage in stages}
     if len(stage_ids) != len(stages):
         raise SystemExit("workflow stages must have unique stage_id values.")
     stage_numbers = [stage.stage_number for stage in stages]
     if len(set(stage_numbers)) != len(stage_numbers):
         raise SystemExit("workflow stages must have unique stage_number values.")
-    if stage_numbers != sorted(stage_numbers):
-        raise SystemExit("workflow stages must be ordered by ascending stage_number.")
+    expected_stage_numbers = list(range(1, len(stages) + 1))
+    if stage_numbers != expected_stage_numbers:
+        raise SystemExit(
+            f"workflow stage_number values must be exactly 1..N in order; got {stage_numbers}."
+        )
 
     workflow_mode = str(payload["workflow_mode"])
     if workflow_mode == "one_pass" and len(stages) != 1:
@@ -323,28 +376,86 @@ def load_workflow_definition(
     if workflow_mode == "reviewed_three_stage" and len(stages) != 3:
         raise SystemExit("workflow_mode=reviewed_three_stage requires exactly three stages.")
 
+    stage_number_by_id = {stage.stage_id: stage.stage_number for stage in stages}
     for stage in stages:
         for source_stage_id in stage.carry_forward.reference_context_from_stage_ids:
             if source_stage_id not in stage_ids:
                 raise SystemExit(
                     f"stage {stage.stage_id} references unknown carry-forward stage {source_stage_id!r}"
                 )
+            if stage_number_by_id[source_stage_id] >= stage.stage_number:
+                raise SystemExit(
+                    f"stage {stage.stage_id} carry-forward dependency {source_stage_id!r} must point backward."
+                )
         source_bundle_stage = stage.carry_forward.review_bundle_from_stage_id
         if source_bundle_stage is not None and source_bundle_stage not in stage_ids:
             raise SystemExit(
                 f"stage {stage.stage_id} references unknown review-bundle stage {source_bundle_stage!r}"
+            )
+        if (
+            source_bundle_stage is not None
+            and stage_number_by_id[source_bundle_stage] >= stage.stage_number
+        ):
+            raise SystemExit(
+                f"stage {stage.stage_id} review-bundle dependency {source_bundle_stage!r} must point backward."
             )
         role_profile = model_roles[stage.model_role.value]
         validate_model_options(
             model=role_profile.model,
             max_output_tokens=stage.max_output_tokens or 128000,
             prompt_cache_retention=role_profile.prompt_cache_retention,
+            prompt_cache_ttl=role_profile.prompt_cache_ttl,
+            reasoning_mode=role_profile.reasoning_mode,
             text_format=stage.output.primary_format,
         )
+
+        static_manifest = load_input_manifest(stage.input_manifest_path, root=root)
+        if payload.get("schema_version") == WORKFLOW_SCHEMA_VERSION:
+            if static_manifest.get("workflow_id") not in {None, str(payload["workflow_id"])}:
+                raise SystemExit(
+                    f"input manifest for stage {stage.stage_id} has workflow_id "
+                    f"{static_manifest.get('workflow_id')!r}, expected {payload['workflow_id']!r}."
+                )
+            if static_manifest.get("stage_id") not in {None, stage.stage_id}:
+                raise SystemExit(
+                    f"input manifest for stage {stage.stage_id} has stage_id "
+                    f"{static_manifest.get('stage_id')!r}."
+                )
 
     operator_requirements = payload.get("operator_requirements") or {}
     if not isinstance(operator_requirements, dict):
         raise SystemExit("workflow.operator_requirements must be an object when present.")
+
+    assurance_profile = str(payload.get("assurance_profile", "critical"))
+    if assurance_profile not in ASSURANCE_PROFILES:
+        raise SystemExit(f"Unknown assurance_profile {assurance_profile!r}.")
+    data_policy = ASSURANCE_PROFILES[assurance_profile]["data_handling"]
+    if request_defaults.store and not data_policy["api_store_allowed"]:
+        raise SystemExit(
+            f"assurance_profile={assurance_profile} does not allow API store=true."
+        )
+    if request_defaults.file_uploads.purpose != data_policy["file_purpose"]:
+        raise SystemExit(
+            f"assurance_profile={assurance_profile} requires file purpose "
+            f"{data_policy['file_purpose']!r}."
+        )
+    if (
+        data_policy["delete_uploaded_files_on_complete"]
+        and not request_defaults.file_uploads.delete_on_completion
+    ):
+        raise SystemExit(
+            f"assurance_profile={assurance_profile} requires uploaded-file deletion on completion."
+        )
+    if (
+        payload.get("schema_version") == WORKFLOW_SCHEMA_VERSION
+        and ASSURANCE_PROFILES[assurance_profile]["require_input_budget"]
+    ):
+        missing_budgets = [stage.stage_id for stage in stages if stage.max_input_tokens is None]
+        if missing_budgets:
+            raise SystemExit(
+                f"assurance_profile={assurance_profile} requires max_input_tokens for every stage; "
+                f"missing: {', '.join(missing_budgets)}."
+            )
 
     return WorkflowDefinition(
         schema_version=str(payload["schema_version"]),
@@ -352,6 +463,7 @@ def load_workflow_definition(
         workflow_name=str(payload.get("workflow_name") or payload["workflow_id"]),
         workflow_mode=workflow_mode,
         description=str(payload["description"]),
+        assurance_profile=assurance_profile,
         workflow_file=workflow_path,
         shared_instructions_file=str(payload["shared_instructions_file"]),
         shared_instructions_path=_resolve_asset_path(
@@ -405,10 +517,11 @@ def load_input_manifest(
     root = root or repo_root()
     manifest_path = resolve_under_root(root, input_manifest_file, must_exist=True)
     payload = load_json(manifest_path, "input manifest")
-    if payload.get("schema_version") != INPUT_MANIFEST_SCHEMA_VERSION:
-        raise SystemExit(
-            f"Unexpected input manifest schema_version in {manifest_path}: {payload.get('schema_version')!r}"
-        )
+    validate_contract(
+        payload,
+        persisted_schema_filename("input_manifest", payload.get("schema_version")),
+        label=f"input manifest {manifest_path}",
+    )
     require_keys(
         payload,
         [
@@ -458,6 +571,49 @@ def load_input_manifest(
         ),
         "reference_context": parse_entries(payload["reference_context"], "reference_context"),
     }
+
+
+def load_runtime_input_bindings(
+    binding_file: str | Path,
+    *,
+    workflow: WorkflowDefinition,
+    root: Path | None = None,
+) -> list[RuntimeInputBinding]:
+    root = root or repo_root()
+    path = resolve_under_root(root, binding_file, must_exist=True)
+    payload = load_json(path, "runtime input bindings")
+    validate_contract(
+        payload,
+        "runtime_input_bindings.schema.json",
+        label=f"runtime input bindings {path}",
+    )
+    known_stages = {stage.stage_id for stage in workflow.stages}
+    bindings: list[RuntimeInputBinding] = []
+    seen_ids: set[str] = set()
+    for raw in payload["bindings"]:
+        binding_id = str(raw["binding_id"])
+        if binding_id in seen_ids:
+            raise SystemExit(f"Duplicate runtime binding_id {binding_id!r}.")
+        seen_ids.add(binding_id)
+        scope = raw["scope"]
+        stage_ids = tuple(str(item) for item in scope.get("stage_ids", ()))
+        unknown = sorted(set(stage_ids) - known_stages)
+        if unknown:
+            raise SystemExit(
+                f"Runtime binding {binding_id!r} references unknown stages: {', '.join(unknown)}."
+            )
+        if scope["type"] == "workflow":
+            stage_ids = ()
+        resolve_under_root(root, str(raw["path"]), must_exist=True)
+        bindings.append(
+            RuntimeInputBinding(
+                binding_id=binding_id,
+                path=str(raw["path"]),
+                authority=str(raw["authority"]),
+                stage_ids=stage_ids,
+            )
+        )
+    return bindings
 
 
 def normalize_tool(tool: object) -> object:

@@ -1,0 +1,35 @@
+{
+  "schema_version": "responses_runner_v2.representative_eval_fixture.v1",
+  "case_id": "representative-critical-coding",
+  "task_type": "critical_coding_implementation",
+  "objective": "Produce a minimal implementation plan for a fail-closed packet validator.",
+  "frozen_inputs": {
+    "sources": [
+      {
+        "source_id": "validator_contract",
+        "content": "validate_packet must reject any packet that omits packet_id. Existing accepted packets must remain readable."
+      }
+    ]
+  },
+  "expected_output_contract": {
+    "required_keys": ["change_summary", "affected_paths", "validation", "claims", "citations"]
+  },
+  "gold_output": {
+    "change_summary": "Add a missing-packet_id rejection without changing accepted packet reads.",
+    "affected_paths": ["packet_validator.py", "test_packet_validator.py"],
+    "validation": ["Reject a packet without packet_id.", "Read an existing valid packet."],
+    "claims": [
+      {
+        "claim": "The validator must fail closed when packet_id is missing.",
+        "citation_ids": ["coding_requirement"]
+      }
+    ],
+    "citations": [
+      {
+        "citation_id": "coding_requirement",
+        "source_id": "validator_contract",
+        "quote": "validate_packet must reject any packet that omits packet_id."
+      }
+    ]
+  }
+}

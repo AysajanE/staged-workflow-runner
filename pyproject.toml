@@ -10,7 +10,7 @@ readme = "README.md"
 requires-python = ">=3.10"
 license = { file = "LICENSE" }
 authors = [{ name = "staged-workflow-runner contributors" }]
-dependencies = []
+dependencies = ["jsonschema>=4.0"]
 keywords = ["openai", "responses-api", "workflow", "automation", "supervisor"]
 classifiers = [
   "Development Status :: 3 - Alpha",
@@ -24,7 +24,6 @@ classifiers = [
 ]
 
 [project.optional-dependencies]
-schema = ["jsonschema>=4.0"]
 test = ["pytest>=7.0"]
 dev = ["jsonschema>=4.0", "pytest>=7.0"]
 
@@ -42,7 +41,9 @@ namespaces = false
 [tool.setuptools.package-data]
 automation = [
   "evals/*.json",
+  "evals/**/*.json",
   "examples/**/*",
+  "responses_runner_v2/*.json",
   "responses_runner_v2/prompts/*.md",
   "responses_runner_v2/schemas/*.json",
   "task_packs/**/*",

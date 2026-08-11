@@ -68,7 +68,7 @@ Assess whether the next stage would receive:
 
 ## Output Contract
 
-Emit JSON conforming to `responses_runner_v2.review_decision.v1`. Include approval decision, blockers, improvements, recommendations, evidence, missing artifacts, unsupported claims, and next action.
+Emit JSON conforming to `responses_runner_v2.reviewer_output.v1`. Include approval decision, blockers, improvements, recommendations, evidence, missing artifacts, unsupported claims, and next action. The supervisor adds the decision envelope.
 
 ## Stopping Conditions
 

@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Responses Runner V2 Review Bundle Binding",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "created_at", "supervisor_session_id", "review_cycle_id", "subject_id", "subject_sha256", "acceptance_binding_path", "acceptance_binding_sha256", "bundle_path", "bundle_sha256", "artifact_hashes"],
+  "properties": {
+    "schema_version": {"const": "responses_runner_v2.review_bundle_binding.v1"},
+    "created_at": {"type": "string", "format": "date-time"},
+    "supervisor_session_id": {"type": "string", "minLength": 1},
+    "review_cycle_id": {"type": "string", "minLength": 1},
+    "subject_id": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "subject_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "acceptance_binding_path": {"type": "string", "minLength": 1},
+    "acceptance_binding_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "bundle_path": {"type": "string", "minLength": 1},
+    "bundle_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "artifact_hashes": {"type": "object", "additionalProperties": {"type": "string", "pattern": "^[a-f0-9]{64}$"}}
+  }
+}

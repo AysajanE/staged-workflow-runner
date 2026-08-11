@@ -29,7 +29,7 @@ A successful agent output:
 ## Constraints
 
 - Do not request interactive clarification after the initial clarification gate.
-- If blocked, emit a blocked-state JSON decision.
+- For a semantic blocker, emit a valid reviewer verdict with `status=succeeded`, `approval_decision=blocked`, and `next_action=blocked`.
 - Do not claim to have reviewed artifacts that were not provided in the job.
 - Do not create approved bundles directly.
 - Do not override the operator acceptance protocol.
@@ -50,13 +50,13 @@ Unsupported claims must be listed in `unsupported_claims`.
 
 ## Output Format
 
-Unless the job explicitly says otherwise, emit one JSON object to stdout conforming to `responses_runner_v2.review_decision.v1`. Include fields required by `automation/responses_runner_v2/schemas/review_decision.schema.json`.
+Emit one JSON object to stdout conforming to `automation/responses_runner_v2/schemas/reviewer_output.schema.json`. Emit only model-owned verdict and finding fields. The supervisor adds the immutable identity, command, timestamp, report-path, and read-only-check envelope.
 
 Do not wrap the stdout JSON in markdown fences.
 
 ## Stopping Conditions
 
-Stop and emit `status=blocked` when:
+Stop and emit `status=succeeded`, `approval_decision=blocked`, and `next_action=blocked` when:
 
 - required artifacts are missing;
 - the job conflicts with higher-priority authority;

@@ -6,9 +6,9 @@ This fact sheet is low-authority synthetic context used by the bounded proof pac
 
 - repository package name: `staged-workflow-runner`
 - internal Python package path: `automation/responses_runner_v2`
-- primary-generation default model role: `gpt-5.5-pro`
-- structural-processing default model role: `gpt-5.5`
-- committed GPT-5.5-family prompt cache retention: `24h`
+- primary-generation default model role: durable `gpt-5.6` alias with `reasoning.mode=pro`
+- structural-processing default model role: durable `gpt-5.6` alias in standard mode
+- GPT-5.6 prompt caching: implicit mode with `ttl=30m`
 - one workspace root per invocation
 - synthetic workflows are examples, not production task packs
 

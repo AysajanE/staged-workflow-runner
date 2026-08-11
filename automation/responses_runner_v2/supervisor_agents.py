@@ -4,13 +4,23 @@ import json
 import os
 import re
 import subprocess
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Callable
 
-from .contracts import REVIEW_DECISION_SCHEMA_VERSION, relpath, resolve_under_root, runner_now, sha256_text, write_json, write_text
-from .supervisor_artifacts import SchemaValidationError, diff_snapshots, snapshot_workspace, validate_against_schema, write_diff
+from . import telemetry
+from .contracts import REVIEW_DECISION_SCHEMA_VERSION, relpath, resolve_under_root, runner_now, sha256_file, sha256_text
+from .supervisor_artifacts import (
+    SchemaValidationError,
+    diff_snapshots,
+    snapshot_workspace,
+    validate_against_schema,
+    write_diff,
+    write_json_artifact,
+    write_text_artifact,
+)
 
 INTERNAL_PACK_ROOT = "automation/task_packs/responses_runner_v2_supervisor_internal"
 
@@ -20,10 +30,98 @@ COMMAND_TEMPLATE_BY_ROLE = {
     "claude_review_agent": f"{INTERNAL_PACK_ROOT}/commands/claude_review_agent.command.json",
 }
 
+_CANONICAL_COMMAND_BY_ROLE = {
+    "operator_codex": "codex exec",
+    "codex_review_agent": "codex exec",
+    "claude_review_agent": "claude -p",
+}
+
+_ALLOWED_ARGV_TEMPLATE_BY_ROLE = {
+    "operator_codex": [
+        "codex",
+        "exec",
+        "--model",
+        "gpt-5.6-sol",
+        "--ephemeral",
+        "--ignore-user-config",
+        "-c",
+        'model_reasoning_effort="high"',
+        "--output-schema",
+        "automation/responses_runner_v2/schemas/reviewer_output.schema.json",
+        "-",
+    ],
+    "codex_review_agent": [
+        "codex",
+        "exec",
+        "--model",
+        "gpt-5.6-sol",
+        "--sandbox",
+        "read-only",
+        "--ephemeral",
+        "--ignore-user-config",
+        "-c",
+        'model_reasoning_effort="high"',
+        "--output-schema",
+        "automation/responses_runner_v2/schemas/reviewer_output.schema.json",
+        "-",
+    ],
+    "claude_review_agent": [
+        "claude",
+        "-p",
+        "--model",
+        "opus",
+        "--effort",
+        "max",
+        "--output-format",
+        "json",
+        "--tools",
+        "Read,Grep,Glob",
+        "--permission-mode",
+        "dontAsk",
+        "--no-session-persistence",
+        "--setting-sources",
+        "user",
+        "--append-system-prompt-file",
+        "{composed_prompt_file}",
+    ],
+}
+
+_ALLOWED_CLAUDE_FALLBACK_ARGV_TEMPLATE = [
+    *(_ALLOWED_ARGV_TEMPLATE_BY_ROLE["claude_review_agent"][:5]),
+    "xhigh",
+    *(_ALLOWED_ARGV_TEMPLATE_BY_ROLE["claude_review_agent"][6:]),
+]
+
 PROMPT_BY_ROLE = {
     "operator_codex": f"{INTERNAL_PACK_ROOT}/prompts/operator_codex.md",
     "codex_review_agent": f"{INTERNAL_PACK_ROOT}/prompts/codex_review.md",
     "claude_review_agent": f"{INTERNAL_PACK_ROOT}/prompts/claude_review.md",
+}
+
+PROMPT_BY_REVIEW_KIND = {
+    "scaffold": f"{INTERNAL_PACK_ROOT}/prompts/scaffold_review.md",
+    "stage_output": f"{INTERNAL_PACK_ROOT}/prompts/stage_output_review.md",
+    "final_packet": f"{INTERNAL_PACK_ROOT}/prompts/final_packet_review.md",
+    "recovery": f"{INTERNAL_PACK_ROOT}/prompts/recovery_review.md",
+    "operator_acceptance": f"{INTERNAL_PACK_ROOT}/prompts/operator_acceptance.md",
+    "consolidation": f"{INTERNAL_PACK_ROOT}/prompts/review_consolidation.md",
+}
+
+SHARED_PROMPT_PATH = f"{INTERNAL_PACK_ROOT}/shared_instructions.md"
+REVIEWER_OUTPUT_SCHEMA_PATH = "automation/responses_runner_v2/schemas/reviewer_output.schema.json"
+MODEL_OWNED_OUTPUT_KEYS = {
+    "status",
+    "approval_decision",
+    "summary",
+    "reviewed_artifacts",
+    "missing_artifacts",
+    "blocking_issues",
+    "non_blocking_improvements",
+    "recommendations",
+    "unsupported_claims",
+    "evidence",
+    "validation_errors",
+    "next_action",
 }
 
 # Exit codes that indicate the agent process was killed by an external
@@ -74,6 +172,7 @@ class AgentRunResult:
     command: dict[str, Any]
     read_only_check: dict[str, Any] | None
     fallback_used: bool = False
+    usage_attempt_path: str | None = None
 
 
 REVIEW_DECISION_TOP_LEVEL_KEYS = {
@@ -112,12 +211,61 @@ def load_command_template(root: Path, actor_role: str) -> dict[str, Any]:
     payload = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(payload, dict):
         raise SystemExit(f"Command template must be an object: {path}")
+    try:
+        validate_against_schema(payload, "supervisor_command_template.schema.json", "supervisor command template")
+    except SchemaValidationError as exc:
+        raise SystemExit(str(exc)) from exc
+    if payload.get("agent") != actor_role:
+        raise SystemExit(f"Command template agent does not match {actor_role!r}: {path}")
+    if payload.get("canonical_command") != _CANONICAL_COMMAND_BY_ROLE[actor_role]:
+        raise SystemExit(f"Command template uses a non-allowlisted command: {path}")
+    if payload.get("cwd") != "{workspace_root}":
+        raise SystemExit(f"Command template cwd must be the active workspace root: {path}")
+    argv_key = "primary_argv_template" if actor_role == "claude_review_agent" else "argv_template"
+    if payload.get(argv_key) != _ALLOWED_ARGV_TEMPLATE_BY_ROLE[actor_role]:
+        raise SystemExit(f"Command template argv posture is not allowlisted: {path}")
+    if actor_role == "claude_review_agent" and payload.get(
+        "fallback_argv_template"
+    ) != _ALLOWED_CLAUDE_FALLBACK_ARGV_TEMPLATE:
+        raise SystemExit(f"Claude fallback argv posture is not allowlisted: {path}")
     return payload
 
 
-def _read_prompt(root: Path, actor_role: str) -> tuple[str, str]:
-    prompt_path = resolve_under_root(root, PROMPT_BY_ROLE[actor_role], must_exist=True)
-    return relpath(root, prompt_path), prompt_path.read_text(encoding="utf-8")
+def _render_command_argv(
+    template: dict[str, Any],
+    *,
+    actor_role: str,
+    composed_prompt_path: Path,
+    fallback: bool = False,
+) -> list[str]:
+    if actor_role == "claude_review_agent":
+        key = "fallback_argv_template" if fallback else "primary_argv_template"
+    else:
+        if fallback:
+            raise ValueError(f"{actor_role} has no command fallback")
+        key = "argv_template"
+    rendered: list[str] = []
+    for raw in template[key]:
+        value = str(raw).replace("{composed_prompt_file}", str(composed_prompt_path))
+        if "{" in value or "}" in value:
+            raise SystemExit(f"Unsupported command-template placeholder in {raw!r}.")
+        rendered.append(value)
+    return rendered
+
+
+def _compose_prompt(root: Path, actor_role: str, review_kind: str) -> tuple[list[str], str]:
+    paths = [SHARED_PROMPT_PATH, PROMPT_BY_ROLE[actor_role], PROMPT_BY_REVIEW_KIND[review_kind]]
+    sections: list[str] = []
+    for path_value in paths:
+        path = resolve_under_root(root, path_value, must_exist=True)
+        sections.append(f"<!-- source: {relpath(root, path)} -->\n{path.read_text(encoding='utf-8').strip()}")
+    sections.append(
+        "## Transport Contract\n\n"
+        "Emit only the model-owned JSON fields defined by "
+        "automation/responses_runner_v2/schemas/reviewer_output.schema.json. "
+        "The supervisor owns and will add all identity, command, timestamp, path, and read-only-check fields."
+    )
+    return paths, "\n\n".join(sections).rstrip() + "\n"
 
 
 def _jsonable_job(job: dict[str, Any] | str | Path, *, root: Path) -> tuple[dict[str, Any], str]:
@@ -185,6 +333,236 @@ def _prompt_with_job(prompt_text: str, job_text: str, *, embedded_sources_count:
         + sources_note
         + "```json\n"
         + job_text.strip()
+        + "\n```\n"
+    )
+
+
+def _declared_review_artifact_paths(job_payload: dict[str, Any]) -> list[str]:
+    """Return only paths explicitly declared as review evidence by the job."""
+
+    paths: list[str] = []
+    for key in ("reviewed_artifacts", "required_artifacts", "artifacts"):
+        value = job_payload.get(key)
+        entries = value if isinstance(value, list) else []
+        for entry in entries:
+            if isinstance(entry, str) and entry.strip():
+                paths.append(entry.strip())
+            elif isinstance(entry, dict):
+                path = entry.get("path") or entry.get("artifact_path")
+                if isinstance(path, str) and path.strip():
+                    paths.append(path.strip())
+    manifest = job_payload.get("artifact_manifest")
+    if isinstance(manifest, dict):
+        entries = manifest.get("files")
+        for entry in entries if isinstance(entries, list) else []:
+            if isinstance(entry, dict) and isinstance(entry.get("path"), str) and entry["path"].strip():
+                paths.append(entry["path"].strip())
+    return list(dict.fromkeys(paths))
+
+
+def _artifact_input_manifest(root: Path, paths: list[str]) -> list[dict[str, Any]]:
+    manifest: list[dict[str, Any]] = []
+    for path_value in paths:
+        path = resolve_under_root(root, path_value, must_exist=False)
+        record: dict[str, Any] = {"path": relpath(root, path), "exists": path.exists()}
+        if path.is_file():
+            record.update({"sha256": sha256_file(path), "bytes": path.stat().st_size})
+        manifest.append(record)
+    return manifest
+
+
+def _write_frozen_review_input(
+    *,
+    root: Path,
+    output_path: Path,
+    command_id: str,
+    supervisor_session_id: str,
+    review_cycle_id: str,
+    review_kind: str,
+    actor_role: str,
+    prompt_text: str,
+    job_payload: dict[str, Any],
+) -> tuple[dict[str, Any], str, str]:
+    job_text = json.dumps(job_payload, indent=2, ensure_ascii=False, sort_keys=True)
+    reviewed_paths = _declared_review_artifact_paths(job_payload)
+    payload = {
+        "schema_version": "responses_runner_v2.review_input.v1",
+        "created_at": runner_now().isoformat(),
+        "command_id": command_id,
+        "supervisor_session_id": supervisor_session_id,
+        "review_cycle_id": review_cycle_id,
+        "review_kind": review_kind,
+        "actor_role": actor_role,
+        "job_sha256": sha256_text(job_text),
+        "job_bytes": len(job_text.encode("utf-8")),
+        "prompt_sha256": sha256_text(prompt_text),
+        "prompt_bytes": len(prompt_text.encode("utf-8")),
+        "reviewed_artifacts": _artifact_input_manifest(root, reviewed_paths),
+        "job": job_payload,
+    }
+    review_input_path = output_path / f"{command_id}.review_input.json"
+    write_json_artifact(
+        root,
+        review_input_path,
+        payload,
+        "review_input.schema.json",
+        "frozen review input",
+    )
+    frozen_text = json.dumps(payload, indent=2, ensure_ascii=False, sort_keys=True)
+    return payload, frozen_text, relpath(root, review_input_path)
+
+
+def _load_cycle_review_input(
+    *,
+    root: Path,
+    review_input: str | Path,
+    supervisor_session_id: str,
+    review_cycle_id: str,
+    review_kind: str,
+    job_payload: dict[str, Any],
+) -> tuple[dict[str, Any], str, str]:
+    path = resolve_under_root(root, review_input, must_exist=True)
+    text = path.read_text(encoding="utf-8")
+    try:
+        payload = json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise SystemExit(f"Invalid shared cycle review input: {path}: {exc}") from exc
+    if not isinstance(payload, dict):
+        raise SystemExit("Shared cycle review input must be a JSON object.")
+    try:
+        validate_against_schema(payload, "review_input.v2.schema.json", "shared cycle review input")
+    except SchemaValidationError as exc:
+        raise SystemExit(str(exc)) from exc
+    expected_identity = {
+        "supervisor_session_id": supervisor_session_id,
+        "review_cycle_id": review_cycle_id,
+        "review_kind": review_kind,
+    }
+    mismatches = [key for key, value in expected_identity.items() if payload.get(key) != value]
+    if mismatches:
+        raise SystemExit(f"Shared cycle review input identity mismatch: {', '.join(mismatches)}")
+
+    job_path = resolve_under_root(root, payload["frozen_job_path"], must_exist=True)
+    if sha256_file(job_path) != payload["frozen_job_sha256"] or job_path.stat().st_size != payload["frozen_job_bytes"]:
+        raise SystemExit("Shared cycle review input frozen-job binding mismatch.")
+    frozen_job = json.loads(job_path.read_text(encoding="utf-8"))
+    if frozen_job != payload["job"] or frozen_job != job_payload:
+        raise SystemExit("Shared cycle review input job does not match the invocation job.")
+
+    manifest_path = resolve_under_root(root, payload["reviewed_artifact_manifest_path"], must_exist=True)
+    if (
+        sha256_file(manifest_path) != payload["reviewed_artifact_manifest_sha256"]
+        or manifest_path.stat().st_size != payload["reviewed_artifact_manifest_bytes"]
+    ):
+        raise SystemExit("Shared cycle review input artifact-manifest binding mismatch.")
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if not isinstance(manifest, dict) or manifest.get("artifacts") != payload["reviewed_artifacts"]:
+        raise SystemExit("Shared cycle review input artifact records do not match the frozen manifest.")
+    for artifact in payload["reviewed_artifacts"]:
+        artifact_path = resolve_under_root(root, artifact["path"], must_exist=True)
+        if (
+            not artifact_path.is_file()
+            or artifact_path.stat().st_size != artifact["bytes"]
+            or sha256_file(artifact_path) != artifact["sha256"]
+        ):
+            raise SystemExit(f"Shared cycle reviewed artifact changed: {artifact['path']}")
+    return payload, text, relpath(root, path)
+
+
+def _validate_model_owned_output(
+    raw_decision: dict[str, Any],
+    *,
+    actor_role: str,
+    review_kind: str,
+) -> dict[str, Any]:
+    canonical = _canonicalize_review_decision_shape(
+        raw_decision,
+        actor_role=actor_role,
+        review_kind=review_kind,
+    )
+    model_owned = {key: canonical[key] for key in MODEL_OWNED_OUTPUT_KEYS if key in canonical}
+    recommendation_keys = {
+        "recommendation_id",
+        "severity",
+        "recommendation",
+        "evidence",
+        "affected_artifacts",
+        "exact_change_needed",
+        "rationale_for_no_change",
+        "operator_decision",
+        "decision_rationale",
+        "rejected_reason",
+        "changes_applied",
+        "validation_evidence",
+        "consolidation_recommendation",
+    }
+    projected_recommendations: list[dict[str, Any]] = []
+    for recommendation in model_owned.get("recommendations", []):
+        if not isinstance(recommendation, dict):
+            continue
+        projected = {key: value for key, value in recommendation.items() if key in recommendation_keys}
+        if isinstance(projected.get("changes_applied"), list):
+            projected["changes_applied"] = [
+                {key: value for key, value in change.items() if key in {"path", "summary", "evidence"}}
+                for change in projected["changes_applied"]
+                if isinstance(change, dict)
+            ]
+        projected_recommendations.append(projected)
+    model_owned["recommendations"] = projected_recommendations
+    strict_payload = json.loads(json.dumps(model_owned))
+
+    def complete_evidence(entries: Any) -> None:
+        for entry in entries if isinstance(entries, list) else []:
+            if isinstance(entry, dict):
+                entry.setdefault("artifact_path", None)
+                entry.setdefault("source", None)
+
+    for artifact in strict_payload.get("reviewed_artifacts", []):
+        if isinstance(artifact, dict):
+            artifact.setdefault("sha256", None)
+            artifact.setdefault("bytes", None)
+    complete_evidence(strict_payload.get("evidence"))
+    for recommendation in strict_payload.get("recommendations", []):
+        if not isinstance(recommendation, dict):
+            continue
+        for key in (
+            "exact_change_needed",
+            "rationale_for_no_change",
+            "operator_decision",
+            "decision_rationale",
+            "rejected_reason",
+            "consolidation_recommendation",
+        ):
+            recommendation.setdefault(key, None)
+        recommendation.setdefault("changes_applied", [])
+        recommendation.setdefault("validation_evidence", [])
+        complete_evidence(recommendation.get("evidence"))
+        complete_evidence(recommendation.get("validation_evidence"))
+        for change in recommendation.get("changes_applied", []):
+            if isinstance(change, dict):
+                complete_evidence(change.get("evidence"))
+    try:
+        validate_against_schema(strict_payload, "reviewer_output.schema.json", "reviewer model output")
+    except SchemaValidationError as exc:
+        raise AgentOutputError(str(exc)) from exc
+    for recommendation in model_owned.get("recommendations", []):
+        if isinstance(recommendation, dict):
+            for key in list(recommendation):
+                if recommendation[key] is None:
+                    recommendation.pop(key)
+    return model_owned
+
+
+def _repair_input(original_input: str, raw_stdout: str, error: str) -> str:
+    return (
+        original_input.rstrip()
+        + "\n\n## Single Format Repair\n\n"
+        + "The prior command exited zero, but its stdout failed JSON parsing or reviewer-output schema validation. "
+        + "Repair only the JSON transport shape. Do not change the substantive verdict or evidence. "
+        + "Emit only one schema-valid JSON object.\n\n"
+        + f"Validation error: {error}\n\n"
+        + "Prior stdout:\n```text\n"
+        + raw_stdout[:262144]
         + "\n```\n"
     )
 
@@ -368,8 +746,8 @@ def _minimal_blocked_decision(
         "next_action": "blocked",
     }
     heading = "# Agent transport failure" if transport_failure else "# Agent invocation failed"
-    write_text(markdown_path, heading + "\n\n" + summary + "\n")
-    write_json(json_path, payload)
+    write_text_artifact(root, markdown_path, heading + "\n\n" + summary + "\n")
+    write_json_artifact(root, json_path, payload)
     return payload
 
 
@@ -545,7 +923,14 @@ def _coerce_affected_artifacts(rec: dict[str, Any]) -> list[Any]:
     if affected is None:
         affected = rec.get("path")
     if isinstance(affected, list):
-        return [item for item in affected if str(item).strip()]
+        normalized: list[str] = []
+        for item in affected:
+            if isinstance(item, dict):
+                item = item.get("path") or item.get("artifact_path") or ""
+            text = str(item).strip()
+            if text:
+                normalized.append(text)
+        return normalized
     if affected is None:
         return []
     text = str(affected).strip()
@@ -828,6 +1213,7 @@ def _normalize_agent_decision(
     raw_decision: dict[str, Any],
     command: dict[str, Any],
     read_only_check: dict[str, Any] | None,
+    invocation_identity: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     markdown_path = output_dir / f"{command_id}.md"
     json_path = output_dir / f"{command_id}.json"
@@ -837,16 +1223,12 @@ def _normalize_agent_decision(
         review_kind=review_kind,
     )
     decision["schema_version"] = decision.get("schema_version") or REVIEW_DECISION_SCHEMA_VERSION
-    # Agent-supplied decision ids arrive in arbitrary casing (e.g. an embedded
-    # ISO timestamp with uppercase T/Z); normalize to the schema idString
-    # pattern instead of failing transport on an identifier spelling.
-    decision["decision_id"] = _safe_id(decision.get("decision_id"), command_id)
-    decision["created_at"] = decision.get("created_at") or runner_now().isoformat()
-    decision["supervisor_session_id"] = str(decision.get("supervisor_session_id") or supervisor_session_id)
-    decision["review_cycle_id"] = str(decision.get("review_cycle_id") or review_cycle_id)
-    # The supervisor invoked this review with an explicit kind; the agent's
-    # self-description must never reclassify it (a stage_output review that
-    # self-labels operator_acceptance would import the wrong validation rules).
+    # Identity and transport metadata are supervisor-owned. Never accept an
+    # agent's self-reported session, cycle, kind, role, or decision id.
+    decision["decision_id"] = _safe_id(command_id, "review-decision")
+    decision["created_at"] = runner_now().isoformat()
+    decision["supervisor_session_id"] = _safe_id(supervisor_session_id, "supervisor-session")
+    decision["review_cycle_id"] = _safe_id(review_cycle_id, "review-cycle")
     decision["review_kind"] = review_kind
     decision["actor_role"] = actor_role
     decision["agent_command_id"] = command_id
@@ -854,9 +1236,10 @@ def _normalize_agent_decision(
     decision["json_report_path"] = relpath(root, json_path)
     decision["command"] = command
     decision["read_only_check"] = read_only_check
-    decision.setdefault("workflow_id", None)
-    decision.setdefault("run_id", None)
-    decision.setdefault("stage_id", None)
+    identity = invocation_identity or {}
+    for key in ("workflow_id", "run_id", "stage_id"):
+        value = identity.get(key)
+        decision[key] = _safe_id(value, key.replace("_", "-")) if value else None
     return decision
 
 
@@ -872,6 +1255,7 @@ def _write_validated_decision(
     raw_decision: dict[str, Any],
     command: dict[str, Any],
     read_only_check: dict[str, Any] | None,
+    invocation_identity: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     decision = _normalize_agent_decision(
         root=root,
@@ -884,12 +1268,13 @@ def _write_validated_decision(
         raw_decision=raw_decision,
         command=command,
         read_only_check=read_only_check,
+        invocation_identity=invocation_identity,
     )
     validate_review_decision(decision)
     markdown_path = output_dir / f"{command_id}.md"
     json_path = output_dir / f"{command_id}.json"
-    write_text(markdown_path, _render_markdown(decision))
-    write_json(json_path, decision)
+    write_text_artifact(root, markdown_path, _render_markdown(decision))
+    write_json_artifact(root, json_path, decision)
     return decision
 
 
@@ -933,6 +1318,14 @@ def _unsupported_effort(stderr: str, stdout: str) -> bool:
     return "effort" in combined and ("unsupported" in combined or "invalid" in combined or "unknown" in combined)
 
 
+def _command_model(argv: list[str]) -> str | None:
+    try:
+        value = argv[argv.index("--model") + 1]
+    except (ValueError, IndexError):
+        return None
+    return value or None
+
+
 def _invoke_agent(
     *,
     root: Path,
@@ -941,52 +1334,97 @@ def _invoke_agent(
     review_cycle_id: str,
     supervisor_session_id: str,
     job: dict[str, Any] | str | Path,
+    review_input: str | Path | None = None,
     output_dir: str | Path,
     runner: Callable[..., Any] | None = None,
     timeout_seconds: int | None = None,
 ) -> AgentRunResult:
     output_path = resolve_under_root(root, output_dir, must_exist=False)
+    output_path_existed = output_path.exists()
     output_path.mkdir(parents=True, exist_ok=True)
+    if not output_path_existed:
+        os.chmod(output_path, 0o700)
     template = load_command_template(root, actor_role)
     timeout = int(timeout_seconds or template.get("timeout_seconds", 1800))
-    command_id = f"cmd_{actor_role}_{review_cycle_id}_{runner_now().strftime('%H%M%S')}"
-    prompt_rel, prompt_text = _read_prompt(root, actor_role)
-    job_payload, job_text = _jsonable_job(job, root=root)
+    command_id = _safe_id(
+        f"cmd_{actor_role}_{review_cycle_id}_{runner_now().strftime('%H%M%S_%f')}",
+        f"cmd-{actor_role}",
+    )
+    prompt_sources, prompt_text = _compose_prompt(root, actor_role, review_kind)
+    prompt_path = output_path / f"{command_id}.composed_prompt.md"
+    write_text_artifact(root, prompt_path, prompt_text)
+    job_payload, _ = _jsonable_job(job, root=root)
     embedded_sources = _validated_embedded_sources(job_payload)
-
+    shared_review_input = review_input is not None
+    if shared_review_input:
+        frozen_input, frozen_input_text, frozen_input_rel = _load_cycle_review_input(
+            root=root,
+            review_input=review_input,
+            supervisor_session_id=supervisor_session_id,
+            review_cycle_id=review_cycle_id,
+            review_kind=review_kind,
+            job_payload=job_payload,
+        )
+    else:
+        frozen_input, frozen_input_text, frozen_input_rel = _write_frozen_review_input(
+            root=root,
+            output_path=output_path,
+            command_id=command_id,
+            supervisor_session_id=supervisor_session_id,
+            review_cycle_id=review_cycle_id,
+            review_kind=review_kind,
+            actor_role=actor_role,
+            prompt_text=prompt_text,
+            job_payload=job_payload,
+        )
+    input_text = _prompt_with_job(
+        prompt_text,
+        frozen_input_text,
+        embedded_sources_count=len(embedded_sources),
+    )
     fallback_used = False
-    input_text = None
     env = None
     if actor_role in {"operator_codex", "codex_review_agent"}:
-        argv = ["codex", "exec", _prompt_with_job(prompt_text, job_text, embedded_sources_count=len(embedded_sources))]
+        argv = _render_command_argv(
+            template,
+            actor_role=actor_role,
+            composed_prompt_path=prompt_path,
+        )
     elif actor_role == "claude_review_agent":
-        prompt_path = resolve_under_root(root, prompt_rel, must_exist=True)
-        argv = [
-            "claude",
-            "-p",
-            "--model",
-            "opus",
-            "--effort",
-            "max",
-            "--output-format",
-            "json",
-            "--tools",
-            "Read",
-            "--permission-mode",
-            "dontAsk",
-            "--no-session-persistence",
-            "--setting-sources",
-            "user",
-            "--append-system-prompt-file",
-            str(prompt_path),
-        ]
-        input_text = job_text
+        argv = _render_command_argv(
+            template,
+            actor_role=actor_role,
+            composed_prompt_path=prompt_path,
+        )
+        # Claude receives the frozen composed prompt through its configured
+        # prompt file and the frozen review input through stdin exactly once.
+        input_text = frozen_input_text
         env = _claude_subscription_env()
     else:
         raise SystemExit(f"Unsupported actor_role for agent invocation: {actor_role}")
 
-    read_only_before = snapshot_workspace(root) if actor_role in {"codex_review_agent", "claude_review_agent"} else None
+    explicit_review_paths = [
+        str(item["path"])
+        for item in frozen_input["reviewed_artifacts"]
+        if isinstance(item, dict) and item.get("path")
+    ]
+    protected_input_paths = list(explicit_review_paths)
+    if shared_review_input:
+        protected_input_paths.extend(
+            [
+                frozen_input_rel,
+                str(frozen_input["frozen_job_path"]),
+                str(frozen_input["reviewed_artifact_manifest_path"]),
+            ]
+        )
+        protected_input_paths = list(dict.fromkeys(protected_input_paths))
+    read_only_before = (
+        snapshot_workspace(root, include_paths=protected_input_paths)
+        if actor_role in {"codex_review_agent", "claude_review_agent"}
+        else None
+    )
     started_at = runner_now().isoformat()
+    invocation_started = time.monotonic()
     missing_cli_error: str | None = None
     try:
         completed = _run_subprocess(
@@ -1011,9 +1449,12 @@ def _invoke_agent(
         and _unsupported_effort(str(completed.stderr), str(completed.stdout))
     ):
         fallback_used = True
-        fallback_argv = list(argv)
-        effort_index = fallback_argv.index("--effort") + 1
-        fallback_argv[effort_index] = "xhigh"
+        fallback_argv = _render_command_argv(
+            template,
+            actor_role=actor_role,
+            composed_prompt_path=prompt_path,
+            fallback=True,
+        )
         started_at = runner_now().isoformat()
         try:
             completed = _run_subprocess(
@@ -1034,85 +1475,15 @@ def _invoke_agent(
 
     stdout_path = output_path / f"{command_id}.stdout.txt"
     stderr_path = output_path / f"{command_id}.stderr.txt"
-    write_text(stdout_path, str(completed.stdout or ""))
-    write_text(stderr_path, str(completed.stderr or ""))
-
-    read_only_check = None
-    if actor_role in {"codex_review_agent", "claude_review_agent"}:
-        read_only_after = snapshot_workspace(root)
-        allowed_output_paths = {
-            relpath(root, stdout_path),
-            relpath(root, stderr_path),
-            relpath(root, output_path / f"{command_id}.json"),
-            relpath(root, output_path / f"{command_id}.md"),
-            relpath(root, output_path / f"{command_id}.readonly.diff.md"),
-        }
-        filtered_before = {
-            path: digest
-            for path, digest in (read_only_before or {}).items()
-            if path not in allowed_output_paths
-        }
-        filtered_after = {
-            path: digest
-            for path, digest in read_only_after.items()
-            if path not in allowed_output_paths
-        }
-        changes = diff_snapshots(filtered_before, filtered_after)
-        diff_path = output_path / f"{command_id}.readonly.diff.md"
-        diff_rel = write_diff(root, diff_path, changes)
-        before_hash = sha256_text(json.dumps(filtered_before, sort_keys=True))
-        after_hash = sha256_text(json.dumps(filtered_after, sort_keys=True))
-        read_only_check = {
-            "method": "workspace_snapshot_excluding_local_artifacts",
-            "before_hash": before_hash,
-            "after_hash": after_hash,
-            "diff_path": diff_rel,
-            "status": "passed" if not changes else "failed",
-            "changed_paths": changes,
-        }
-
-    command = {
-        "command_id": command_id,
-        "actor_role": actor_role,
-        "argv": argv,
-        "cwd": str(root),
-        "started_at": started_at,
-        "completed_at": completed_at,
-        "exit_code": int(completed.returncode),
-        "stdout_path": relpath(root, stdout_path),
-        "stderr_path": relpath(root, stderr_path),
-        "json_transport": "stdout_json_required_supervisor_sidecar",
-        "expected_json_report_path": relpath(root, output_path / f"{command_id}.json"),
-        "expected_markdown_report_path": relpath(root, output_path / f"{command_id}.md"),
-        "prompt_file": prompt_rel,
-        "fallback_used": fallback_used,
-        "job_keys": sorted(job_payload.keys()),
-        "embedded_sources_count": len(embedded_sources),
-        "embedded_sources_bytes": sum(len(str(item.get("content") or "").encode("utf-8")) for item in embedded_sources),
-        **(
-            {
-                "stdin_mode": "review_job_json",
-                "auth_strategy": "subscription_oauth",
-                "tools": ["Read"],
-                "env_unset_for_subscription_oauth": [
-                    "ANTHROPIC_API_KEY",
-                    "ANTHROPIC_AUTH_TOKEN",
-                    "CLAUDE_CODE_OAUTH_TOKEN",
-                    "CLAUDE_CODE_USE_BEDROCK",
-                    "CLAUDE_CODE_USE_VERTEX",
-                    "CLAUDE_CODE_USE_FOUNDRY",
-                ],
-            }
-            if actor_role == "claude_review_agent"
-            else {}
-        ),
-    }
+    write_text_artifact(root, stdout_path, str(completed.stdout or ""))
+    write_text_artifact(root, stderr_path, str(completed.stderr or ""))
 
     validation_errors: list[str] = []
     raw_decision: dict[str, Any] | None = None
     status = "succeeded"
     failure_summary = "Agent invocation failed or produced invalid output."
     returncode = int(completed.returncode)
+    parse_or_schema_error: str | None = None
     if missing_cli_error is not None:
         status = "missing_cli"
         failure_summary = (
@@ -1139,10 +1510,174 @@ def _invoke_agent(
         validation_errors.append(f"Agent command exited with {returncode}.")
     else:
         try:
-            raw_decision = _parse_stdout_json(str(completed.stdout or ""))
+            parsed = _parse_stdout_json(str(completed.stdout or ""))
+            raw_decision = _validate_model_owned_output(
+                parsed,
+                actor_role=actor_role,
+                review_kind=review_kind,
+            )
         except AgentOutputError as exc:
+            parse_or_schema_error = str(exc)
+
+    repair_record: dict[str, Any] | None = None
+    if parse_or_schema_error is not None:
+        repair_started_at = runner_now().isoformat()
+        repair_input = _repair_input(input_text, str(completed.stdout or ""), parse_or_schema_error)
+        try:
+            repaired = _run_subprocess(
+                argv,
+                root=root,
+                timeout_seconds=timeout,
+                runner=runner,
+                input_text=repair_input,
+                env=env,
+            )
+        except subprocess.TimeoutExpired as exc:
+            repaired = SimpleNamespace(returncode=124, stdout=exc.stdout or "", stderr=exc.stderr or "timeout")
+        except FileNotFoundError as exc:
+            repaired = SimpleNamespace(returncode=MISSING_CLI_EXIT_CODE, stdout="", stderr=str(exc))
+        repair_completed_at = runner_now().isoformat()
+        repair_stdout_path = output_path / f"{command_id}.repair.stdout.txt"
+        repair_stderr_path = output_path / f"{command_id}.repair.stderr.txt"
+        write_text_artifact(root, repair_stdout_path, str(repaired.stdout or ""))
+        write_text_artifact(root, repair_stderr_path, str(repaired.stderr or ""))
+        repair_record = {
+            "attempted": True,
+            "reason": parse_or_schema_error,
+            "started_at": repair_started_at,
+            "completed_at": repair_completed_at,
+            "exit_code": int(repaired.returncode),
+            "stdout_path": relpath(root, repair_stdout_path),
+            "stderr_path": relpath(root, repair_stderr_path),
+            "stdin_sha256": sha256_text(repair_input),
+            "stdin_bytes": len(repair_input.encode("utf-8")),
+        }
+        if int(repaired.returncode) == 0:
+            try:
+                parsed = _parse_stdout_json(str(repaired.stdout or ""))
+                raw_decision = _validate_model_owned_output(
+                    parsed,
+                    actor_role=actor_role,
+                    review_kind=review_kind,
+                )
+                status = "succeeded"
+                validation_errors = []
+                repair_record["status"] = "succeeded"
+            except AgentOutputError as exc:
+                status = "malformed_output"
+                validation_errors = [parse_or_schema_error, f"Repair failed: {exc}"]
+                repair_record["status"] = "failed"
+        else:
             status = "malformed_output"
-            validation_errors.append(str(exc))
+            validation_errors = [
+                parse_or_schema_error,
+                f"Repair command exited with {int(repaired.returncode)}.",
+            ]
+            repair_record["status"] = "failed"
+
+    read_only_check = None
+    if actor_role in {"codex_review_agent", "claude_review_agent"}:
+        read_only_after = snapshot_workspace(root, include_paths=protected_input_paths)
+        allowed_output_paths = {
+            relpath(root, stdout_path),
+            relpath(root, stderr_path),
+            relpath(root, prompt_path),
+            *([] if shared_review_input else [frozen_input_rel]),
+            relpath(root, output_path / f"{command_id}.json"),
+            relpath(root, output_path / f"{command_id}.md"),
+            relpath(root, output_path / f"{command_id}.readonly.diff.md"),
+            relpath(root, output_path / f"{command_id}.repair.stdout.txt"),
+            relpath(root, output_path / f"{command_id}.repair.stderr.txt"),
+            relpath(root, output_path / f"{command_id}.reviewer_usage_attempt.json"),
+        }
+        filtered_before = {
+            path: digest
+            for path, digest in (read_only_before or {}).items()
+            if path not in allowed_output_paths
+        }
+        filtered_after = {
+            path: digest
+            for path, digest in read_only_after.items()
+            if path not in allowed_output_paths
+        }
+        changes = diff_snapshots(filtered_before, filtered_after)
+        diff_path = output_path / f"{command_id}.readonly.diff.md"
+        diff_rel = write_diff(root, diff_path, changes)
+        before_hash = sha256_text(json.dumps(filtered_before, sort_keys=True))
+        after_hash = sha256_text(json.dumps(filtered_after, sort_keys=True))
+        explicit_before = {
+            path: digest
+            for path, digest in filtered_before.items()
+            if any(path == declared or path.startswith(f"{declared.rstrip('/')}/") for declared in explicit_review_paths)
+        }
+        explicit_after = {
+            path: digest
+            for path, digest in filtered_after.items()
+            if any(path == declared or path.startswith(f"{declared.rstrip('/')}/") for declared in explicit_review_paths)
+        }
+        read_only_check = {
+            "method": "process_restrictions_plus_workspace_snapshot_with_explicit_review_inputs",
+            "before_hash": before_hash,
+            "after_hash": after_hash,
+            "diff_path": diff_rel,
+            "status": "passed" if not changes else "failed",
+            "changed_paths": changes,
+            "reviewed_artifacts_before": explicit_before,
+            "reviewed_artifacts_after": explicit_after,
+        }
+
+    command = {
+        "command_id": command_id,
+        "actor_role": actor_role,
+        "argv": argv,
+        "cwd": str(root),
+        "started_at": started_at,
+        "completed_at": completed_at,
+        "exit_code": int(completed.returncode),
+        "stdout_path": relpath(root, stdout_path),
+        "stderr_path": relpath(root, stderr_path),
+        "json_transport": "stdout_json_required_supervisor_sidecar",
+        "expected_json_report_path": relpath(root, output_path / f"{command_id}.json"),
+        "expected_markdown_report_path": relpath(root, output_path / f"{command_id}.md"),
+        "prompt_sources": prompt_sources,
+        "composed_prompt_path": relpath(root, prompt_path),
+        "composed_prompt_sha256": sha256_file(prompt_path),
+        "composed_prompt_bytes": prompt_path.stat().st_size,
+        "review_input_path": frozen_input_rel,
+        "review_input_sha256": sha256_file(resolve_under_root(root, frozen_input_rel, must_exist=True)),
+        "review_input_bytes": resolve_under_root(root, frozen_input_rel, must_exist=True).stat().st_size,
+        "job_sha256": frozen_input.get("frozen_job_sha256", frozen_input.get("job_sha256")),
+        "job_bytes": frozen_input.get("frozen_job_bytes", frozen_input.get("job_bytes")),
+        "reviewed_artifact_manifest_path": frozen_input.get("reviewed_artifact_manifest_path"),
+        "reviewed_artifact_manifest_sha256": frozen_input.get("reviewed_artifact_manifest_sha256"),
+        "stdin_mode": (
+            "frozen_review_input"
+            if actor_role == "claude_review_agent"
+            else "composed_prompt_and_frozen_review_input"
+        ),
+        "stdin_sha256": sha256_text(input_text),
+        "stdin_bytes": len(input_text.encode("utf-8")),
+        "fallback_used": fallback_used,
+        "embedded_sources_count": len(embedded_sources),
+        "embedded_sources_bytes": sum(len(str(item.get("content") or "").encode("utf-8")) for item in embedded_sources),
+        "repair_attempt": repair_record,
+        **(
+            {
+                "auth_strategy": "subscription_oauth",
+                "tools": ["Read", "Grep", "Glob"],
+                "env_unset_for_subscription_oauth": [
+                    "ANTHROPIC_API_KEY",
+                    "ANTHROPIC_AUTH_TOKEN",
+                    "CLAUDE_CODE_OAUTH_TOKEN",
+                    "CLAUDE_CODE_USE_BEDROCK",
+                    "CLAUDE_CODE_USE_VERTEX",
+                    "CLAUDE_CODE_USE_FOUNDRY",
+                ],
+            }
+            if actor_role == "claude_review_agent"
+            else {}
+        ),
+    }
 
     if read_only_check is not None and read_only_check["status"] != "passed":
         status = "read_only_violation"
@@ -1177,6 +1712,11 @@ def _invoke_agent(
                 raw_decision=raw_decision,
                 command=command,
                 read_only_check=read_only_check,
+                invocation_identity={
+                    "workflow_id": job_payload.get("workflow_id"),
+                    "run_id": job_payload.get("run_id"),
+                    "stage_id": job_payload.get("stage_id"),
+                },
             )
         except AgentOutputError as exc:
             decision = _minimal_blocked_decision(
@@ -1194,6 +1734,34 @@ def _invoke_agent(
                 read_only_check=read_only_check,
             )
 
+    invocation_duration_ms = int((time.monotonic() - invocation_started) * 1000)
+    usage_report = telemetry.build_usage_report(
+        [
+            {
+                "attempt_id": command_id,
+                "lane": "reviewer",
+                "model": _command_model(argv),
+                "status": decision["status"],
+                "duration_ms": invocation_duration_ms,
+                "request_wall_ms": None,
+                "poll_wall_ms": None,
+                "retry_count": int(fallback_used) + int(repair_record is not None),
+                "upload_count": 0,
+                "uploaded_bytes": 0,
+                # Canonical Codex and Claude CLI transports do not guarantee
+                # token counters. Keep the counters explicitly unknown.
+                "usage": None,
+            }
+        ]
+    )
+    validate_against_schema(
+        usage_report,
+        "usage_report.schema.json",
+        "reviewer usage report",
+    )
+    usage_attempt_path = output_path / f"{command_id}.reviewer_usage_attempt.json"
+    write_json_artifact(root, usage_attempt_path, usage_report["attempts"][0])
+
     return AgentRunResult(
         command_id=command_id,
         actor_role=actor_role,
@@ -1206,6 +1774,7 @@ def _invoke_agent(
         command=command,
         read_only_check=read_only_check,
         fallback_used=fallback_used,
+        usage_attempt_path=relpath(root, usage_attempt_path),
     )
 
 

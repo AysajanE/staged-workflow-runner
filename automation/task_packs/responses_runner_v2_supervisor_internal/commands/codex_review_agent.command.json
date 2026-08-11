@@ -1,11 +1,21 @@
 {
-  "schema_version": "responses_runner_v2.supervisor_command_template.v1",
+  "schema_version": "responses_runner_v2.supervisor_command_template.v2",
   "agent": "codex_review_agent",
   "canonical_command": "codex exec",
   "argv_template": [
     "codex",
     "exec",
-    "{codex_review_prompt_plus_review_job_json}"
+    "--model",
+    "gpt-5.6-sol",
+    "--sandbox",
+    "read-only",
+    "--ephemeral",
+    "--ignore-user-config",
+    "-c",
+    "model_reasoning_effort=\"high\"",
+    "--output-schema",
+    "automation/responses_runner_v2/schemas/reviewer_output.schema.json",
+    "-"
   ],
   "cwd": "{workspace_root}",
   "prompt_file": "automation/task_packs/responses_runner_v2_supervisor_internal/prompts/codex_review.md",
@@ -26,11 +36,11 @@
     "stderr_capture": "{command_stderr_path}",
     "expected_json_report_path": "{expected_json_report_path}",
     "expected_markdown_report_path": "{expected_markdown_report_path}",
-    "schema": "automation/responses_runner_v2/schemas/review_decision.schema.json",
+    "schema": "automation/responses_runner_v2/schemas/reviewer_output.schema.json",
     "missing_malformed_or_schema_invalid_is_failure": true
   },
   "read_only_enforcement": {
-    "method": "workspace_snapshot_excluding_local_artifacts",
+    "method": "read_only_sandbox_plus_workspace_snapshot_with_explicit_review_inputs",
     "unexpected_file_modification_is_failure": true,
     "diff_path": "{read_only_diff_path}"
   },
@@ -45,5 +55,6 @@
     "missing_artifact_not_reported",
     "read_only_violation"
   ],
-  "notes": "Codex review produces a review artifact only. It must not edit repo files or emit patches."
+  "repair_policy": "One same-agent repair is allowed only after an exit-zero parse or reviewer-output schema failure.",
+  "notes": "Codex review receives the composed prompt and frozen review input on stdin. The supervisor adds the decision envelope."
 }

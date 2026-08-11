@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Responses Runner V2 Final Bundle Binding",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "created_at", "supervisor_session_id", "reviewed_subject_id", "reviewed_subject_sha256", "reviewed_draft_path", "reviewed_draft_sha256", "bundle_path", "bundle_sha256", "schema_version_validated", "verified_artifacts"],
+  "properties": {
+    "schema_version": {"const": "responses_runner_v2.final_bundle_binding.v1"},
+    "created_at": {"type": "string", "format": "date-time"},
+    "supervisor_session_id": {"type": "string", "minLength": 1},
+    "reviewed_subject_id": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "reviewed_subject_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "reviewed_draft_path": {"type": "string", "minLength": 1},
+    "reviewed_draft_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "bundle_path": {"type": "string", "minLength": 1},
+    "bundle_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "schema_version_validated": {"enum": ["responses_runner_v2.final_implementation_bundle.v1", "responses_runner_v2.final_implementation_bundle.v2", "responses_runner_v2.final_delivery_bundle.v1"]},
+    "verified_artifacts": {
+      "type": "array",
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["path", "sha256"],
+        "properties": {"path": {"type": "string", "minLength": 1}, "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}}
+      }
+    }
+  }
+}

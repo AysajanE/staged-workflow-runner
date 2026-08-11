@@ -14,6 +14,7 @@ from .contracts import (
     sha256_file,
     write_json,
 )
+from .schema_validation import validate_contract
 
 
 def create_review_bundle(
@@ -77,6 +78,7 @@ def create_review_bundle(
         )
     if notes:
         payload["notes"] = [item for item in notes if item]
+    validate_contract(payload, "review_bundle.schema.json", label="review bundle")
     write_json(output, payload)
     payload["bundle_path"] = relpath(root, output)
     return payload
@@ -92,6 +94,7 @@ def load_review_bundle(
     payload = json.loads(resolved_bundle.read_text(encoding="utf-8"))
     if not isinstance(payload, dict):
         raise SystemExit(f"review bundle must be a JSON object: {resolved_bundle}")
+    validate_contract(payload, "review_bundle.schema.json", label="review bundle")
     required = [
         "schema_version",
         "workflow_id",
@@ -188,14 +191,24 @@ def validate_review_bundle_for_stage(
         )
     if source_stage_summary is not None:
         validation_root = root or repo_root()
+        primary_path_key = (
+            "artifact_markdown_path"
+            if source_stage_summary.get("artifact_markdown_path")
+            else "response_markdown_path"
+        )
+        primary_hash_key = (
+            "artifact_markdown_sha256"
+            if source_stage_summary.get("artifact_markdown_path")
+            else "response_markdown_sha256"
+        )
         _validate_bundle_artifact_matches_stage_summary(
             bundle=bundle,
             root=validation_root,
             source_stage_summary=source_stage_summary,
             bundle_path_key="primary_artifact_markdown",
             bundle_hash_key="primary_artifact_markdown_sha256",
-            source_summary_path_key="response_markdown_path",
-            source_summary_hash_key="response_markdown_sha256",
+            source_summary_path_key=primary_path_key,
+            source_summary_hash_key=primary_hash_key,
             label="primary_artifact_markdown",
         )
         _validate_bundle_artifact_matches_stage_summary(
@@ -253,7 +266,7 @@ def _validate_bundle_artifact_matches_stage_summary(
 
 
 def expand_review_bundle_inputs(
-    bundle: dict[str, Any], *, include_response_artifact_json: bool = True
+    bundle: dict[str, Any], *, include_response_artifact_json: bool = False
 ) -> list[AttachmentEntry]:
     entries = [
         AttachmentEntry(

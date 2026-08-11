@@ -1,0 +1,247 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Responses Runner V2 Workflow Manifest v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "workflow_id",
+    "workflow_mode",
+    "description",
+    "assurance_profile",
+    "shared_instructions_file",
+    "defaults",
+    "stages"
+  ],
+  "properties": {
+    "schema_version": {"const": "responses_runner_v2.workflow_manifest.v2"},
+    "workflow_id": {"$ref": "#/$defs/id"},
+    "workflow_name": {"type": "string", "minLength": 1},
+    "workflow_mode": {
+      "enum": ["one_pass", "two_pass", "reviewed_three_stage", "custom_ordered"]
+    },
+    "description": {"type": "string", "minLength": 1},
+    "assurance_profile": {"enum": ["critical", "reviewed", "standard", "fast"]},
+    "shared_instructions_file": {"$ref": "#/$defs/path"},
+    "operator_requirements": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "minimum_primary_job_inputs": {"type": "integer", "minimum": 0},
+        "maximum_primary_job_inputs": {"type": "integer", "minimum": 0},
+        "allow_reference_context": {"type": "boolean"},
+        "expected_primary_job_input_paths": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/path"}
+        }
+      }
+    },
+    "defaults": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["model_roles", "request"],
+      "properties": {
+        "model_roles": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["primary_generation", "structural_processing"],
+          "properties": {
+            "primary_generation": {"$ref": "#/$defs/modelRole"},
+            "structural_processing": {"$ref": "#/$defs/modelRole"}
+          }
+        },
+        "request": {"$ref": "#/$defs/request"}
+      }
+    },
+    "stages": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/stage"}
+    }
+  },
+  "$defs": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9._-]{0,127}$"
+    },
+    "path": {"type": "string", "minLength": 1},
+    "reasoningEffort": {
+      "enum": ["none", "low", "medium", "high", "xhigh", "max"]
+    },
+    "modelRole": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "model",
+        "reasoning_effort",
+        "verbosity",
+        "prompt_cache_mode",
+        "prompt_cache_ttl"
+      ],
+      "properties": {
+        "model": {
+          "type": "string",
+          "pattern": "^gpt-5\\.6(?:-(?:sol|terra|luna)(?:-[0-9-]+)?)?$"
+        },
+        "reasoning_effort": {"$ref": "#/$defs/reasoningEffort"},
+        "reasoning_mode": {"enum": ["standard", "pro"]},
+        "verbosity": {"enum": ["low", "medium", "high"]},
+        "prompt_cache_mode": {"enum": ["implicit", "explicit"]},
+        "prompt_cache_ttl": {"const": "30m"}
+      }
+    },
+    "request": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "background",
+        "store",
+        "parallel_tool_calls",
+        "max_tool_calls",
+        "token_preflight",
+        "file_uploads"
+      ],
+      "properties": {
+        "background": {"type": "boolean"},
+        "store": {"type": "boolean"},
+        "parallel_tool_calls": {"type": "boolean"},
+        "max_tool_calls": {"type": "integer", "minimum": 1},
+        "temperature": {"type": "number", "minimum": 0, "maximum": 2},
+        "service_tier": {
+          "enum": ["auto", "default", "flex", "priority", "scale"]
+        },
+        "safety_identifier": {"type": "string", "minLength": 1},
+        "token_preflight": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "enabled",
+            "max_retries",
+            "retryable_http_status_codes",
+            "on_retryable_service_failure"
+          ],
+          "properties": {
+            "enabled": {"type": "boolean"},
+            "max_retries": {"type": "integer", "minimum": 1},
+            "retryable_http_status_codes": {
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": {"type": "integer", "minimum": 100, "maximum": 599}
+            },
+            "on_retryable_service_failure": {
+              "enum": ["continue_without_token_count", "fail_closed"]
+            }
+          }
+        },
+        "file_uploads": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["purpose", "delete_on_completion"],
+          "properties": {
+            "purpose": {"const": "user_data"},
+            "delete_on_completion": {"type": "boolean"},
+            "expires_after_seconds": {"type": "integer", "minimum": 1}
+          }
+        }
+      }
+    },
+    "carryForward": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "reference_context_from_stage_ids": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/id"}
+        },
+        "review_bundle_from_stage_id": {"$ref": "#/$defs/id"},
+        "review_bundle_include_response_artifact_json": {"type": "boolean"}
+      }
+    },
+    "output": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["primary_format"],
+      "properties": {
+        "primary_format": {"enum": ["text", "json_schema"]},
+        "schema_file": {"$ref": "#/$defs/path"},
+        "schema_name": {"type": "string", "pattern": "^[A-Za-z0-9_-]{1,64}$"},
+        "sidecar": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["schema_file", "schema_name"],
+          "properties": {
+            "schema_file": {"$ref": "#/$defs/path"},
+            "schema_name": {"type": "string", "pattern": "^[A-Za-z0-9_-]{1,64}$"},
+            "source_mode": {
+              "enum": ["artifact_only", "artifact_plus_raw_recovery"]
+            }
+          }
+        }
+      }
+    },
+    "citationPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["allowed_locator_types"],
+      "properties": {
+        "allowed_locator_types": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "enum": ["repository_path", "workspace_file", "workspace_path", "document_page", "url", "record_id", "dataset_row", "stage_artifact", "operator_input"]
+          }
+        }
+      }
+    },
+    "validator": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["validator_id", "gate"],
+      "properties": {
+        "validator_id": {"enum": ["markdown_playbook_v1", "evidence_references_v1"]},
+        "gate": {"enum": ["blocking", "advisory"]},
+        "timeout_seconds": {"type": "number", "exclusiveMinimum": 0, "maximum": 300}
+      }
+    },
+    "stage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "stage_id",
+        "stage_number",
+        "title",
+        "task_file",
+        "input_manifest_file",
+        "model_role",
+        "max_input_tokens",
+        "gate",
+        "output"
+      ],
+      "properties": {
+        "stage_id": {"$ref": "#/$defs/id"},
+        "stage_number": {"type": "integer", "minimum": 1},
+        "title": {"type": "string", "minLength": 1},
+        "task_file": {"$ref": "#/$defs/path"},
+        "stage_instructions_file": {"$ref": "#/$defs/path"},
+        "input_manifest_file": {"$ref": "#/$defs/path"},
+        "tool_profile_file": {"$ref": "#/$defs/path"},
+        "model_role": {"enum": ["primary_generation", "structural_processing"]},
+        "reasoning_effort": {"$ref": "#/$defs/reasoningEffort"},
+        "verbosity": {"enum": ["low", "medium", "high"]},
+        "max_input_tokens": {"type": "integer", "minimum": 1},
+        "max_output_tokens": {"type": "integer", "minimum": 1, "maximum": 128000},
+        "gate": {"enum": ["auto", "review_required", "terminal"]},
+        "carry_forward": {"$ref": "#/$defs/carryForward"},
+        "citation_policy": {"$ref": "#/$defs/citationPolicy"},
+        "post_output_validators": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/validator"}
+        },
+        "output": {"$ref": "#/$defs/output"}
+      }
+    }
+  }
+}

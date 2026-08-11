@@ -32,14 +32,17 @@ Never write artifacts outside the active workspace root. Do not invent a runner-
 
 Default model posture for new runner, supervisor, examples, workflows, docs, and tests:
 
-- primary generation: `gpt-5.5-pro`;
-- structural processing: `gpt-5.5`;
-- committed GPT-5.5-family prompt cache retention: `24h`;
+- primary generation: durable alias `gpt-5.6` with `reasoning.mode=pro`;
+- structural processing: durable alias `gpt-5.6` with standard reasoning mode;
+- committed GPT-5.6 prompt cache options: implicit mode with `ttl=30m`;
 - high-stakes long-running primary generation reasoning effort: `xhigh`;
 - structural sidecar reasoning effort: `high` or `medium`;
 - final packet verbosity: `high`;
 - structural processing verbosity: `medium`;
 - locked high-stakes self-improvement max output tokens: `128000`.
+
+Do not lower stage verbosity or switch terminal stages between `high` and `xhigh` by
+default. Those changes remain measurement-gated experiments, not migration requirements.
 
 Do not reintroduce legacy 5.4-family model identifiers as runtime defaults, examples, active workflow settings, or active test expectations. Historical references are allowed only where a migration allowlist identifies them as source evidence rather than active configuration.
 

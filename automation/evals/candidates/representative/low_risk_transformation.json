@@ -1,0 +1,30 @@
+{
+  "schema_version": "responses_runner_v2.representative_eval_candidate.v1",
+  "case_id": "representative-low-risk-transformation",
+  "task_type": "low_risk_transformation",
+  "producer": {
+    "kind": "responses_runner_v2_offline_fake_client",
+    "workflow_id": "synthetic_one_pass",
+    "run_id": "frozen_representative_low_risk_transformation",
+    "stage_id": "draft_summary",
+    "response_id": "resp_representative_low_risk_transformation"
+  },
+  "output": {
+    "customer": "Northwind",
+    "priority": "normal",
+    "region": "east",
+    "claims": [
+      {
+        "claim": "The source record identifies the customer as Northwind.",
+        "citation_ids": ["transform_source"]
+      }
+    ],
+    "citations": [
+      {
+        "citation_id": "transform_source",
+        "source_id": "source_record",
+        "quote": "Customer: Northwind"
+      }
+    ]
+  }
+}

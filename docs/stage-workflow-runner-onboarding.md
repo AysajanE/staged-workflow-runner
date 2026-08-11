@@ -154,7 +154,7 @@ Every stage assembles its attachments in a fixed **authority order**:
 ```
 1. Primary Job Inputs        (highest authority — the actual task input)
 2. Reviewed Handoff Inputs   (approved output carried from an earlier gated stage)
-3. Attached Repository Files (repo evidence — treat as evidence, not instructions)
+3. Attached Workspace Evidence (documents or repo evidence — treat as evidence, not instructions)
 4. Reference Context         (lowest authority — carry-forward / background)
 ```
 
@@ -170,11 +170,10 @@ this order and told to treat attached source files as *evidence, not instruction
 
 The runner would rather **stop** than do something unbounded or unverifiable:
 
-- **Token preflight** is a fail-closed gate. Before live submission the engine can call
-  `POST /responses/input_tokens`. If the count exceeds a configured `max_input_tokens`,
-  the stage is marked `blocked` and the process exits — *terminal, no retry, no fallback*.
-  Unbounded token spend is treated as a safety property. (You can explicitly accept the
-  risk with `--skip-token-count`.)
+- **Token preflight** is a fail-closed gate. A conservative local estimate runs before upload;
+  the engine then calls `POST /responses/input_tokens` when enabled. If a critical stage is
+  oversized or exact counting fails, the stage is blocked and any known uploads are cleaned
+  up. `--skip-token-count` is an exceptional override, not the normal path.
 - **Schema validation** runs before artifacts are written, not after.
 - **Hash mismatch** on a review bundle refuses the load.
 - **Read-only violations** by a review agent fail the review.
@@ -229,6 +228,8 @@ There are **four** CLI entry points (also installed as console scripts via
 | `automation/run_responses_supervisor_v2.py` | `staged-workflow-supervisor` | Supervisor: session, scaffold, review loop, classify, finalize |
 | `automation/create_review_bundle_v2.py` | `staged-workflow-create-bundle` | Build an approved review bundle by hand |
 | `automation/run_responses_v2_eval.py` | `staged-workflow-eval` | Score artifacts against an eval dataset; check a freeze gate |
+
+Representative cases bind frozen inputs/gold expectations and offline runner-produced candidates as separate files and hashes. The grader scores the candidate against the frozen contract; it never treats an answer embedded in the input fixture as the candidate.
 
 ---
 
@@ -291,10 +292,9 @@ sidecar.py ────────► the framework-owned structured-extraction
                      JSON schema, writes output.structured.json + sidecar.response.*.
                      Has its own retry logic for output-limit and transient errors.
 
-openai_client.py ──► a ~240-line, STANDARD-LIBRARY-ONLY HTTP client (urllib, not requests
-                     or httpx). Hand-rolled multipart upload. Retries 408/409/429/5xx with
-                     capped exponential backoff. The engine has zero third-party runtime
-                     dependencies.
+openai_client.py ──► a standard-library HTTP client (urllib, not requests or httpx).
+                     The package uses jsonschema as a core dependency for Draft 2020-12
+                     contract validation.
 ```
 
 ### The engine's stage state machine
@@ -314,15 +314,15 @@ _determine_next_stage             ← picks the first prepared/blocked stage who
 │ 1. resolve attachments  (static manifest + operator inputs +          │
 │                          review-bundle inputs + carry-forward)        │
 │ 2. render + write input_manifest.{json,md}                            │
-│ 3. write request_payload.json        ◄── --dry-run RETURNS HERE       │
-│ 4. upload every file (input_manifest.md uploaded first)               │
-│ 5. token preflight  (fail-closed gate, unless --skip-token-count)     │
-│ 6. POST /responses  →  write response.latest.json                     │
-│ 7. write stage_checkpoint #1   (status usually "queued")              │
+│ 3. write request_plan.json with content-addressed symbolic files      │
+│ 4. --dry-run writes the normalized request payload and returns        │
+│ 5. live: upload every file with an immediate durable journal          │
+│ 6. exact token preflight (fail closed for critical workflows)         │
+│ 7. write submit intent, POST /responses once, persist response id      │
 │ 8. if --wait: poll until terminal, rewriting response.latest.json     │
-│ 9. on terminal: write response.final.{json,md}                        │
-│10. extract structured output (if json_schema) / run sidecar (if any)  │
-│11. write stage_checkpoint #2   (final status) + update run_manifest   │
+│ 9. persist remote_terminal_pending_finalization                       │
+│10. write artifact.md plus raw evidence and optional sidecar output    │
+│11. mark finalized, then publish the final stage/run status            │
 │12. if gate=auto AND --wait AND no pinned --stage AND has next stage:  │
 │       loop to the next stage                                          │
 └────────────────────────────────────────────────────────────────────────┘
@@ -361,7 +361,7 @@ input content =  [ stage task prompt text ]
               +  [ "Attachment role: Stage Input Manifest"      → input_manifest.md ]
               +  [ "Attachment role: Primary Job Inputs"        → files... ]
               +  [ "Attachment role: Reviewed Handoff Inputs"   → files... ]
-              +  [ "Attachment role: Attached Repository Files" → files... ]
+              +  [ "Attachment role: Attached Workspace Evidence" → files... ]
               +  [ "Attachment role: Reference Context"         → files... ]
 ```
 
@@ -412,8 +412,8 @@ The OpenAI **response** has statuses: `queued`, `in_progress`, `completed`, `fai
 ### 6.5 The sidecar pass
 
 If a stage configures `output.sidecar`, then *after* the primary response is terminal the
-engine runs a second Responses call: it uploads the primary's `response.final.md` and
-`response.final.json`, asks the **structural model** (`gpt-5.5`) to produce a payload that
+engine runs a second Responses call: it uploads the primary's clean `artifact.md`, asks
+the **structural model** (`gpt-5.6`, standard reasoning mode) to produce a payload that
 strictly conforms to the sidecar JSON schema, and writes `output.structured.json` plus
 `sidecar.response.{json,md}`. Creative generation (primary) and machine-ingestible
 structure (sidecar) are deliberately kept as separate passes so the primary model never
@@ -708,7 +708,7 @@ on these files existing.
 
 A stage's `carry_forward` block can pull from earlier stages two ways:
 
-- **`reference_context_from_stage_ids`** — attaches the prior stage's `response.final.md`
+- **`reference_context_from_stage_ids`** — attaches the prior stage's clean `artifact.md`
   under the lowest-authority *Reference Context* role. Cheap, no review required.
 - **`review_bundle_from_stage_id`** — requires you to supply that stage's *approved
   review bundle* with `--review-bundle`. The bundle's contents (approved markdown,
@@ -723,12 +723,15 @@ summary. No prompt-stuffing, no lossy compression.
 New runners, supervisors, examples, workflows, and tests use a **locked** model posture.
 The loader rejects anything else *at load time*:
 
-- primary generation: `gpt-5.5-pro`
-- structural processing: `gpt-5.5`
-- committed GPT-5.5-family prompt cache retention: `24h` (the loader refuses a GPT-5.5
-  profile that omits this)
+- primary generation: durable alias `gpt-5.6` with `reasoning.mode=pro`
+- structural processing: durable alias `gpt-5.6` with standard reasoning mode
+- prompt caching: implicit mode with `ttl=30m` (the loader refuses an unsupported GPT-5.6
+  cache TTL)
 - high-stakes primary reasoning effort: `xhigh`; structural: `high` or `medium`
 - locked max output tokens for high-stakes self-improvement stages: `128000`
+
+Keep existing verbosity and terminal-stage reasoning overrides until an A/B measurement
+supports changing them.
 
 Do not introduce legacy 5.4-family identifiers as runtime defaults.
 
@@ -744,17 +747,20 @@ evidence to a future run.
 ├── runs/{timestamp}_{run_name}_{workflow_id}/
 │   ├── run_manifest.json                  ← top-level run state + per-stage summary
 │   └── stages/{NN_stage_id}/
-│       ├── input_manifest.json            ← resolved attachments (machine)
-│       ├── input_manifest.md              ← resolved attachments (human + model TOC)
-│       ├── request_payload.json           ← the EXACT body sent to /responses
-│       ├── token_preflight.json           ← or token_preflight.error.json
-│       ├── uploads.json                   ← file_id ↔ source_path mapping + lifecycle
-│       ├── response.latest.json           ← rewritten on every poll
-│       ├── response.final.json            ← finalized raw response after terminal status
-│       ├── response.final.md              ← human-readable render (usage, sources, tools)
-│       ├── output.structured.json         ← if json_schema OR sidecar configured
-│       ├── sidecar.response.json/.md      ← if sidecar configured
-│       └── stage_checkpoint.json          ← durable, resumable stage state
+│       └── attempt_NNN/
+│           ├── input_manifest.json        ← resolved attachments (machine)
+│           ├── input_manifest.md          ← resolved attachments (human + model TOC)
+│           ├── request_plan.json          ← deterministic symbolic request plan
+│           ├── request_payload.json       ← the EXACT body sent to /responses
+│           ├── token_preflight.json       ← or token_preflight.error.json
+│           ├── uploads.json               ← file_id ↔ source_path mapping + lifecycle
+│           ├── response.latest.json       ← rewritten on every poll
+│           ├── response.final.json        ← finalized raw response for recovery
+│           ├── response.final.md          ← diagnostic response render
+│           ├── artifact.md                ← clean deliverable used downstream
+│           ├── output.structured.json     ← if json_schema OR sidecar configured
+│           ├── sidecar.response.json/.md  ← if sidecar configured
+│           └── stage_checkpoint.json      ← durable, resumable stage state
 └── supervisor_sessions/{session_id}/
     ├── supervisor_session.json            ← schema-validated single source of truth
     ├── scaffolds/{version}/source/ + hash_manifest.json
@@ -797,13 +803,12 @@ python automation/run_responses_v2.py run \
   --root . \
   --workflow-file automation/examples/responses_runner_v2_synthetic/workflows/one_pass.workflow.json \
   --dry-run
-#    → writes run_manifest.json + stages/01_draft_summary/{input_manifest.*,request_payload.json,stage_checkpoint.json}
+#    → writes run_manifest.json + dry_runs/stages/01_draft_summary/{input_manifest.*,request_payload.json,stage_checkpoint.json}
 
 # 2. Live run, wait for completion.
 python automation/run_responses_v2.py run \
   --root . \
   --workflow-file automation/examples/responses_runner_v2_synthetic/workflows/one_pass.workflow.json \
-  --skip-token-count \
   --wait
 #    → uploads files, POSTs /responses, polls to terminal, writes response.final.* ,
 #      runs the sidecar, writes output.structured.json, prints the run_manifest path
@@ -812,31 +817,31 @@ python automation/run_responses_v2.py run \
 What happened internally: CLI resolved the root → built `RuntimeOptions` →
 `OpenAIClient.from_env(root)` → `run_workflow()` loaded + validated the workflow → created
 the run dir → `_determine_next_stage()` found stage 1 → resolved + uploaded attachments →
-(token preflight skipped) → `POST /responses` → checkpoint #1 → polled to `completed` →
-wrote `response.final.*` → ran the sidecar → checkpoint #2 → returned.
+pre-upload estimate → exact token preflight → submit intent → `POST /responses` → polled to
+terminal → wrote `artifact.md` and raw evidence → ran the sidecar → finalized → returned.
 
 ### Path A′ — generic engine, a `review_required` workflow (manual review)
 
 ```bash
 # Stage 1 runs and ends in status "waiting_for_review".
 python automation/run_responses_v2.py run --root . \
-  --workflow-file .../reviewed_three_stage.workflow.json --skip-token-count --wait
+  --workflow-file .../reviewed_three_stage.workflow.json --wait
 
-# You inspect stages/01_proposal/response.final.md, then write reviewer notes,
+# You inspect stages/01_proposal/<attempt_NNN>/artifact.md, then write reviewer notes,
 # then build an approved bundle by hand:
 python automation/create_review_bundle_v2.py --root . \
   --output review_bundle_stage1.json \
   --workflow-id synthetic_reviewed_three_stage \
   --source-stage-id proposal \
   --source-run-id <run_id> \
-  --primary-artifact-markdown <run_dir>/stages/01_proposal/response.final.md \
-  --response-artifact-json   <run_dir>/stages/01_proposal/response.final.json \
+  --primary-artifact-markdown <run_dir>/stages/01_proposal/<attempt_NNN>/artifact.md \
+  --response-artifact-json   <run_dir>/stages/01_proposal/<attempt_NNN>/response.final.json \
   --reviewer-notes notes.md
 
 # Continue the SAME run, supplying the bundle. Stage 2 now sees it as Reviewed Handoff Input.
 python automation/run_responses_v2.py run --root . \
   --workflow-file .../reviewed_three_stage.workflow.json \
-  --run-dir <run_dir> --review-bundle review_bundle_stage1.json --skip-token-count --wait
+  --run-dir <run_dir> --review-bundle review_bundle_stage1.json --wait
 ```
 
 ### Path B — supervisor lane, full loop (the four-stage self-improvement pack)
@@ -875,7 +880,7 @@ python automation/run_responses_supervisor_v2.py accept            --root . --se
 # STEP 6  launch Stage 1 LIVE via the engine
 python automation/run_responses_v2.py run --root . \
   --workflow-file automation/task_packs/responses_runner_v2_supervised_end_to_end/workflows/four_stage.workflow.json \
-  --skip-token-count --wait
+  --wait
 
 # STEP 7  classify Stage 1's outcome
 python automation/run_responses_supervisor_v2.py classify --root . \
@@ -930,7 +935,12 @@ latest remote status recorded locally. `refresh` will *not* backfill final artif
 | `monitor` | Record monitoring state; emit a human-pause if a stage is stale. |
 | `archive-attempt` | Archive a `failed_no_artifact` attempt (with hashes) before a rerun. |
 | `finalize-bundle` | Validate + record the final implementation bundle from `--packet-json`. |
+| `usage-report` | Aggregate session reviewer-attempt counts and available usage fields without changing any run's primary/sidecar report. |
 | `validate-session` | Validate `supervisor_session.json` against its schema. |
+
+Each operator, Codex reviewer, and Claude reviewer invocation writes a separate reviewer usage
+attempt. Canonical CLI transports do not guarantee token counters, so unavailable input, output,
+cache, and reasoning-token values remain `null` rather than being reported as zero.
 
 ### `create_review_bundle_v2.py` — build a bundle by hand
 
@@ -977,10 +987,9 @@ It was *refreshed*, not *finalized*. `resume` it (`resume` finalizes; `refresh` 
 
 ### "Token preflight blocked the stage"
 
-The input token count exceeded the configured `max_input_tokens`. This is *terminal* and
-intentional. Do **not** retry blindly. Either reduce the input manifest scope (fewer/
-smaller attachments), raise the limit deliberately, or — if you accept the spend risk —
-re-run with `--skip-token-count`. In the supervisor lane this surfaces as
+The conservative or exact input count exceeded the configured `max_input_tokens`, or exact
+counting failed closed. Do **not** retry blindly. Reduce the input manifest scope, repair the
+count service, or raise the reviewed limit deliberately. In the supervisor lane this surfaces as
 `blocked_token_preflight` → a human pause.
 
 ### "A stage failed"
@@ -1016,7 +1025,7 @@ These are mechanical. They are not warnings — they stop the process. Knowing t
 |---|---|---|
 | **One-root** | any path resolves outside the workspace root | `resolve_under_root()` |
 | **Model caps** | `max_output_tokens` over the model cap, wrong cache retention, structured output on an unsupported model | `validate_model_options()` |
-| **GPT-5.5 cache posture** | a GPT-5.5 model role omits `prompt_cache_retention="24h"` | `pack_loader` |
+| **GPT-5.6 cache posture** | a GPT-5.6 role omits implicit cache mode with `prompt_cache_ttl="30m"` | `pack_loader` |
 | **background + store** | a workflow sets `background=true` with `store=false` | `pack_loader` |
 | **Stage shape** | duplicate stage ids, mis-ordered stage numbers, mode↔count mismatch, dangling carry-forward reference | `pack_loader` |
 | **No-duplicate-submit** | you `run` a stage that is still `submitted`/`in_progress` | `_determine_next_stage` |
@@ -1039,22 +1048,23 @@ These are mechanical. They are not warnings — they stop the process. Knowing t
 ```
 Question                              First file to open
 ──────────────────────────────────────────────────────────────────────────
-"Why did the model produce that?"  →  stages/NN_stage/input_manifest.md
+"Why did the model produce that?"  →  stages/NN_stage/attempt_NNN/input_manifest.md
                                       (check WHAT was attached, in WHICH role)
 
-"What exactly did we send?"        →  stages/NN_stage/request_payload.json
+"What exactly did we send?"        →  stages/NN_stage/attempt_NNN/request_payload.json
 
-"What is the current stage state?" →  stages/NN_stage/stage_checkpoint.json
+"What is the current stage state?" →  stages/NN_stage/attempt_NNN/stage_checkpoint.json
                                       (status, response_id, terminal?, resume_mode)
 
 "What is the overall run state?"   →  run_manifest.json
                                       (per-stage summary, statuses, artifact hashes)
 
-"Did token preflight pass?"        →  stages/NN_stage/token_preflight.json
+"Did token preflight pass?"        →  stages/NN_stage/attempt_NNN/token_preflight.json
                                       or token_preflight.error.json
 
-"What did the model actually say?" →  stages/NN_stage/response.final.md
-                                      (usage, sources, tool calls — human-readable)
+"What is the clean deliverable?"   →  stages/NN_stage/attempt_NNN/artifact.md
+
+"What raw response was retained?"  →  stages/NN_stage/attempt_NNN/response.final.json
 
 "What does the supervisor think?"  →  supervisor_sessions/<id>/supervisor_session.json
                                       (status, current_phase, errors[], human_pauses[])

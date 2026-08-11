@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Responses Runner V2 Validator Result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "validator_id", "artifact", "passed", "duration_ms", "violations"],
+  "properties": {
+    "schema_version": {"const": "responses_runner_v2.validator_result.v1"},
+    "validator_id": {"type": "string", "minLength": 1},
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      }
+    },
+    "passed": {"type": "boolean"},
+    "duration_ms": {"type": "integer", "minimum": 0},
+    "violations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["rule_id", "message", "blocking"],
+        "properties": {
+          "rule_id": {"type": "string", "minLength": 1},
+          "message": {"type": "string", "minLength": 1},
+          "blocking": {"type": "boolean"},
+          "line": {"type": "integer", "minimum": 1}
+        }
+      }
+    }
+  }
+}

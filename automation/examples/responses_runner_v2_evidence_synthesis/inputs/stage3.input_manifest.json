@@ -1,0 +1,11 @@
+{
+  "schema_version": "responses_runner_v2.input_manifest.v1",
+  "manifest_id": "evidence_synthesis_stage3",
+  "workflow_id": "document_evidence_synthesis",
+  "stage_id": "final_decision_brief",
+  "description": "Decision question for final advisory brief after evidence-synthesis review.",
+  "primary_job_inputs": [],
+  "reviewed_handoff_inputs": [],
+  "attached_repository_files": [],
+  "reference_context": []
+}

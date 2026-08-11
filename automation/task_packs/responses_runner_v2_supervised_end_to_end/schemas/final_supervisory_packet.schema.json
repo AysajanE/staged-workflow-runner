@@ -36,26 +36,50 @@
       "additionalProperties": false,
       "required": [
         "primary_generation_model",
+        "primary_reasoning_mode",
         "structural_processing_model",
-        "prompt_cache_retention",
+        "structural_reasoning_mode",
+        "prompt_cache_options",
         "max_output_tokens",
         "surfaces_updated"
       ],
       "properties": {
         "primary_generation_model": {
           "type": "string",
-          "const": "gpt-5.5-pro",
+          "const": "gpt-5.6",
           "description": "Describes the `primary_generation_model` field for this artifact contract."
+        },
+        "primary_reasoning_mode": {
+          "type": "string",
+          "const": "pro",
+          "description": "Required GPT-5.6 reasoning mode for high-stakes primary generation."
         },
         "structural_processing_model": {
           "type": "string",
-          "const": "gpt-5.5",
+          "const": "gpt-5.6",
           "description": "Describes the `structural_processing_model` field for this artifact contract."
         },
-        "prompt_cache_retention": {
+        "structural_reasoning_mode": {
           "type": "string",
-          "const": "24h",
-          "description": "Describes the `prompt_cache_retention` field for this artifact contract."
+          "const": "standard",
+          "description": "Required GPT-5.6 reasoning mode for structural processing."
+        },
+        "prompt_cache_options": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "mode",
+            "ttl"
+          ],
+          "properties": {
+            "mode": {
+              "const": "implicit"
+            },
+            "ttl": {
+              "const": "30m"
+            }
+          },
+          "description": "GPT-5.6 prompt cache mode and supported TTL."
         },
         "max_output_tokens": {
           "type": "integer",

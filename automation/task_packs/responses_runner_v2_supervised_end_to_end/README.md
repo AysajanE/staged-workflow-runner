@@ -55,12 +55,12 @@ For every non-terminal stage:
 
 This pack uses:
 
-- primary generation: `gpt-5.5-pro`
-- structural processing: `gpt-5.5`
-- prompt cache retention: `24h`
+- primary generation: durable `gpt-5.6` with `reasoning.mode=pro`
+- structural processing: durable `gpt-5.6` in standard mode
+- prompt cache options: implicit mode, `ttl=30m`
 - max output tokens for all stages: `128000`
 
-The final implementation packet updates the repository's own defaults, model caps, example workflows, task packs, docs, and tests to the same GPT-5.5-family posture.
+The final implementation packet updates the repository's own defaults, model caps, example workflows, task packs, docs, and tests to the same GPT-5.6 posture.
 
 ## Current Four-Stage Tool Posture
 
@@ -96,7 +96,6 @@ python automation/run_responses_v2.py run \
 python automation/run_responses_v2.py run \
   --root . \
   --workflow-file automation/task_packs/responses_runner_v2_supervised_end_to_end/workflows/four_stage.workflow.json \
-  --skip-token-count \
   --wait
 ```
 
@@ -123,8 +122,8 @@ python automation/create_review_bundle_v2.py \
   --workflow-id responses_runner_v2_supervised_end_to_end_self_improvement \
   --source-stage-id <stage_id> \
   --source-run-id <run_id> \
-  --primary-artifact-markdown <run_dir>/stages/<NN_stage_id>/response.final.md \
-  --response-artifact-json <run_dir>/stages/<NN_stage_id>/response.final.json \
+  --primary-artifact-markdown <run_dir>/stages/<NN_stage_id>/<attempt_NNN>/artifact.md \
+  --response-artifact-json <run_dir>/stages/<NN_stage_id>/<attempt_NNN>/response.final.json \
   --reviewer-notes <run_dir>/<stage_id>.reviewer_notes.md
 ```
 
@@ -136,7 +135,6 @@ python automation/run_responses_v2.py run \
   --workflow-file automation/task_packs/responses_runner_v2_supervised_end_to_end/workflows/four_stage.workflow.json \
   --run-dir <run_dir> \
   --review-bundle <run_dir>/<stage_id>.review_bundle.json \
-  --skip-token-count \
   --wait
 ```
 
@@ -150,7 +148,7 @@ Stage reviewers should inspect:
 - consolidation separated from operator acceptance;
 - no blind reviewer acceptance;
 - accepted recommendations requiring applied-change evidence;
-- GPT-5.5 workflow posture with explicit `24h`;
+- GPT-5.6 workflow posture with explicit implicit-cache `ttl=30m`;
 - current Stage 3 no-tools posture;
 - failure policy tests;
 - human-pause artifact completeness;

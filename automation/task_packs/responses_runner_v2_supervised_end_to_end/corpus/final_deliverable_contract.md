@@ -38,20 +38,23 @@ The packet must include, at minimum:
 
 ## Required Model Migration
 
-The final packet must update all relevant `gpt-5.4` and `gpt-5.4-pro` configurations to GPT-5.5 family configurations.
+The final packet must update all relevant historical `gpt-5.4` and `gpt-5.4-pro` source configurations to the durable GPT-5.6 alias.
 
 The final packet must decide and justify exact defaults.
 
 Expected default posture:
 
-- primary generation: `gpt-5.5-pro`
-- structural processing: `gpt-5.5`
+- primary generation: `gpt-5.6` with `reasoning.mode=pro`
+- structural processing: `gpt-5.6` in standard reasoning mode
+- prompt caching: implicit mode with `ttl=30m`
 - reasoning effort:
   - `xhigh` for high-stakes primary long-running generation
   - `high` or `medium` for structural sidecars if tests show adequate quality
 - verbosity:
   - `high` for final packet generation
   - `medium` for structural processing
+
+Existing verbosity and terminal-stage high/xhigh choices remain unchanged until an A/B measurement supports a change.
 
 ## Required Review-Agent Prompt Quality
 
@@ -108,7 +111,7 @@ Already-passing tests do not count as red-phase evidence.
 
 When emitting final file contents, use:
 
-```text
+`````text
 ### File: `<repo-relative path>`
 
 - action: `create` or `update`
@@ -116,9 +119,9 @@ When emitting final file contents, use:
 
 ````<language>
 <complete final file contents>
-`````
+````
 
-```
+`````
 
 Do not emit partial files.
 

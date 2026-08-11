@@ -36,11 +36,13 @@ Check that:
 
 Verify:
 
-- primary generation defaults use `gpt-5.5-pro`;
-- structural defaults use `gpt-5.5`;
-- committed GPT-5.5-family workflows explicitly use `24h`;
+- primary generation defaults use durable `gpt-5.6` with `reasoning.mode=pro`;
+- structural defaults use `gpt-5.6` in standard mode;
+- committed GPT-5.6 workflows explicitly use implicit cache mode with `ttl=30m`;
 - model caps and tests cover 128000 max output where locked;
 - no unallowlisted legacy model references remain in runtime/config surfaces.
+
+Treat verbosity and terminal-stage high/xhigh changes as unresolved experiments unless A/B evidence is present.
 
 ## Tests And Docs
 
@@ -54,7 +56,7 @@ Verify:
 
 ## Output Contract
 
-Emit JSON conforming to `responses_runner_v2.review_decision.v1`, with explicit final approval or non-approval. Include markdown-report path, blocking issues, improvements, evidence, recommendations, unsupported claims, and next action.
+Emit JSON conforming to `responses_runner_v2.reviewer_output.v1`, with explicit final approval or non-approval. Include blocking issues, improvements, evidence, recommendations, unsupported claims, and next action. The supervisor adds report paths and the decision envelope.
 
 ## Stopping Conditions
 

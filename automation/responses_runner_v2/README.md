@@ -40,13 +40,17 @@ The package separates four concerns:
 4. **Durable local artifacts**  
    Each run writes manifests, request payloads, checkpoints, raw responses, rendered markdown, and optional sidecar JSON under a per-run directory.
 
+Workflow v2 also records an assurance profile and supports a separate runtime input-binding
+file. This lets an operator expose a named input only to the stages that need it instead of
+reattaching every runtime input to every request.
+
 ## Authority Model
 
 Every stage uses the same fixed attachment authority order:
 
 1. Primary Job Inputs
 2. Reviewed Handoff Inputs
-3. Attached Repository Files
+3. Attached Workspace Evidence (the v1 manifest field remains `attached_repository_files`)
 4. Reference Context
 
 The stage-local `input_manifest.md` is the human-readable source of truth for what was attached.
@@ -121,10 +125,18 @@ The framework owns the generic mechanics. The operator provides workflow-specifi
 - `--review-bundle`  
   Approved handoff bundle from a prior review gate.
 
+- `--input-binding-file`
+  Named, root-confined runtime inputs with workflow or explicit stage scope.
+  The supervisor exposes the same flag for dry-run, launch, and archive-authorized rerun.
+
 - optional runtime overrides  
   Examples: `--run-dir`, `--stage`, `--skip-token-count`, `--wait`, `--primary-model`, `--structural-model`.
 
 The task pack itself provides the static repo corpus, fixed reference context, prompts, tool settings, and stage definitions.
+
+Keep token preflight enabled for critical work. See
+`docs/design/persisted-format-compatibility.md` before handling historical v1 evidence, and use
+the `purge` command only for explicit hash-tombstoned retention actions.
 
 ## Workflow Manifest
 
@@ -150,6 +162,11 @@ Supported workflow modes:
 Schema:
 
 - `schemas/workflow_manifest.schema.json`
+- `schemas/workflow_manifest.v2.schema.json` for new workflows
+
+The domain-neutral terminal packet contract is
+`schemas/final_delivery_bundle.schema.json`. Coding delivery can use the stricter
+implementation-specific bundle instead.
 
 ## Stage Input Manifest
 
@@ -202,7 +219,7 @@ A stage can emit text as its primary artifact and still request structured JSON 
 When configured, the engine:
 
 1. completes the primary stage response
-2. uploads the rendered markdown artifact and raw response JSON
+2. uploads the clean `artifact.md` (raw response JSON is recovery-only and not routine context)
 3. runs a structural-processing model against the sidecar schema
 4. writes:
    - `output.structured.json`
@@ -228,18 +245,26 @@ Default output root:
 Each run directory contains:
 
 - `run_manifest.json`
-- `stages/<NN_stage_id>/input_manifest.json`
-- `stages/<NN_stage_id>/input_manifest.md`
-- `stages/<NN_stage_id>/request_payload.json`
-- `stages/<NN_stage_id>/uploads.json`
-- `stages/<NN_stage_id>/response.latest.json`
-- `stages/<NN_stage_id>/response.final.json`
-- `stages/<NN_stage_id>/response.final.md`
-- `stages/<NN_stage_id>/stage_checkpoint.json`
+- `run_contract.json`
+- `stages/<NN_stage_id>/<attempt_NNN>/input_manifest.json`
+- `stages/<NN_stage_id>/<attempt_NNN>/input_manifest.md`
+- `stages/<NN_stage_id>/<attempt_NNN>/request_plan.json`
+- `stages/<NN_stage_id>/<attempt_NNN>/request_payload.json`
+- `stages/<NN_stage_id>/<attempt_NNN>/uploads.json`
+- `stages/<NN_stage_id>/<attempt_NNN>/response.latest.json`
+- `stages/<NN_stage_id>/<attempt_NNN>/response.final.json`
+- `stages/<NN_stage_id>/<attempt_NNN>/response.final.md`
+- `stages/<NN_stage_id>/<attempt_NNN>/artifact.md`
+- `stages/<NN_stage_id>/<attempt_NNN>/stage_checkpoint.json`
 - optional `token_preflight.json` or `token_preflight.error.json`
 - optional `output.structured.json`
 - optional `sidecar.response.json`
 - optional `sidecar.response.md`
+
+The run manifest records the current attempt path. `artifact.md` is the clean
+model-facing deliverable; `response.final.*` is retained as raw/recovery evidence.
+Dry-run scaffolds remain under `dry_runs/stages/<NN_stage_id>/` because no live
+attempt has been submitted.
 
 Run manifests and checkpoints record ISO 8601 timestamps in UTC.
 

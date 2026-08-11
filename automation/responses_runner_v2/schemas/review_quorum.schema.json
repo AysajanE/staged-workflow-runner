@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Responses Runner V2 Review Quorum",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "created_at", "supervisor_session_id", "review_cycle_id", "subject_id", "subject_sha256", "roles", "quorum_status"],
+  "properties": {
+    "schema_version": {"const": "responses_runner_v2.review_quorum.v1"},
+    "created_at": {"type": "string", "format": "date-time"},
+    "supervisor_session_id": {"type": "string", "minLength": 1},
+    "review_cycle_id": {"type": "string", "minLength": 1},
+    "subject_id": {"$ref": "#/$defs/sha256"},
+    "subject_sha256": {"$ref": "#/$defs/sha256"},
+    "roles": {
+      "type": "object", "additionalProperties": false,
+      "required": ["operator_codex", "codex_review_agent", "claude_review_agent"],
+      "properties": {
+        "operator_codex": {"$ref": "#/$defs/gate"},
+        "codex_review_agent": {"$ref": "#/$defs/gate"},
+        "claude_review_agent": {"$ref": "#/$defs/gate"}
+      }
+    },
+    "quorum_status": {"enum": ["passed", "blocked"]}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "gate": {
+      "type": "object", "additionalProperties": false,
+      "required": ["actor_role", "decision_path", "decision_sha256", "markdown_path", "markdown_sha256", "transport_status", "schema_status", "job_binding_status", "review_input_binding_status", "read_only_status", "gate_status", "subject_id", "subject_sha256", "frozen_job_sha256", "job_sha256", "review_input_path", "review_input_sha256", "reviewed_artifact_manifest_sha256"],
+      "properties": {
+        "actor_role": {"enum": ["operator_codex", "codex_review_agent", "claude_review_agent"]},
+        "decision_path": {"type": "string", "minLength": 1},
+        "decision_sha256": {"$ref": "#/$defs/sha256"},
+        "markdown_path": {"type": "string", "minLength": 1},
+        "markdown_sha256": {"$ref": "#/$defs/sha256"},
+        "transport_status": {"enum": ["passed", "failed"]},
+        "schema_status": {"enum": ["passed", "failed"]},
+        "job_binding_status": {"enum": ["passed", "failed"]},
+        "review_input_binding_status": {"enum": ["passed", "failed"]},
+        "read_only_status": {"enum": ["passed", "failed", "not_applicable"]},
+        "gate_status": {"enum": ["passed", "blocked"]},
+        "subject_id": {"$ref": "#/$defs/sha256"},
+        "subject_sha256": {"$ref": "#/$defs/sha256"},
+        "frozen_job_sha256": {"$ref": "#/$defs/sha256"},
+        "job_sha256": {"$ref": "#/$defs/sha256"},
+        "review_input_path": {"type": "string", "minLength": 1},
+        "review_input_sha256": {"$ref": "#/$defs/sha256"},
+        "reviewed_artifact_manifest_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    }
+  }
+}

@@ -13,8 +13,8 @@ The scaffold is acceptable only if it includes:
 - outcome-first prompts;
 - high-signal input manifests;
 - appropriate attached repository files and reviewed handoffs;
-- GPT-5.5-family model defaults;
-- explicit `prompt_cache_retention: "24h"` for committed GPT-5.5-family profiles;
+- durable GPT-5.6 model defaults;
+- explicit implicit cache mode with `prompt_cache_ttl: "30m"` for committed GPT-5.6 profiles;
 - stage gates aligned with review requirements;
 - output schemas where structured extraction is needed;
 - dry-run validation evidence;
@@ -38,11 +38,13 @@ All paths must remain under the active workspace root.
 
 Use:
 
-- primary generation `gpt-5.5-pro`;
-- structural processing `gpt-5.5`;
+- primary generation `gpt-5.6` with `reasoning_mode: "pro"`;
+- structural processing `gpt-5.6` with standard reasoning mode;
 - `xhigh` reasoning for high-stakes long-running primary stages;
 - `high` or `medium` reasoning for structural sidecars;
-- `24h` prompt-cache retention for committed GPT-5.5-family model roles.
+- implicit prompt caching with `prompt_cache_ttl: "30m"` for committed GPT-5.6 roles.
+
+Do not alter existing verbosity or terminal-stage high/xhigh settings without A/B evidence.
 
 Tool profiles must be justified by task need.
 

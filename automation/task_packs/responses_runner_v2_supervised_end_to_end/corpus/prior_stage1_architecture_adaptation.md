@@ -36,8 +36,8 @@ The previous architecture did not fully cover:
 - Claude review via `claude -p`;
 - review consolidation;
 - operator selective acceptance of recommendations;
-- GPT-5.5 family model migration;
-- prompt contracts following current GPT-5.5 and Claude Opus guidance;
+- GPT-5.6 model migration;
+- prompt contracts following current GPT-5.6 and Claude Opus guidance;
 - full red/green tests for review-agent invocation and consolidation.
 
 This new scaffold must make those items first-class requirements.

@@ -11,6 +11,8 @@ It is intentionally synthetic and small so operators can verify the engine witho
 - reviewed three-stage progression with approved review bundles
 - dry-run readiness
 - run-artifact writing and proof-pack regression coverage through the bundled tests
+- workflow manifest v2 with `critical` assurance and explicit 700000-token input budgets
+- durable GPT-5.6 model roles and current 30-minute prompt-cache options
 
 ## Pack Layout
 

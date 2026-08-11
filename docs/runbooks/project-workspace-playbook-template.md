@@ -58,7 +58,7 @@ Replace the values below when copying this file into a real project workspace:
 2. Prepare or update the task pack under that same workspace root.
 3. Dry-run from the target workspace.
 4. Inspect the generated request and attachment manifests.
-5. Launch the live run from the target workspace with `--skip-token-count --wait`.
+5. Launch the live run from the target workspace with token preflight enabled and `--wait`.
 6. If the workflow has review gates, create an approved review bundle and continue.
 
 ## Minimum Task-Pack Shape
@@ -111,7 +111,6 @@ cd "<target-workspace>"
 python "<runner-checkout>/automation/run_responses_v2.py" run \
   --root . \
   --workflow-file <workflow-file> \
-  --skip-token-count \
   --wait
 ```
 
@@ -147,8 +146,8 @@ python "<runner-checkout>/automation/create_review_bundle_v2.py" \
   --workflow-id <workflow-id> \
   --source-stage-id <stage-id> \
   --source-run-id <run-id> \
-  --primary-artifact-markdown <run-dir>/stages/<stage-dir>/response.final.md \
-  --response-artifact-json <run-dir>/stages/<stage-dir>/response.final.json \
+  --primary-artifact-markdown <run-dir>/stages/<stage-dir>/<attempt_NNN>/artifact.md \
+  --response-artifact-json <run-dir>/stages/<stage-dir>/<attempt_NNN>/response.final.json \
   --reviewer-notes notes.md
 ```
 
@@ -162,7 +161,6 @@ python "<runner-checkout>/automation/run_responses_v2.py" run \
   --workflow-file <workflow-file> \
   --run-dir <run-dir> \
   --review-bundle review_bundle.json \
-  --skip-token-count \
   --wait
 ```
 
@@ -171,23 +169,23 @@ python "<runner-checkout>/automation/run_responses_v2.py" run \
 After a dry run:
 
 - `<run-dir>/run_manifest.json`
-- `<run-dir>/stages/<stage-dir>/input_manifest.json`
-- `<run-dir>/stages/<stage-dir>/input_manifest.md`
-- `<run-dir>/stages/<stage-dir>/request_payload.json`
-- `<run-dir>/stages/<stage-dir>/stage_checkpoint.json`
+- `<run-dir>/dry_runs/stages/<stage-dir>/input_manifest.json`
+- `<run-dir>/dry_runs/stages/<stage-dir>/input_manifest.md`
+- `<run-dir>/dry_runs/stages/<stage-dir>/request_payload.json`
+- `<run-dir>/dry_runs/stages/<stage-dir>/stage_checkpoint.json`
 
 After a live run:
 
-- `<run-dir>/stages/<stage-dir>/response.final.md`
-- `<run-dir>/stages/<stage-dir>/response.final.json`
-- `<run-dir>/stages/<stage-dir>/uploads.json`
-- `<run-dir>/stages/<stage-dir>/output.structured.json` if sidecar extraction is enabled
+- `<run-dir>/stages/<stage-dir>/<attempt_NNN>/artifact.md`
+- `<run-dir>/stages/<stage-dir>/<attempt_NNN>/response.final.json`
+- `<run-dir>/stages/<stage-dir>/<attempt_NNN>/uploads.json`
+- `<run-dir>/stages/<stage-dir>/<attempt_NNN>/output.structured.json` if sidecar extraction is enabled
 
 ## Operating Rules
 
 - one exact workspace root per run
 - keep task-specific behavior in prompts, manifests, schemas, and review policy
-- use `--skip-token-count` for live `run` commands
+- keep token preflight enabled for live critical workflows
 - dry-run every new task pack before the first live submission
 - do not assume binary files will be auto-wrapped
 - prefer task-pack edits over runner-engine edits unless the target exposes a real framework gap

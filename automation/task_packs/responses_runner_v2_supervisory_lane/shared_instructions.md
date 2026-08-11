@@ -26,7 +26,7 @@ Across all stages, complete this self-improvement run by:
 Among attached materials, follow the v2 fixed authority order:
 1. Primary Job Inputs
 2. Reviewed Handoff Inputs from approved prior stages
-3. Attached Repository Files
+3. Attached Workspace Evidence (legacy manifest alias: Attached Repository Files)
 4. Reference Context
 </attachment_authority_order>
 

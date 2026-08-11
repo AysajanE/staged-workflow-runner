@@ -1,0 +1,38 @@
+{
+  "schema_version": "responses_runner_v2.representative_eval_candidate.v1",
+  "case_id": "representative-research-synthesis",
+  "task_type": "multi_document_research",
+  "producer": {
+    "kind": "responses_runner_v2_offline_fake_client",
+    "workflow_id": "synthetic_one_pass",
+    "run_id": "frozen_representative_research_synthesis",
+    "stage_id": "draft_summary",
+    "response_id": "resp_representative_research_synthesis"
+  },
+  "output": {
+    "synthesis": "The frozen studies report faster processing without a measured error-rate change.",
+    "limitations": ["The two studies used different trial counts.", "The fixtures do not establish causality."],
+    "claims": [
+      {
+        "claim": "Study Alpha reported a 12 percent processing-time reduction.",
+        "citation_ids": ["alpha_result"]
+      },
+      {
+        "claim": "Study Beta reported no material error-rate change.",
+        "citation_ids": ["beta_result"]
+      }
+    ],
+    "citations": [
+      {
+        "citation_id": "alpha_result",
+        "source_id": "study_alpha",
+        "quote": "Study Alpha observed a 12 percent reduction in processing time across 40 trials."
+      },
+      {
+        "citation_id": "beta_result",
+        "source_id": "study_beta",
+        "quote": "Study Beta reported no material change in error rate across 35 trials."
+      }
+    ]
+  }
+}

@@ -157,7 +157,7 @@ class ResponsesRunnerV2SupervisoryLanePackTests(unittest.TestCase):
         }
         self.assertTrue(expected_paths.issubset(attached_paths))
 
-    def test_manifests_taper_by_stage(self) -> None:
+    def test_manifests_are_stage_focused(self) -> None:
         stage1 = self._load_manifest("stage1.input_manifest.json")
         stage2 = self._load_manifest("stage2.input_manifest.json")
         stage3 = self._load_manifest("stage3.input_manifest.json")
@@ -169,12 +169,28 @@ class ResponsesRunnerV2SupervisoryLanePackTests(unittest.TestCase):
         stage2_reference = self._materialized_paths(stage2, "reference_context")
         stage3_reference = self._materialized_paths(stage3, "reference_context")
 
-        self.assertGreater(len(stage1_attached), len(stage2_attached))
         self.assertGreater(len(stage2_attached), len(stage3_attached))
-        self.assertGreater(len(stage1_reference), len(stage2_reference))
+        self.assertEqual(stage1_reference, set())
         self.assertGreater(len(stage2_reference), len(stage3_reference))
 
-        self.assertIn("DEVELOPING.md", stage1_attached)
+        self.assertNotIn(
+            "automation/tests/test_responses_runner_v2_contracts.py",
+            stage1_attached,
+        )
+        self.assertNotIn(
+            "automation/tests/test_responses_runner_v2_durability.py",
+            stage1_attached,
+        )
+        self.assertNotIn(
+            "automation/tests/test_responses_runner_v2_workflow.py",
+            stage1_attached,
+        )
+        self.assertNotIn(
+            "automation/responses_runner_v2/schemas/workflow_manifest.v2.schema.json",
+            stage1_attached,
+        )
+
+        self.assertNotIn("DEVELOPING.md", stage1_attached)
         self.assertNotIn("DEVELOPING.md", stage2_attached)
         self.assertNotIn("DEVELOPING.md", stage3_attached)
 
@@ -191,7 +207,7 @@ class ResponsesRunnerV2SupervisoryLanePackTests(unittest.TestCase):
             stage3_attached,
         )
 
-        self.assertIn(
+        self.assertNotIn(
             "automation/examples/responses_runner_v2_synthetic/workflows/one_pass.workflow.json",
             stage1_reference,
         )
@@ -227,7 +243,6 @@ class ResponsesRunnerV2SupervisoryLanePackTests(unittest.TestCase):
             stage1_dirs,
             {
                 "automation/responses_runner_v2",
-                "automation/tests",
                 "automation/task_packs/responses_runner_v2_supervisory_lane",
             },
         )
@@ -239,7 +254,7 @@ class ResponsesRunnerV2SupervisoryLanePackTests(unittest.TestCase):
             },
         )
         self.assertEqual(stage3_dirs, {"automation/responses_runner_v2"})
-        self.assertEqual(stage1_ref_dirs, {"automation/examples/responses_runner_v2_synthetic"})
+        self.assertEqual(stage1_ref_dirs, set())
 
     def test_web_search_profiles_match_requested_tool_caps(self) -> None:
         expected = {
