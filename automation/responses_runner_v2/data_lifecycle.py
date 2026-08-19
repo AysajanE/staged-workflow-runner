@@ -23,10 +23,10 @@ PURGE_PATTERNS: dict[str, tuple[str, ...]] = {
         "**/sidecar.response.json",
     ),
     "reviewer_output": (
-        "**/review_cycles/*/operator/**",
-        "**/review_cycles/*/reviewers/codex/**",
-        "**/review_cycles/*/reviewers/claude/**",
-        "**/review_cycles/*/revision/operator/**",
+        "**/review_cycles/*/operator/**/*",
+        "**/review_cycles/*/reviewers/codex/**/*",
+        "**/review_cycles/*/reviewers/claude/**/*",
+        "**/review_cycles/*/revision/operator/**/*",
     ),
     "reasoning_summary": ("**/reasoning_summary*.json", "**/reasoning_summary*.md"),
 }

@@ -40,7 +40,9 @@ class ReviewerIntegrityTests(unittest.TestCase):
             calls.append((list(argv), kwargs))
             return SimpleNamespace(returncode=0, stdout=json.dumps(_model_output()), stderr="")
 
-        with tempfile.TemporaryDirectory(dir=ROOT / ".local") as tmp:
+        local_dir = ROOT / ".local"
+        local_dir.mkdir(exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=local_dir) as tmp:
             base = Path(tmp)
             reviewed = base / "reviewed.md"
             reviewed.write_text("reviewed\n", encoding="utf-8")
@@ -236,7 +238,9 @@ class ReviewerIntegrityTests(unittest.TestCase):
             self.assertEqual(usage_attempt["retry_count"], 1)
 
     def test_explicit_ignored_review_artifact_is_hashed_and_protected(self) -> None:
-        with tempfile.TemporaryDirectory(dir=ROOT / ".local") as tmp:
+        local_dir = ROOT / ".local"
+        local_dir.mkdir(exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=local_dir) as tmp:
             reviewed = Path(tmp) / "reviewed.json"
             reviewed.write_text('{"before": true}\n', encoding="utf-8")
 
