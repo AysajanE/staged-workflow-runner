@@ -198,6 +198,13 @@ class ArtifactDurabilityTests(unittest.TestCase):
                     with run_lock(run_dir):
                         self.fail("second lock unexpectedly acquired")
 
+    def test_run_lock_enforces_private_permissions(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            run_dir = Path(temporary_directory) / "run"
+            with run_lock(run_dir) as lock_path:
+                self.assertEqual(stat.S_IMODE(run_dir.stat().st_mode), 0o700)
+                self.assertEqual(stat.S_IMODE(lock_path.stat().st_mode), 0o600)
+
     def test_clean_artifact_is_idempotent_but_not_replaceable(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             path = Path(temporary_directory) / "artifact.md"
