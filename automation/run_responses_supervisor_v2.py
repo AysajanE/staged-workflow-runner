@@ -200,6 +200,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         type=_path_argument,
         help="Versioned stage-scoped runtime input bindings, frozen into the run contract.",
     )
+    launch_parser.add_argument("--skip-token-count", action="store_true")
     launch_parser.add_argument("--wait", action="store_true")
 
     rerun_parser = subparsers.add_parser("rerun-archived", help="Rerun one eligible archived failed-no-artifact stage.")
@@ -462,6 +463,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 review_bundles=args.review_bundle,
                 input_binding_file=args.input_binding_file,
                 stage_id=args.stage,
+                skip_token_count=args.skip_token_count,
                 wait=args.wait,
             )
         )

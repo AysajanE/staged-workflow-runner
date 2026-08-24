@@ -3717,6 +3717,7 @@ def _launch_intent(
     reference_context: Sequence[str],
     review_bundles: Sequence[str],
     input_bindings: Sequence[Any],
+    skip_token_count: bool,
 ) -> tuple[str, dict[str, Any]]:
     workflow = load_workflow_definition(workflow_path, root=root)
     runtime = {
@@ -3735,6 +3736,8 @@ def _launch_intent(
             for binding in input_bindings
         ],
     }
+    if skip_token_count:
+        runtime["skip_token_count"] = True
     acceptance_binding = cycle.get("acceptance_binding") or {}
     intent = {
         "accepted_subject_id": subject["subject_id"],
@@ -3880,6 +3883,7 @@ def launch_scaffold(
     review_bundles: Sequence[str] = (),
     input_binding_file: str | Path | None = None,
     stage_id: str | None = None,
+    skip_token_count: bool = False,
     wait: bool = False,
     client: OpenAIClient | None = None,
 ) -> dict[str, Any]:
@@ -3911,6 +3915,7 @@ def launch_scaffold(
         reference_context=reference_context,
         review_bundles=review_bundles,
         input_bindings=input_bindings,
+        skip_token_count=skip_token_count,
     )
 
     with _launch_intent_lock(session_path, launch_intent_id):
@@ -3927,6 +3932,7 @@ def launch_scaffold(
             reference_context=reference_context,
             review_bundles=review_bundles,
             input_bindings=input_bindings,
+            skip_token_count=skip_token_count,
         )
         if current_intent_id != launch_intent_id or current_intent != intent:
             raise SystemExit("Supervisor launch inputs changed before reservation; retry the launch.")
@@ -4002,6 +4008,7 @@ def launch_scaffold(
                 reference_context=list(reference_context),
                 review_bundles=list(review_bundles),
                 input_bindings=list(input_bindings),
+                skip_token_count=skip_token_count,
                 wait=wait,
             ),
             client=client or OpenAIClient.from_env(root=root),

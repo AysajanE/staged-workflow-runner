@@ -393,6 +393,61 @@ class ResponsesRunnerV2WorkflowTests(unittest.TestCase):
                     root=ROOT,
                 )
 
+    def test_review_gated_next_stage_allows_output_limit_increase(self) -> None:
+        with tempfile.TemporaryDirectory(dir=ROOT) as tmp:
+            tmp_path = Path(tmp)
+            workflow_path = "automation/examples/responses_runner_v2_synthetic/workflows/reviewed_three_stage.workflow.json"
+            stage1 = run_workflow(
+                workflow_file=workflow_path,
+                runtime=RuntimeOptions(
+                    run_name="review-gated-output-increase",
+                    output_root=tmp_path.relative_to(ROOT),
+                    wait=True,
+                ),
+                client=FakeClient(),
+                root=ROOT,
+            )
+            run_dir = ROOT / stage1["run_dir"]
+            run_manifest = artifacts.load_run_manifest(ROOT, run_dir)
+            proposal_dir = _stage_dir(run_manifest, "proposal")
+            notes = run_dir / "proposal.review.md"
+            notes.write_text("# approved\n", encoding="utf-8")
+            bundle = run_dir / "proposal.review_bundle.json"
+            create_review_bundle(
+                root=ROOT,
+                output_path=bundle.relative_to(ROOT),
+                workflow_id="synthetic_reviewed_three_stage",
+                source_stage_id="proposal",
+                source_run_id=run_manifest["run_id"],
+                primary_artifact_markdown=(proposal_dir / "artifact.md").relative_to(ROOT),
+                response_artifact_json=(proposal_dir / "response.final.json").relative_to(ROOT),
+                reviewer_notes=notes.relative_to(ROOT),
+            )
+
+            run_workflow(
+                workflow_file=workflow_path,
+                runtime=RuntimeOptions(
+                    run_dir=run_dir.relative_to(ROOT),
+                    stage_id="revision",
+                    review_bundles=[bundle.relative_to(ROOT).as_posix()],
+                    max_output_tokens=96000,
+                    dry_run=True,
+                ),
+                root=ROOT,
+            )
+
+            request_payload = json.loads(
+                (
+                    run_dir
+                    / "dry_runs/stages/02_revision/request_payload.json"
+                ).read_text(encoding="utf-8")
+            )
+            contract = json.loads(
+                (run_dir / "run_contract.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(request_payload["max_output_tokens"], 96000)
+            self.assertIsNone(contract["effective_runtime"]["max_output_tokens"])
+
     def test_existing_run_rejects_same_id_workflow_from_another_path(self) -> None:
         with tempfile.TemporaryDirectory(dir=ROOT) as tmp:
             tmp_path = Path(tmp)
@@ -1387,6 +1442,39 @@ class ResponsesRunnerV2WorkflowTests(unittest.TestCase):
             )
             self.assertEqual(resumed["status"], "completed")
             self.assertIn(refreshed["status"], {"completed", "running"})
+
+    def test_refresh_preserves_operator_token_preflight_skip(self) -> None:
+        with tempfile.TemporaryDirectory(dir=ROOT) as tmp:
+            result = run_workflow(
+                workflow_file="automation/examples/responses_runner_v2_synthetic/workflows/one_pass.workflow.json",
+                runtime=RuntimeOptions(
+                    run_name="synthetic-refresh-skipped-preflight",
+                    output_root=Path(tmp).relative_to(ROOT),
+                    skip_token_count=True,
+                    wait=False,
+                ),
+                client=FakeClient(completed=False),
+                root=ROOT,
+            )
+            run_dir = ROOT / result["run_dir"]
+            refresh_client = FakeClient(completed=False)
+            refresh_client.retrieve_response = lambda response_id: _in_progress_response(response_id)
+
+            refresh_stage(
+                run_dir=run_dir.relative_to(ROOT),
+                stage_id="draft_summary",
+                client=refresh_client,
+                root=ROOT,
+            )
+
+            run_manifest = json.loads((run_dir / "run_manifest.json").read_text(encoding="utf-8"))
+            checkpoint = json.loads(
+                (_stage_dir(run_manifest) / "stage_checkpoint.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(
+                checkpoint["token_preflight"],
+                {"status": "skipped_by_operator", "attempts": 0},
+            )
 
     def test_refresh_status_only_does_not_rewrite_terminal_artifacts_or_rerun_sidecar(self) -> None:
         class RefreshOnlyClient:

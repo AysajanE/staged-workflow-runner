@@ -201,6 +201,27 @@ class AuditGapClosureTests(unittest.TestCase):
             )
             self.assertEqual(args.input_binding_file, binding_file)
 
+        with mock.patch.object(
+            run_responses_supervisor_v2.supervisor,
+            "launch_scaffold",
+            return_value={"status": "in_progress"},
+        ) as launch:
+            with redirect_stdout(io.StringIO()):
+                result = run_responses_supervisor_v2.main(
+                    [
+                        "launch",
+                        "--root",
+                        str(ROOT),
+                        "--session",
+                        "session",
+                        "--workflow-file",
+                        str(workflow_file),
+                        "--skip-token-count",
+                    ]
+                )
+        self.assertEqual(result, 0)
+        self.assertTrue(launch.call_args.kwargs["skip_token_count"])
+
 
 if __name__ == "__main__":
     unittest.main()

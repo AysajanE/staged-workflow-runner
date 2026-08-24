@@ -18,8 +18,9 @@
     "next_action"
   ],
   "properties": {
-    "status": {"const": "succeeded"},
+    "status": {"type": "string", "const": "succeeded"},
     "approval_decision": {
+      "type": "string",
       "enum": ["approve", "approve_with_conditions", "do_not_approve", "blocked"]
     },
     "summary": {"type": "string", "minLength": 1},
@@ -56,6 +57,7 @@
       "items": {"type": "string"}
     },
     "next_action": {
+      "type": "string",
       "enum": [
         "proceed_to_consolidation",
         "proceed_to_operator_acceptance",
@@ -95,7 +97,7 @@
       "required": ["issue_id", "severity", "description", "evidence", "affected_artifacts"],
       "properties": {
         "issue_id": {"type": "string", "minLength": 1},
-        "severity": {"enum": ["critical", "blocking", "high", "medium", "low"]},
+        "severity": {"type": "string", "enum": ["critical", "blocking", "high", "medium", "low"]},
         "description": {"type": "string", "minLength": 1},
         "evidence": {"type": "array", "items": {"type": "string"}},
         "affected_artifacts": {"type": "array", "items": {"type": "string"}}
@@ -152,7 +154,7 @@
       ],
       "properties": {
         "recommendation_id": {"type": "string", "minLength": 1},
-        "severity": {"enum": ["critical", "blocking", "high", "medium", "low"]},
+        "severity": {"type": "string", "enum": ["critical", "blocking", "high", "medium", "low"]},
         "recommendation": {"type": "string", "minLength": 1},
         "evidence": {"type": "array", "items": {"$ref": "#/$defs/evidence"}},
         "affected_artifacts": {"type": "array", "items": {"type": "string", "minLength": 1}},
@@ -160,7 +162,7 @@
         "rationale_for_no_change": {"anyOf": [{"type": "string", "minLength": 1}, {"type": "null"}]},
         "operator_decision": {
           "anyOf": [
-            {"enum": ["accepted", "rejected", "deferred", "already_satisfied", "out_of_scope"]},
+            {"type": "string", "enum": ["accepted", "rejected", "deferred", "already_satisfied", "out_of_scope"]},
             {"type": "null"}
           ]
         },
@@ -170,7 +172,7 @@
         "validation_evidence": {"type": "array", "items": {"$ref": "#/$defs/evidence"}},
         "consolidation_recommendation": {
           "anyOf": [
-            {"enum": ["accepted_for_operator_review", "rejected", "needs_operator_judgment", "duplicate", "already_satisfied", "out_of_scope"]},
+            {"type": "string", "enum": ["accepted_for_operator_review", "rejected", "needs_operator_judgment", "duplicate", "already_satisfied", "out_of_scope"]},
             {"type": "null"}
           ]
         }

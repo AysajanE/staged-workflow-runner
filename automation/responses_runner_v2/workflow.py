@@ -260,6 +260,39 @@ def _verify_initial_run_contract(
     return contract
 
 
+def _allows_review_gated_stage_output_increase(
+    *,
+    workflow,
+    run_manifest: dict[str, Any],
+    contract: dict[str, Any],
+    runtime: RuntimeOptions,
+) -> bool:
+    """Allow only a larger cap for one prepared stage after an approved gate."""
+
+    if runtime.stage_id is None or runtime.max_output_tokens is None:
+        return False
+    stage = workflow.stage(runtime.stage_id)
+    if stage.stage_number <= 1 or not runtime.review_bundles:
+        return False
+    summary = artifacts.find_stage_summary(run_manifest, stage.stage_id)
+    if summary.get("status") != StageStatus.PREPARED.value:
+        return False
+    if summary.get("current_attempt_id") or summary.get("attempts"):
+        return False
+    previous_stage = workflow.stages[stage.stage_number - 2]
+    previous_summary = artifacts.find_stage_summary(
+        run_manifest, previous_stage.stage_id
+    )
+    if (
+        previous_stage.gate != GateType.REVIEW_REQUIRED
+        or previous_summary.get("status") != StageStatus.WAITING_FOR_REVIEW.value
+    ):
+        return False
+    frozen_limit = contract["effective_runtime"].get("max_output_tokens")
+    baseline = frozen_limit if frozen_limit is not None else stage.max_output_tokens
+    return baseline is not None and runtime.max_output_tokens > int(baseline)
+
+
 def _load_or_create_run_manifest(
     *,
     root: Path,
@@ -315,7 +348,16 @@ def _load_or_create_run_manifest(
                         "Caller workflow manifest does not match the frozen run contract; "
                         "resume with the original workflow file."
                     )
-                verify_effective_runtime(contract, runtime)
+                verify_effective_runtime(
+                    contract,
+                    runtime,
+                    allow_stage_output_increase=_allows_review_gated_stage_output_increase(
+                        workflow=workflow,
+                        run_manifest=manifest,
+                        contract=contract,
+                        runtime=runtime,
+                    ),
+                )
                 return run_dir, manifest
             intent_path = _run_initialization_intent_path(run_dir)
             if intent_path.exists():
@@ -2819,7 +2861,12 @@ def resume_stage(
     has_next_stage = workflow.next_stage(stage.stage_id) is not None
     structured_output_written = stage_paths["structured_output"].exists()
     sidecar_written = stage_paths["sidecar_response_json"].exists()
-    token_preflight = {"status": "pending"}
+    token_preflight = (
+        {"status": "skipped_by_operator", "attempts": 0}
+        if effective_runtime.skip_token_count
+        or not workflow.request_defaults.token_preflight.enabled
+        else {"status": "pending"}
+    )
     if stage_paths["token_preflight"].exists():
         token_payload = load_json(stage_paths["token_preflight"], "token preflight")
         token_preflight = {

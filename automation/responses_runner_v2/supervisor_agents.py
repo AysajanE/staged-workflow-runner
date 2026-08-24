@@ -253,6 +253,26 @@ def _render_command_argv(
     return rendered
 
 
+def _apply_operator_sandbox(
+    argv: list[str],
+    *,
+    root: Path,
+    job_payload: dict[str, Any],
+) -> list[str]:
+    """Grant write access only when an operator job declares exact write paths."""
+
+    raw_paths = job_payload.get("allowed_write_paths")
+    if raw_paths is None:
+        mode = "read-only"
+    else:
+        if not isinstance(raw_paths, list) or any(not isinstance(item, str) or not item.strip() for item in raw_paths):
+            raise SystemExit("Operator allowed_write_paths must be a list of non-empty workspace-relative paths.")
+        for item in raw_paths:
+            resolve_under_root(root, item, must_exist=False)
+        mode = "workspace-write" if raw_paths else "read-only"
+    return [*argv[:2], "--sandbox", mode, *argv[2:]]
+
+
 def _compose_prompt(root: Path, actor_role: str, review_kind: str) -> tuple[list[str], str]:
     paths = [SHARED_PROMPT_PATH, PROMPT_BY_ROLE[actor_role], PROMPT_BY_REVIEW_KIND[review_kind]]
     sections: list[str] = []
@@ -1390,6 +1410,8 @@ def _invoke_agent(
             actor_role=actor_role,
             composed_prompt_path=prompt_path,
         )
+        if actor_role == "operator_codex":
+            argv = _apply_operator_sandbox(argv, root=root, job_payload=job_payload)
     elif actor_role == "claude_review_agent":
         argv = _render_command_argv(
             template,

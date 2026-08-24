@@ -221,16 +221,28 @@ def load_and_verify_run_contract(*, root: Path, run_dir: Path) -> dict[str, Any]
     return contract
 
 
-def verify_effective_runtime(contract: dict[str, Any], runtime: RuntimeOptions) -> None:
+def verify_effective_runtime(
+    contract: dict[str, Any],
+    runtime: RuntimeOptions,
+    *,
+    allow_stage_output_increase: bool = False,
+) -> None:
     """Reject caller-supplied runtime drift for an already frozen run."""
 
     payload = _runtime_payload(runtime)
     # Review bundles are stage-gated handoffs created after the run contract;
-    # their own hashes are validated when consumed. All request defaults and
-    # operator source inputs remain frozen here.
+    # their own hashes are validated when consumed. A narrowly authorized
+    # output-limit increase may likewise be supplied for one unstarted stage
+    # after a review gate; the exact effective value is frozen in that stage's
+    # request plan and payload. All other request defaults and operator source
+    # inputs remain frozen here.
     payload["review_bundles"] = list(
         contract["effective_runtime"].get("review_bundles", [])
     )
+    if allow_stage_output_increase:
+        payload["max_output_tokens"] = contract["effective_runtime"].get(
+            "max_output_tokens"
+        )
     actual = sha256_text(json.dumps(payload, sort_keys=True, separators=(",", ":")))
     if actual != contract.get("effective_runtime_sha256"):
         raise SystemExit(

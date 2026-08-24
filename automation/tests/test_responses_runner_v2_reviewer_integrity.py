@@ -33,6 +33,40 @@ def _model_output() -> dict:
 
 
 class ReviewerIntegrityTests(unittest.TestCase):
+    def test_operator_sandbox_is_write_enabled_only_for_declared_paths(self) -> None:
+        calls: list[list[str]] = []
+
+        def runner(argv, **_kwargs):
+            calls.append(list(argv))
+            return SimpleNamespace(returncode=0, stdout=json.dumps(_model_output()), stderr="")
+
+        with tempfile.TemporaryDirectory(dir=ROOT / ".local") as tmp:
+            base = Path(tmp)
+            common = {
+                "root": ROOT,
+                "review_kind": "recovery",
+                "supervisor_session_id": "sup_operator_sandbox",
+                "runner": runner,
+            }
+            supervisor_agents.invoke_operator_codex(
+                **common,
+                review_cycle_id="cycle_operator_read_only",
+                job={"review_job_id": "read-only"},
+                output_dir=relpath(ROOT, base / "read_only"),
+            )
+            supervisor_agents.invoke_operator_codex(
+                **common,
+                review_cycle_id="cycle_operator_write",
+                job={
+                    "review_job_id": "write",
+                    "allowed_write_paths": [relpath(ROOT, base / "declared.txt")],
+                },
+                output_dir=relpath(ROOT, base / "write"),
+            )
+
+            self.assertEqual(calls[0][calls[0].index("--sandbox") + 1], "read-only")
+            self.assertEqual(calls[1][calls[1].index("--sandbox") + 1], "workspace-write")
+
     def test_independent_reviewers_consume_one_shared_cycle_input(self) -> None:
         calls: list[tuple[list[str], dict]] = []
 
