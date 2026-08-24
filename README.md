@@ -207,9 +207,7 @@ Do not push these:
 - `.local/` run outputs, response artifacts, supervisor sessions, archives, extracted packets, or internal handoffs;
 - `.pytest_cache/`, `__pycache__/`, `*.pyc`, `.DS_Store`, and scratch directories such as `inspect_live.*`;
 - project-specific handoff material for unrelated target repositories;
-- local design-provenance drafts that are archived under ignored `.local/internal_archive/`.
-
-Project-specific handoff runbooks that were useful during local development have been moved out of the publishable tree and preserved under ignored `.local/internal_archive/`.
+- local design-provenance drafts and obsolete project-specific handoff material.
 
 ## Validation
 

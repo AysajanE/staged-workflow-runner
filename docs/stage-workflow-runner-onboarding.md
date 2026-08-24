@@ -1109,8 +1109,3 @@ Then, for the supervisor lane: `docs/design/supervised-self-improvement-pack.md`
 **The single fastest way to build intuition:** dry-run the synthetic one-pass workflow,
 then open every file it wrote under `.local/automation/responses_runner_v2/runs/`. The
 engine's whole contract is visible in those artifacts.
-
----
-
-*Companion file: `docs/stage-workflow-runner-interactive.html` — an interactive,
-click-through version of these diagrams for building the same mental model visually.*
