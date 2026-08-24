@@ -895,6 +895,12 @@ def _local_context_estimate(
         "within_input_limit": within_input_limit,
         "within_context_window": within_context_window,
         "passed": within_input_limit and within_context_window,
+        "enforcement": (
+            "advisory_exact_preflight_pending"
+            if workflow.request_defaults.token_preflight.enabled
+            and not runtime.skip_token_count
+            else "blocking_conservative_bound"
+        ),
     }
 
 
@@ -921,52 +927,49 @@ def _token_preflight_state(
             input_tokens = result.get("input_tokens")
             if not isinstance(input_tokens, int):
                 raise SystemExit("token preflight did not return an integer input_tokens value.")
+            context_window = model_context_window(_effective_model(workflow, stage, runtime))
+            requested_output_tokens = _effective_max_output_tokens(workflow, stage, runtime)
+            safety_margin_tokens = max(4096, int((context_window or 0) * 0.02))
+            context_input_limit = (
+                context_window - requested_output_tokens - safety_margin_tokens
+                if context_window is not None
+                else None
+            )
+            within_configured_limit = hard_limit is None or input_tokens <= hard_limit
+            within_context_window = (
+                context_input_limit is None or input_tokens <= context_input_limit
+            )
             diagnostics = {
                 "object": "token_preflight",
                 "workflow_id": workflow.workflow_id,
                 "stage_id": stage.stage_id,
                 "input_tokens": input_tokens,
                 "max_input_tokens": hard_limit,
-                "within_limit": hard_limit is None or input_tokens <= hard_limit,
+                "context_window": context_window,
+                "requested_output_tokens": requested_output_tokens,
+                "safety_margin_tokens": safety_margin_tokens,
+                "context_input_limit": context_input_limit,
+                "within_configured_limit": within_configured_limit,
+                "within_context_window": within_context_window,
+                "within_limit": within_configured_limit and within_context_window,
             }
-            diagnostics_path = artifacts.write_token_preflight_success(stage_paths, diagnostics)
-            if hard_limit is not None and input_tokens > hard_limit:
+            if not within_configured_limit or not within_context_window:
+                reason = (
+                    "max_input_tokens_exceeded"
+                    if not within_configured_limit
+                    else "model_context_window_exceeded"
+                )
                 error_payload = {
+                    **diagnostics,
                     "status": "failed_closed",
-                    "reason": "max_input_tokens_exceeded",
-                    "input_tokens": input_tokens,
-                    "max_input_tokens": hard_limit,
+                    "reason": reason,
                 }
-                artifacts.write_stage_checkpoint(
-                    stage_paths,
-                    {
-                        "run_id": payload["metadata"]["run_id"],
-                        "stage_id": stage.stage_id,
-                        "stage_number": stage.stage_number,
-                        "updated_at": runner_now().isoformat(),
-                        "status": StageStatus.BLOCKED.value,
-                        "terminal": True,
-                        "resume_mode": ResumeMode.FRESH_SUBMIT.value,
-                        "review_checkpoint_required": stage.gate == GateType.REVIEW_REQUIRED,
-                        "request_payload_path": relpath(root, stage_paths["request_payload"]),
-                        "input_manifest_json_path": relpath(root, stage_paths["input_manifest_json"]),
-                        "input_manifest_markdown_path": relpath(root, stage_paths["input_manifest_md"]),
-                        "token_preflight": {
-                            "status": "failed_closed",
-                            "attempts": attempts,
-                            "input_tokens": input_tokens,
-                            "error_message": "max_input_tokens exceeded",
-                            "diagnostics_path": relpath(root, diagnostics_path),
-                        },
-                        "artifacts": {
-                            "stage_dir": relpath(root, stage_paths["stage_dir"]),
-                        },
-                        "error": error_payload,
-                    },
-                )
+                artifacts.write_token_preflight_error(stage_paths, error_payload)
                 raise SystemExit(
-                    f"Stage {stage.stage_id} input token count {input_tokens} exceeds configured limit {hard_limit}."
+                    f"Stage {stage.stage_id} input token count {input_tokens} exceeds "
+                    f"the exact preflight limit ({reason})."
                 )
+            diagnostics_path = artifacts.write_token_preflight_success(stage_paths, diagnostics)
             return {
                 "status": "succeeded",
                 "attempts": attempts,
@@ -1775,10 +1778,11 @@ def _enforce_request_plan_context(
     request_plan: dict[str, Any],
     review_bundle_path: str | None,
     dry_run: bool,
+    conservative_gate_required: bool,
 ) -> None:
-    """Apply the same input-plus-output reservation gate to dry and live plans."""
+    """Enforce the byte upper bound only when no exact token gate will run."""
 
-    if request_plan["estimate"]["fits_context"]:
+    if request_plan["estimate"]["fits_context"] or not conservative_gate_required:
         return
     write_json(
         stage_paths["token_preflight_error"],
@@ -2170,7 +2174,10 @@ def run_workflow(
             rendered_manifest_md=rendered_manifest_md,
         )
         write_json(stage_paths["local_context_estimate"], local_estimate)
-        if not local_estimate["passed"]:
+        if (
+            not local_estimate["passed"]
+            and local_estimate["enforcement"] == "blocking_conservative_bound"
+        ):
             write_json(
                 stage_paths["token_preflight_error"],
                 {
@@ -2279,6 +2286,10 @@ def run_workflow(
             request_plan=request_plan,
             review_bundle_path=consumed_review_bundle_path,
             dry_run=runtime.dry_run,
+            conservative_gate_required=(
+                runtime.skip_token_count
+                or not workflow.request_defaults.token_preflight.enabled
+            ),
         )
 
         if runtime.dry_run:

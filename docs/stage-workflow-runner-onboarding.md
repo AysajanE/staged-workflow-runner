@@ -882,18 +882,17 @@ python automation/run_responses_v2.py run --root . \
   --workflow-file automation/task_packs/responses_runner_v2_supervised_end_to_end/workflows/four_stage.workflow.json \
   --wait
 
-# STEP 7  classify Stage 1's outcome
-python automation/run_responses_supervisor_v2.py classify --root . \
-  --session <session_id> --run-dir <run_dir> --stage architecture_and_supervision_protocol
-#    → if completed_complete_artifact: reviewable
+# STEP 7  classify + review Stage 1 from registered run evidence
+python automation/run_responses_supervisor_v2.py review-cycle --root . \
+  --session <session_id> --review-cycle stage1_001 --run-dir <run_dir> \
+  --stage architecture_and_supervision_protocol
 
-# STEP 8  Stage 1 review cycle (review_kind = stage_output), then create-bundle
-python automation/run_responses_supervisor_v2.py create-bundle --root . --session <id> \
-  --output bundle_stage1.json --workflow-id <id> --source-stage-id architecture_and_supervision_protocol \
-  --source-run-id <run_id> --primary-artifact-markdown <...> --response-artifact-json <...> \
-  --reviewer-notes <...> --acceptance-record <acceptance.json>
+# STEP 8  deliberate acceptance, then derive the bundle and launch Stage 2
+python automation/run_responses_supervisor_v2.py accept --root . \
+  --session <session_id> --review-cycle stage1_001 \
+  --then-bundle --then-launch
 
-# STEP 9  launch Stage 2 with --review-bundle bundle_stage1.json ... repeat 7-9 for stages 2, 3, 4
+# Repeat Steps 7-8 for each remaining non-terminal stage.
 
 # STEP 10  finalize
 python automation/run_responses_supervisor_v2.py finalize-bundle --root . \
@@ -923,17 +922,19 @@ latest remote status recorded locally. `refresh` will *not* backfill final artif
 | Subcommand | What it does |
 |---|---|
 | `init-session` | Create a session from an accepted `--clarified-task-brief` + `--summary`. |
-| `stage-scaffold` | Copy a `--scaffold-path` task pack into the session and hash it. |
+| `stage-scaffold` | Copy and hash a scaffold; an identical latest scaffold is reused without invalidating review. |
 | `examine-scaffold` | Static pre-launch gate over a `--workflow-file` (no Stage 1 request built). |
 | `dry-run-scaffold` | Executable gate — runs the engine in `dry_run=True` mode. |
 | `invoke-operator` | Run the accountable operator Codex job for a `--review-cycle` / `--review-kind`. |
 | `invoke-reviewers` | Run the independent read-only Codex + Claude reviewers. |
 | `consolidate` | Deterministically merge `--operator-review` + `--codex-review` + `--claude-review`. |
-| `accept` | Operator selective acceptance — needs `--accept-recommendation` IDs + `--applied-change-evidence`. |
-| `create-bundle` | Create an approved review bundle — only with an approving `--acceptance-record`. |
+| `review-cycle` | With `--run-dir --stage`, classify and derive the stage job, then run operator, reviewers, and consolidation. |
+| `accept` | Operator selective acceptance; `--then-bundle --then-launch` performs the approved transition. |
+| `create-bundle` | With `--review-cycle`, derive all approved bundle inputs from the accepted cycle. |
 | `classify` | Classify a stage outcome (`--run-dir` + `--stage`) into one of the 6 classes. |
 | `monitor` | Record monitoring state; emit a human-pause if a stage is stale. |
 | `archive-attempt` | Archive a `failed_no_artifact` attempt (with hashes) before a rerun. |
+| `release-reservation` | Release a read-only review reservation only when it produced zero decision candidates. |
 | `finalize-bundle` | Validate + record the final implementation bundle from `--packet-json`. |
 | `usage-report` | Aggregate session reviewer-attempt counts and available usage fields without changing any run's primary/sidecar report. |
 | `validate-session` | Validate `supervisor_session.json` against its schema. |
@@ -987,10 +988,11 @@ It was *refreshed*, not *finalized*. `resume` it (`resume` finalizes; `refresh` 
 
 ### "Token preflight blocked the stage"
 
-The conservative or exact input count exceeded the configured `max_input_tokens`, or exact
-counting failed closed. Do **not** retry blindly. Reduce the input manifest scope, repair the
-count service, or raise the reviewed limit deliberately. In the supervisor lane this surfaces as
-`blocked_token_preflight` → a human pause.
+The exact input count exceeded `max_input_tokens` or the model context window, exact counting
+failed closed, or the conservative byte bound failed while exact counting was disabled. The byte
+bound is advisory when exact preflight will run. Do **not** retry blindly. Reduce the input
+manifest scope, repair the count service, or raise the reviewed limit deliberately. In the
+supervisor lane this surfaces as `blocked_token_preflight` → a human pause.
 
 ### "A stage failed"
 

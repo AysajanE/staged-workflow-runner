@@ -46,7 +46,7 @@
           503,
           504
         ],
-        "on_retryable_service_failure": "continue_without_token_count"
+        "on_retryable_service_failure": "fail_closed"
       },
       "file_uploads": {
         "purpose": "user_data",
@@ -148,9 +148,7 @@
       "gate": "terminal",
       "carry_forward": {
         "reference_context_from_stage_ids": [
-          "source_authority_map",
-          "repo_grounding",
-          "execution_row_draft"
+          "repo_grounding"
         ],
         "review_bundle_from_stage_id": "gate_and_contract_review",
         "review_bundle_include_response_artifact_json": false

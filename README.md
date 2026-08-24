@@ -155,6 +155,23 @@ For every scaffold and non-terminal stage, the required supervisor review loop i
 5. operator selective acceptance with applied-change evidence;
 6. approved review-bundle creation only after acceptance.
 
+For a registered non-terminal stage, the concise path derives and classifies all stage evidence:
+
+```bash
+python automation/run_responses_supervisor_v2.py review-cycle \
+  --root . --session <session_id> --review-cycle <cycle_id> \
+  --run-dir <run_dir> --stage <stage_id>
+
+python automation/run_responses_supervisor_v2.py accept \
+  --root . --session <session_id> --review-cycle <cycle_id> \
+  --then-bundle --then-launch
+```
+
+The second command stops without bundling or launching if acceptance remains blocked. Use
+`release-reservation` only when a read-only review invocation crashed before producing any
+decision candidate. Re-staging byte-identical content as the latest scaffold is idempotent and
+preserves its existing review state.
+
 ## Repository Layout
 
 - `AGENTS.md` — repository-level automation-agent instructions.

@@ -119,6 +119,10 @@ class S05ReviewLaneRegressionTests(unittest.TestCase):
         self.assertEqual(decision["validation_errors"], [])
         descriptions = " ".join(issue["description"] for issue in decision["blocking_issues"])
         self.assertIn("sensitive allowed_write_root forbidden", descriptions)
+        self.assertIn(
+            "validation_errors",
+            decision["command"]["output_normalization"]["fields"],
+        )
 
     def test_cycle6_uppercase_decision_id_normalizes_instead_of_failing_transport(self) -> None:
         # 2026-06-10 regression: the operator fully approved the regenerated

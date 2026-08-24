@@ -1242,6 +1242,19 @@ def _normalize_agent_decision(
         actor_role=actor_role,
         review_kind=review_kind,
     )
+    normalized_fields = sorted(
+        key
+        for key in MODEL_OWNED_OUTPUT_KEYS
+        if key in raw_decision and raw_decision.get(key) != decision.get(key)
+    )
+    if normalized_fields:
+        command = {
+            **command,
+            "output_normalization": {
+                "changed": True,
+                "fields": normalized_fields,
+            },
+        }
     decision["schema_version"] = decision.get("schema_version") or REVIEW_DECISION_SCHEMA_VERSION
     # Identity and transport metadata are supervisor-owned. Never accept an
     # agent's self-reported session, cycle, kind, role, or decision id.
@@ -1755,6 +1768,8 @@ def _invoke_agent(
                 command=command,
                 read_only_check=read_only_check,
             )
+
+    command = decision.get("command") or command
 
     invocation_duration_ms = int((time.monotonic() - invocation_started) * 1000)
     usage_report = telemetry.build_usage_report(

@@ -8,7 +8,12 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
-from automation.responses_runner_v2 import supervisor, supervisor_agents, supervisor_policies
+from automation.responses_runner_v2 import (
+    supervisor,
+    supervisor_agents,
+    supervisor_artifacts,
+    supervisor_policies,
+)
 from automation.responses_runner_v2.contracts import relpath, runner_now, sha256_text
 from automation.responses_runner_v2.supervisor_artifacts import (
     load_session,
@@ -368,6 +373,32 @@ class ResponsesRunnerV2SupervisorTests(unittest.TestCase):
             self.assertTrue((ROOT / record["hash_manifest_path"]).exists())
             updated = load_session(ROOT, session["supervisor_session_id"])
             self.assertEqual(updated["status"], "scaffold_staged")
+
+    def test_identical_latest_scaffold_staging_is_idempotent(self) -> None:
+        with tempfile.TemporaryDirectory(dir=ROOT) as tmp:
+            tmp_path = Path(tmp)
+            session = _create_session(tmp_path)
+            first = _stage_scaffold(session["supervisor_session_id"], tmp_path)
+            loaded = load_session(ROOT, session["supervisor_session_id"])
+            loaded["scaffold_versions"][-1]["approval_status"] = "accepted"
+            supervisor_artifacts.write_session(
+                ROOT,
+                ROOT / loaded["_session_dir"],
+                loaded,
+            )
+
+            source = tmp_path / "scaffold"
+            second = supervisor.stage_scaffold(
+                root=ROOT,
+                session_ref=session["supervisor_session_id"],
+                scaffold_path=source.relative_to(ROOT),
+            )
+
+            updated = load_session(ROOT, session["supervisor_session_id"])
+            self.assertTrue(second["reused_existing"])
+            self.assertEqual(second["version_id"], first["version_id"])
+            self.assertEqual(second["approval_status"], "accepted")
+            self.assertEqual(len(updated["scaffold_versions"]), 1)
 
     def test_examine_scaffold_does_not_require_primary_job_input(self) -> None:
         with tempfile.TemporaryDirectory(dir=ROOT) as tmp:

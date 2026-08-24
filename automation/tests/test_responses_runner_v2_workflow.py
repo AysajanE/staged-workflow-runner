@@ -128,8 +128,15 @@ def _cancelled_response(response_id: str, *, model: str = "gpt-5.6") -> dict:
 
 
 class FakeClient:
-    def __init__(self, *, token_error: ApiError | None = None, completed: bool = True) -> None:
+    def __init__(
+        self,
+        *,
+        token_error: ApiError | None = None,
+        token_count: int = 123,
+        completed: bool = True,
+    ) -> None:
         self.token_error = token_error
+        self.token_count = token_count
         self.completed = completed
         self.upload_count = 0
         self.upload_requests: list[dict] = []
@@ -190,7 +197,7 @@ class FakeClient:
     def count_input_tokens_once(self, _payload):
         if self.token_error is not None:
             raise self.token_error
-        return {"input_tokens": 123}
+        return {"input_tokens": self.token_count}
 
     def delete_file(self, file_id):
         self.delete_calls.append(file_id)
@@ -1114,6 +1121,7 @@ class ResponsesRunnerV2WorkflowTests(unittest.TestCase):
                             run_name="synthetic-oversize-dry-run",
                             output_root=output_root.relative_to(ROOT),
                             dry_run=True,
+                            skip_token_count=True,
                         ),
                         root=ROOT,
                     )
@@ -1132,6 +1140,102 @@ class ResponsesRunnerV2WorkflowTests(unittest.TestCase):
             self.assertTrue((stage_dir / "request_plan.json").exists())
             self.assertTrue((stage_dir / "token_preflight.error.json").exists())
             self.assertFalse((stage_dir / "request_payload.json").exists())
+
+    def test_byte_upper_bound_is_advisory_when_exact_preflight_will_run(self) -> None:
+        with tempfile.TemporaryDirectory(dir=ROOT) as tmp:
+            output_root = Path(tmp)
+            original_build_request_plan = workflow_module.build_request_plan
+
+            def oversize_request_plan(**kwargs):
+                plan = original_build_request_plan(**kwargs)
+                plan["estimate"]["fits_context"] = False
+                return plan
+
+            with mock.patch.object(
+                workflow_module,
+                "build_request_plan",
+                side_effect=oversize_request_plan,
+            ):
+                result = run_workflow(
+                    workflow_file="automation/examples/responses_runner_v2_synthetic/workflows/one_pass.workflow.json",
+                    runtime=RuntimeOptions(
+                        run_name="synthetic-advisory-byte-bound",
+                        output_root=output_root.relative_to(ROOT),
+                        dry_run=True,
+                    ),
+                    root=ROOT,
+                )
+
+            run_manifest = artifacts.load_run_manifest(ROOT, ROOT / result["run_dir"])
+            stage_dir = _stage_dir(run_manifest)
+            local_estimate = json.loads(
+                (stage_dir / "local_context_estimate.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(
+                local_estimate["enforcement"],
+                "advisory_exact_preflight_pending",
+            )
+            self.assertEqual(run_manifest["status"], "created")
+            self.assertTrue((stage_dir / "request_payload.json").exists())
+            self.assertFalse((stage_dir / "token_preflight.error.json").exists())
+
+    def test_exact_token_preflight_enforces_configured_input_limit(self) -> None:
+        with tempfile.TemporaryDirectory(dir=ROOT) as tmp:
+            runtime = RuntimeOptions(
+                run_name="synthetic-exact-input-limit",
+                output_root=Path(tmp).relative_to(ROOT),
+            )
+            client = FakeClient(token_count=700001)
+            with self.assertRaisesRegex(SystemExit, "exact preflight limit"):
+                run_workflow(
+                    workflow_file="automation/examples/responses_runner_v2_synthetic/workflows/one_pass.workflow.json",
+                    runtime=runtime,
+                    client=client,
+                    root=ROOT,
+                )
+            run_dir = next(
+                path for path in Path(tmp).iterdir() if (path / "run_manifest.json").exists()
+            )
+            run_manifest = artifacts.load_run_manifest(ROOT, run_dir)
+            stage_dir = _stage_dir(run_manifest)
+            checkpoint = json.loads(
+                (stage_dir / "stage_checkpoint.json").read_text(encoding="utf-8")
+            )
+            diagnostics = json.loads(
+                (stage_dir / "token_preflight.error.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(checkpoint["status"], "blocked_preflight")
+            self.assertEqual(diagnostics["reason"], "max_input_tokens_exceeded")
+            self.assertEqual(client.create_requests, [])
+
+    def test_exact_token_preflight_enforces_model_context_window(self) -> None:
+        with tempfile.TemporaryDirectory(dir=ROOT) as tmp:
+            runtime = RuntimeOptions(
+                run_name="synthetic-exact-context-limit",
+                output_root=Path(tmp).relative_to(ROOT),
+                max_input_tokens=1040000,
+            )
+            client = FakeClient(token_count=1030000)
+            with self.assertRaisesRegex(SystemExit, "model_context_window_exceeded"):
+                run_workflow(
+                    workflow_file="automation/examples/responses_runner_v2_synthetic/workflows/one_pass.workflow.json",
+                    runtime=runtime,
+                    client=client,
+                    root=ROOT,
+                )
+            run_dir = next(
+                path for path in Path(tmp).iterdir() if (path / "run_manifest.json").exists()
+            )
+            run_manifest = artifacts.load_run_manifest(ROOT, run_dir)
+            diagnostics = json.loads(
+                (_stage_dir(run_manifest) / "token_preflight.error.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            self.assertEqual(diagnostics["context_window"], 1050000)
+            self.assertEqual(diagnostics["context_input_limit"], 1025000)
+            self.assertEqual(diagnostics["reason"], "model_context_window_exceeded")
+            self.assertEqual(client.create_requests, [])
 
     def test_stage_can_exclude_raw_response_json_from_review_handoff_inputs(self) -> None:
         with tempfile.TemporaryDirectory(dir=ROOT) as tmp:

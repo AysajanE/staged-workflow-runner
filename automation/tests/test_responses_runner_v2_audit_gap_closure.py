@@ -112,6 +112,55 @@ class AuditGapClosureTests(unittest.TestCase):
         self.assertGreaterEqual(shared.count(required), 2)
         self.assertNotIn("`status=blocked`", shared)
 
+    def test_create_bundle_accepts_cycle_driven_minimal_arguments(self) -> None:
+        args = run_responses_supervisor_v2.parse_args(
+            [
+                "create-bundle",
+                "--session",
+                "session",
+                "--review-cycle",
+                "stage_output_001",
+            ]
+        )
+        self.assertEqual(args.review_cycle, "stage_output_001")
+        self.assertIsNone(args.workflow_id)
+        self.assertIsNone(args.acceptance_record)
+
+    def test_review_cycle_accepts_derived_stage_inputs(self) -> None:
+        args = run_responses_supervisor_v2.parse_args(
+            [
+                "review-cycle",
+                "--session",
+                "session",
+                "--review-cycle",
+                "stage_output_001",
+                "--run-dir",
+                "runs/example",
+                "--stage",
+                "draft",
+            ]
+        )
+        self.assertEqual(args.run_dir, Path("runs/example"))
+        self.assertEqual(args.stage, "draft")
+        self.assertIsNone(args.job_json)
+        self.assertIsNone(args.review_kind)
+
+    def test_accept_can_create_the_derived_bundle_in_one_command(self) -> None:
+        args = run_responses_supervisor_v2.parse_args(
+            [
+                "accept",
+                "--session",
+                "session",
+                "--review-cycle",
+                "stage_output_001",
+                "--then-bundle",
+                "--then-launch",
+            ]
+        )
+        self.assertTrue(args.then_bundle)
+        self.assertTrue(args.then_launch)
+        self.assertIsNone(args.bundle_output)
+
     def test_supervisor_usage_report_aggregates_only_reviewer_attempts(self) -> None:
         with tempfile.TemporaryDirectory(dir=ROOT) as temporary_directory:
             session_path = Path(temporary_directory)

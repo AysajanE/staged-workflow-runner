@@ -29,6 +29,14 @@ class ResponsesRunnerV2GstackPlaybookPackTests(unittest.TestCase):
         self.assertTrue(workflow.operator_requirements["allow_reference_context"])
         self.assertEqual([stage.gate.value for stage in workflow.stages[:-1]], ["review_required"] * 4)
         self.assertEqual(workflow.stages[-1].gate.value, "terminal")
+        self.assertEqual(
+            workflow.stages[-1].carry_forward.reference_context_from_stage_ids,
+            ("repo_grounding",),
+        )
+        self.assertEqual(
+            workflow.stages[-1].carry_forward.review_bundle_from_stage_id,
+            "gate_and_contract_review",
+        )
 
     def test_static_input_manifests_reference_existing_paths(self) -> None:
         manifest_paths = sorted((PACK_ROOT / "inputs").glob("*.input_manifest.json"))

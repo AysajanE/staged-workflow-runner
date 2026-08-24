@@ -403,6 +403,27 @@ def _iter_files(path: Path) -> Iterable[Path]:
             yield child
 
 
+def scaffold_content_sha256(root: Path, target: str | Path) -> str:
+    """Hash scaffold content independently of its staging destination."""
+
+    resolved = resolve_under_root(root, target, must_exist=True)
+    records = [
+        {
+            "path": (
+                file_path.relative_to(resolved).as_posix()
+                if resolved.is_dir()
+                else file_path.name
+            ),
+            "sha256": sha256_file(file_path),
+            "bytes": file_path.stat().st_size,
+        }
+        for file_path in sorted(_iter_files(resolved))
+    ]
+    if not records:
+        raise SystemExit(f"Scaffold has no files: {resolved}")
+    return sha256_text(json.dumps(records, sort_keys=True, ensure_ascii=False))
+
+
 def hash_manifest(root: Path, target: str | Path, output_path: str | Path) -> str:
     resolved = resolve_under_root(root, target, must_exist=True)
     records = []

@@ -6,7 +6,7 @@ It also covers the additive supervisor lane for end-to-end AI-operated execution
 
 ## Prerequisites
 
-- Python 3
+- Python 3.10 or newer
 - `OPENAI_API_KEY` set in the environment, or a `.env` file in the workspace root used for the run
 - a workflow manifest and all statically referenced assets stored under one workspace root
 - for the supervisor review lane:
@@ -16,10 +16,11 @@ It also covers the additive supervisor lane for end-to-end AI-operated execution
 
 ## Token-preflight default
 
-Keep token preflight enabled. Critical workflows also require a conservative pre-upload input
-budget, so an exact-count service failure blocks submission and triggers upload cleanup instead
-of silently continuing. `--skip-token-count` is an exceptional operator override, not a runbook
-default.
+Keep token preflight enabled. The byte-based pre-upload estimate is advisory when the exact API
+count will run; the exact count enforces both `max_input_tokens` and the model context window
+before submission. If exact counting is disabled, the conservative byte bound is fail-closed.
+For critical workflows, an exact-count service failure blocks submission and triggers upload
+cleanup. `--skip-token-count` is an exceptional operator override, not a runbook default.
 
 ## Workspace Root Contract
 
@@ -297,6 +298,24 @@ python automation/run_responses_supervisor_v2.py accept \
   --applied-change-evidence <path/to/applied_change_evidence.json> \
   --output <path/to/operator_acceptance.json>
 ```
+
+For a registered non-terminal stage, prefer the derived two-command transition:
+
+```bash
+python automation/run_responses_supervisor_v2.py review-cycle \
+  --root . --session <session_id> --review-cycle <cycle_id> \
+  --run-dir <run_dir> --stage <stage_id>
+
+python automation/run_responses_supervisor_v2.py accept \
+  --root . --session <session_id> --review-cycle <cycle_id> \
+  --then-bundle --then-launch
+```
+
+The first command classifies the stage when necessary and derives the review job. The second
+retains deliberate operator acceptance; it creates the hash-bound bundle and launches the next
+stage only after approval. A corrected acceptance may supersede a blocked acceptance. If a
+read-only review process crashed before writing any decision candidate, use
+`release-reservation --review-cycle <cycle_id> --operation <operation> --reason <reason>`.
 
 Classify stage outcome:
 

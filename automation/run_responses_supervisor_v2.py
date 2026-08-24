@@ -112,13 +112,15 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
 
     cycle_parser = subparsers.add_parser(
         "review-cycle",
-        help="Run operator review, parallel Codex and Claude reviews, and consolidation; never acceptance.",
+        help="Classify when needed, run all required reviews, and consolidate; never acceptance.",
     )
     _add_root_argument(cycle_parser)
     _add_session_argument(cycle_parser)
     cycle_parser.add_argument("--review-cycle", required=True)
-    cycle_parser.add_argument("--review-kind", required=True, choices=["scaffold", "stage_output", "final_packet", "recovery"])
-    cycle_parser.add_argument("--job-json", required=True, type=_path_argument)
+    cycle_parser.add_argument("--review-kind", choices=["scaffold", "stage_output", "final_packet", "recovery"])
+    cycle_parser.add_argument("--job-json", type=_path_argument)
+    cycle_parser.add_argument("--run-dir", type=_path_argument)
+    cycle_parser.add_argument("--stage")
 
     revision_parser = subparsers.add_parser(
         "prepare-revision",
@@ -171,6 +173,18 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     )
     accept_parser.add_argument("--blocker-resolution", action="append", type=_path_argument, default=[])
     accept_parser.add_argument("--output", type=_path_argument)
+    accept_parser.add_argument(
+        "--then-bundle",
+        action="store_true",
+        help="Create the derived approved review bundle after a successful acceptance.",
+    )
+    accept_parser.add_argument("--bundle-output", type=_path_argument)
+    accept_parser.add_argument(
+        "--then-launch",
+        action="store_true",
+        help="After bundling, launch the next stage from the frozen run inputs.",
+    )
+    accept_parser.add_argument("--wait", action="store_true")
 
     resolve_parser = subparsers.add_parser("resolve-blocker", help="Record one hash-bound blocker resolution for a review cycle.")
     _add_root_argument(resolve_parser)
@@ -185,6 +199,20 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         type=_path_argument,
         help="JSON object containing affected_artifacts, applied_changes, validation_evidence, operator_rationale, and optional accepted_risk_rationale.",
     )
+
+    release_parser = subparsers.add_parser(
+        "release-reservation",
+        help="Release a zero-result read-only review invocation reservation.",
+    )
+    _add_root_argument(release_parser)
+    _add_session_argument(release_parser)
+    release_parser.add_argument("--review-cycle", required=True)
+    release_parser.add_argument(
+        "--operation",
+        required=True,
+        choices=["operator_provisional", "independent_reviewers"],
+    )
+    release_parser.add_argument("--reason", required=True)
 
     launch_parser = subparsers.add_parser("launch", help="Launch the current accepted scaffold and register its run.")
     _add_root_argument(launch_parser)
@@ -242,14 +270,18 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     bundle_parser = subparsers.add_parser("create-bundle", help="Create approved review bundle.")
     _add_root_argument(bundle_parser)
     _add_session_argument(bundle_parser)
+    bundle_parser.add_argument(
+        "--review-cycle",
+        help="Derive all required bundle inputs from this accepted stage-output cycle.",
+    )
     bundle_parser.add_argument("--output", type=_path_argument)
-    bundle_parser.add_argument("--workflow-id", required=True)
-    bundle_parser.add_argument("--source-stage-id", required=True)
-    bundle_parser.add_argument("--source-run-id", required=True)
-    bundle_parser.add_argument("--primary-artifact-markdown", required=True, type=_path_argument)
-    bundle_parser.add_argument("--response-artifact-json", required=True, type=_path_argument)
-    bundle_parser.add_argument("--reviewer-notes", required=True, type=_path_argument)
-    bundle_parser.add_argument("--acceptance-record", required=True, type=_path_argument)
+    bundle_parser.add_argument("--workflow-id")
+    bundle_parser.add_argument("--source-stage-id")
+    bundle_parser.add_argument("--source-run-id")
+    bundle_parser.add_argument("--primary-artifact-markdown", type=_path_argument)
+    bundle_parser.add_argument("--response-artifact-json", type=_path_argument)
+    bundle_parser.add_argument("--reviewer-notes", type=_path_argument)
+    bundle_parser.add_argument("--acceptance-record", type=_path_argument)
     bundle_parser.add_argument("--approved-handoff-markdown", type=_path_argument)
     bundle_parser.add_argument("--structured-artifact-json", type=_path_argument)
 
@@ -356,6 +388,28 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
 
     if args.command == "review-cycle":
+        if args.run_dir is not None or args.stage is not None:
+            if args.run_dir is None or not args.stage:
+                raise SystemExit("Derived stage review requires both --run-dir and --stage.")
+            if args.job_json is not None or args.review_kind not in {None, "stage_output"}:
+                raise SystemExit(
+                    "--run-dir/--stage derives a stage_output job and cannot be combined "
+                    "with another --job-json or --review-kind."
+                )
+            _print_result(
+                supervisor.run_stage_review_cycle(
+                    root=root,
+                    session_ref=args.session,
+                    review_cycle_id=args.review_cycle,
+                    run_dir=args.run_dir,
+                    stage_id=args.stage,
+                )
+            )
+            return 0
+        if args.job_json is None or args.review_kind is None:
+            raise SystemExit(
+                "review-cycle requires --run-dir/--stage or both --review-kind and --job-json."
+            )
         _print_result(
             supervisor.run_review_cycle(
                 root=root,
@@ -415,6 +469,27 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
 
     if args.command == "accept":
+        if args.then_bundle or args.then_launch:
+            result = supervisor.accept_and_create_review_bundle(
+                root=root,
+                session_ref=args.session,
+                review_cycle_id=args.review_cycle,
+                consolidated_review=args.consolidated_review,
+                accepted_recommendation_ids=args.accept_recommendation,
+                acceptance_output=args.output,
+                applied_change_evidence=args.applied_change_evidence,
+                blocker_resolutions=args.blocker_resolution,
+                bundle_output=args.bundle_output,
+            )
+            if args.then_launch and result["bundle"] is not None:
+                result["launch"] = supervisor.continue_after_approved_review(
+                    root=root,
+                    session_ref=args.session,
+                    review_cycle_id=args.review_cycle,
+                    wait=args.wait,
+                )
+            _print_result(result)
+            return 0
         _print_result(
             supervisor.accept_consolidated_review(
                 root=root,
@@ -447,6 +522,18 @@ def main(argv: Sequence[str] | None = None) -> int:
                 validation_evidence=resolution_evidence.get("validation_evidence", []),
                 operator_rationale=str(resolution_evidence.get("operator_rationale") or ""),
                 accepted_risk_rationale=resolution_evidence.get("accepted_risk_rationale"),
+            )
+        )
+        return 0
+
+    if args.command == "release-reservation":
+        _print_result(
+            supervisor.release_invocation_reservation(
+                root=root,
+                session_ref=args.session,
+                review_cycle_id=args.review_cycle,
+                operation=args.operation,
+                reason=args.reason,
             )
         )
         return 0
@@ -522,6 +609,32 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
 
     if args.command == "create-bundle":
+        if args.review_cycle:
+            _print_result(
+                supervisor.create_approved_review_bundle_for_cycle(
+                    root=root,
+                    session_ref=args.session,
+                    review_cycle_id=args.review_cycle,
+                    output_path=args.output,
+                    approved_handoff_markdown=args.approved_handoff_markdown,
+                )
+            )
+            return 0
+        required = {
+            "--workflow-id": args.workflow_id,
+            "--source-stage-id": args.source_stage_id,
+            "--source-run-id": args.source_run_id,
+            "--primary-artifact-markdown": args.primary_artifact_markdown,
+            "--response-artifact-json": args.response_artifact_json,
+            "--reviewer-notes": args.reviewer_notes,
+            "--acceptance-record": args.acceptance_record,
+        }
+        missing = [flag for flag, value in required.items() if value is None]
+        if missing:
+            raise SystemExit(
+                "create-bundle requires --review-cycle or all explicit legacy inputs; "
+                f"missing: {', '.join(missing)}"
+            )
         _print_result(
             supervisor.create_approved_review_bundle(
                 root=root,

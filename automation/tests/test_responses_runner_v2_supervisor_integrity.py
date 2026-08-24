@@ -744,6 +744,96 @@ class SupervisorIntegrityTests(unittest.TestCase):
             self.assertEqual(acceptance["approval_decision"], "approve")
             self.assertEqual(before, (sha256_file(decision_path), sha256_file(markdown_path)))
 
+    def test_blocked_acceptance_can_be_superseded_without_rerunning_reviewers(self) -> None:
+        with tempfile.TemporaryDirectory(dir=ROOT) as raw:
+            temp = Path(raw)
+            session, _scaffold, reviewed = self._session(temp)
+            recommendation = {
+                "recommendation_id": "must_fix",
+                "source_agent": "codex_review_agent",
+                "severity": "blocking",
+                "recommendation": "Apply the verified correction.",
+                "evidence": [
+                    {
+                        "artifact_path": relpath(ROOT, reviewed),
+                        "quote_or_summary": "The correction is required.",
+                    }
+                ],
+                "affected_artifacts": [relpath(ROOT, reviewed)],
+                "exact_change_needed": "Apply the correction.",
+            }
+            result = self._run_cycle(
+                session,
+                reviewed,
+                codex_recommendations=[recommendation],
+            )
+            consolidation = json.loads(
+                (ROOT / result["consolidation"]).read_text(encoding="utf-8")
+            )
+            recommendation_id = consolidation["recommendations"][0]["recommendation_id"]
+
+            blocked = supervisor.accept_consolidated_review(
+                root=ROOT,
+                session_ref=session["supervisor_session_id"],
+                review_cycle_id="cycle_bound",
+                accepted_recommendation_ids=[recommendation_id],
+            )
+            self.assertEqual(blocked["approval_decision"], "do_not_approve")
+
+            evidence_path = temp / "applied_change_evidence.json"
+            evidence_path.write_text(
+                json.dumps(
+                    {
+                        "recommendations": {
+                            recommendation_id: {
+                                "operator_rationale": "Applied after correcting the evidence input.",
+                                "changes_applied": [
+                                    {
+                                        "path": relpath(ROOT, reviewed),
+                                        "summary": "Recorded the verified correction.",
+                                        "evidence": [
+                                            {
+                                                "source": "operator",
+                                                "quote_or_summary": "Correction applied.",
+                                            }
+                                        ],
+                                    }
+                                ],
+                                "validation_evidence": [
+                                    {
+                                        "source": "focused_test",
+                                        "quote_or_summary": "Focused validation passed.",
+                                    }
+                                ],
+                            }
+                        }
+                    },
+                    indent=2,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            approved = supervisor.accept_consolidated_review(
+                root=ROOT,
+                session_ref=session["supervisor_session_id"],
+                review_cycle_id="cycle_bound",
+                accepted_recommendation_ids=[recommendation_id],
+                applied_change_evidence=evidence_path.relative_to(ROOT),
+            )
+
+            self.assertEqual(approved["approval_decision"], "approve")
+            updated = load_session(ROOT, session["supervisor_session_id"])
+            cycle = updated["review_cycles"][0]
+            self.assertEqual(len(cycle["acceptance_history"]), 2)
+            self.assertEqual(
+                cycle["acceptance_history"][1]["supersedes"],
+                blocked["json_report_path"],
+            )
+            self.assertNotEqual(
+                cycle["acceptance_history"][0]["path"],
+                cycle["acceptance_history"][1]["path"],
+            )
+
     def test_review_bundle_retry_reconciles_primary_json_after_binding_crash(self) -> None:
         with tempfile.TemporaryDirectory(dir=ROOT) as raw:
             temp = Path(raw)
@@ -799,14 +889,8 @@ class SupervisorIntegrityTests(unittest.TestCase):
             bundle_args = {
                 "root": ROOT,
                 "session_ref": session["supervisor_session_id"],
+                "review_cycle_id": cycle_id,
                 "output_path": None,
-                "workflow_id": "registered_workflow",
-                "source_stage_id": "stage",
-                "source_run_id": "registered_run",
-                "primary_artifact_markdown": run["artifact_path"],
-                "response_artifact_json": response_path,
-                "reviewer_notes": cycle["derived_paths"]["consolidation_md"],
-                "acceptance_record": acceptance["json_report_path"],
             }
             original_write_once = supervisor._write_once_json
             crashed = False
@@ -820,14 +904,42 @@ class SupervisorIntegrityTests(unittest.TestCase):
 
             with mock.patch.object(supervisor, "_write_once_json", side_effect=crash_before_binding):
                 with self.assertRaisesRegex(SystemExit, "synthetic crash"):
-                    supervisor.create_approved_review_bundle(**bundle_args)
+                    supervisor.create_approved_review_bundle_for_cycle(**bundle_args)
             bundle_path = ROOT / cycle["derived_paths"]["review_bundle"]
             before_sha256 = sha256_file(bundle_path)
-            bundle = supervisor.create_approved_review_bundle(**bundle_args)
+            bundle = supervisor.create_approved_review_bundle_for_cycle(**bundle_args)
             self.assertEqual(sha256_file(bundle_path), before_sha256)
             self.assertEqual(bundle["bundle_path"], relpath(ROOT, bundle_path))
             completed = load_session(ROOT, session["supervisor_session_id"])
             self.assertEqual(len(completed["approved_review_bundles"]), 1)
+            repeated = supervisor.accept_and_create_review_bundle(
+                root=ROOT,
+                session_ref=session["supervisor_session_id"],
+                review_cycle_id=cycle_id,
+                accepted_recommendation_ids=[],
+            )
+            self.assertEqual(repeated["acceptance"]["approval_decision"], "approve")
+            self.assertEqual(repeated["bundle"]["bundle_path"], relpath(ROOT, bundle_path))
+            next_result = {
+                "run_dir": run["run_dir"],
+                "run_manifest_path": run["manifest_path"],
+                "status": "in_progress",
+                "stage_id": "next_stage",
+            }
+            with mock.patch.object(
+                supervisor,
+                "run_workflow",
+                return_value=next_result,
+            ) as launch:
+                continued = supervisor.continue_after_approved_review(
+                    root=ROOT,
+                    session_ref=session["supervisor_session_id"],
+                    review_cycle_id=cycle_id,
+                )
+            self.assertEqual(continued, next_result)
+            runtime = launch.call_args.kwargs["runtime"]
+            self.assertEqual(runtime.run_dir, Path(run["run_dir"]))
+            self.assertEqual(runtime.review_bundles, [relpath(ROOT, bundle_path)])
 
     def test_cross_finalizer_calls_share_one_session_lock(self) -> None:
         with tempfile.TemporaryDirectory(dir=ROOT) as raw:
@@ -960,6 +1072,85 @@ class SupervisorIntegrityTests(unittest.TestCase):
             reservation = completed_cycle["invocation_reservations"]["independent_reviewers"]
             self.assertEqual(reservation["status"], "completed")
             self.assertEqual(reservation["recovery_count"], 1)
+
+    def test_zero_result_operator_reservation_can_be_released_and_reinvoked(self) -> None:
+        with tempfile.TemporaryDirectory(dir=ROOT) as raw:
+            session, _scaffold, reviewed = self._session(Path(raw))
+            cycle_id = "cycle_operator_release"
+            job = reviewed.parent / f"{cycle_id}.job.json"
+            job.write_text(
+                json.dumps(
+                    {
+                        "review_job_id": cycle_id,
+                        "reviewed_artifacts": [relpath(ROOT, reviewed)],
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            with mock.patch.object(
+                supervisor_agents,
+                "invoke_operator_codex",
+                side_effect=RuntimeError("synthetic pre-output crash"),
+            ):
+                with self.assertRaisesRegex(RuntimeError, "synthetic pre-output crash"):
+                    supervisor.invoke_operator(
+                        root=ROOT,
+                        session_ref=session["supervisor_session_id"],
+                        review_cycle_id=cycle_id,
+                        review_kind="scaffold",
+                        job_json=job.relative_to(ROOT),
+                    )
+
+            interrupted = load_session(ROOT, session["supervisor_session_id"])
+            interrupted_cycle = next(
+                item for item in interrupted["review_cycles"] if item["review_cycle_id"] == cycle_id
+            )
+            self.assertEqual(
+                interrupted_cycle["invocation_reservations"]["operator_provisional"]["status"],
+                "reserved",
+            )
+
+            released = supervisor.release_invocation_reservation(
+                root=ROOT,
+                session_ref=session["supervisor_session_id"],
+                review_cycle_id=cycle_id,
+                operation="operator_provisional",
+                reason="The agent process exited before producing any decision artifact.",
+            )
+            release_payload = json.loads((ROOT / released["path"]).read_text(encoding="utf-8"))
+            self.assertEqual(release_payload["decision_candidates"], [])
+            self.assertEqual(release_payload["reservation"]["status"], "reserved")
+
+            with mock.patch.object(
+                supervisor_agents,
+                "invoke_operator_codex",
+                side_effect=lambda **kwargs: _decision(
+                    root=ROOT,
+                    output_dir=Path(kwargs["output_dir"]),
+                    role="operator_codex",
+                    cycle=cycle_id,
+                    review_kind="scaffold",
+                ),
+            ):
+                result = supervisor.invoke_operator(
+                    root=ROOT,
+                    session_ref=session["supervisor_session_id"],
+                    review_cycle_id=cycle_id,
+                    review_kind="scaffold",
+                    job_json=job.relative_to(ROOT),
+                )
+            self.assertIn("operator_review", result)
+            completed = load_session(ROOT, session["supervisor_session_id"])
+            completed_cycle = next(
+                item for item in completed["review_cycles"] if item["review_cycle_id"] == cycle_id
+            )
+            self.assertEqual(
+                completed_cycle["invocation_reservations"]["operator_provisional"]["status"],
+                "completed",
+            )
+            self.assertEqual(len(completed_cycle["released_invocation_reservations"]), 1)
 
     def test_cross_cycle_or_arbitrary_decision_path_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory(dir=ROOT) as raw:
@@ -1157,6 +1348,46 @@ class SupervisorIntegrityTests(unittest.TestCase):
                 with self.assertRaises(SystemExit):
                     supervisor.invoke_operator(root=ROOT, session_ref=session["supervisor_session_id"], review_cycle_id="spoofed_asset", review_kind="stage_output", job_json=spoofed_asset.relative_to(ROOT))
             spoofed_operator.assert_not_called()
+
+    def test_stage_review_job_is_derived_from_registered_outcome_and_checkpoint(self) -> None:
+        with tempfile.TemporaryDirectory(dir=ROOT) as raw:
+            temp = Path(raw)
+            session, _scaffold, _reviewed = self._session(temp)
+            run = self._register_v2_run(session, temp)
+            outcome_path = temp / "stage_outcome.json"
+            outcome_path.write_text(
+                json.dumps({"review_bundle_allowed": True, "reviewable": True}) + "\n",
+                encoding="utf-8",
+            )
+            current, session_path = supervisor._load_session_and_path(
+                ROOT,
+                session["supervisor_session_id"],
+            )
+            current["stage_outcomes"].append(
+                {
+                    "run_id": "registered_run",
+                    "stage_id": "stage",
+                    "artifact_path": relpath(ROOT, outcome_path),
+                }
+            )
+            supervisor._write_session(ROOT, session_path, current)
+
+            job = supervisor._derived_stage_review_job(
+                root=ROOT,
+                session=current,
+                review_cycle_id="derived_stage_cycle",
+                run_dir=run["run_dir"],
+                stage_id="stage",
+            )
+
+            self.assertEqual(job["run_id"], "registered_run")
+            self.assertEqual(job["stage_id"], "stage")
+            self.assertIn(run["artifact_path"], job["reviewed_artifacts"])
+            checkpoint = json.loads((ROOT / run["checkpoint_path"]).read_text(encoding="utf-8"))
+            self.assertIn(checkpoint["request_payload_path"], job["reviewed_artifacts"])
+            self.assertIn(checkpoint["input_manifest_json_path"], job["reviewed_artifacts"])
+            self.assertIn(checkpoint["input_manifest_markdown_path"], job["reviewed_artifacts"])
+            self.assertIn(relpath(ROOT, outcome_path), job["reviewed_artifacts"])
 
     def test_stale_scaffold_cannot_be_accepted(self) -> None:
         with tempfile.TemporaryDirectory(dir=ROOT) as raw:

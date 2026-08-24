@@ -38,7 +38,7 @@ from .pack_loader import (
 )
 from .openai_client import OpenAIClient
 from .review_bundle import create_review_bundle
-from .run_contract import load_and_verify_run_contract
+from .run_contract import load_and_verify_run_contract, runtime_from_contract
 from .workflow import run_workflow
 from .validators import validate_commonmark_fences
 from . import artifacts as runner_artifacts
@@ -653,6 +653,18 @@ def stage_scaffold(*, root: Path, session_ref: str | Path, scaffold_path: str | 
     """Copy a scaffold into the supervisor session and hash its contents."""
 
     session, session_path = _load_session_and_path(root, session_ref)
+    source_content_sha256 = supervisor_artifacts.scaffold_content_sha256(
+        root,
+        scaffold_path,
+    )
+    if session["scaffold_versions"]:
+        latest = session["scaffold_versions"][-1]
+        latest_content_sha256 = supervisor_artifacts.scaffold_content_sha256(
+            root,
+            latest["path"],
+        )
+        if source_content_sha256 == latest_content_sha256:
+            return {**latest, "reused_existing": True}
     version_id = normalize_slug(f"scaffold_{len(session['scaffold_versions']) + 1:03d}")
     destination = session_path / "scaffolds" / version_id / "source"
     staged_path = supervisor_artifacts.copy_into_scaffold_version(root, scaffold_path, destination)
@@ -1880,6 +1892,91 @@ def _complete_cycle_invocation_reservation(
         reservation["recovery_count"] = int(reservation.get("recovery_count", 0)) + 1
 
 
+def release_invocation_reservation(
+    *,
+    root: Path,
+    session_ref: str | Path,
+    review_cycle_id: str,
+    operation: str,
+    reason: str,
+) -> dict[str, Any]:
+    """Release a zero-result read-only invocation reservation with evidence."""
+
+    if not reason.strip():
+        raise SystemExit("Reservation release requires a non-empty reason.")
+    session_path = supervisor_artifacts.session_dir(root, session_ref)
+    with _cycle_invocation_lock(session_path, review_cycle_id, operation):
+        session, session_path = _load_session_and_path(root, session_ref)
+        cycle = _find_cycle(session, review_cycle_id)
+        reservations = cycle.get("invocation_reservations") or {}
+        reservation = reservations.get(operation)
+        if not isinstance(reservation, dict) or reservation.get("status") != "reserved":
+            raise SystemExit("Only an existing reserved invocation may be released.")
+        if operation not in {"operator_provisional", "independent_reviewers"}:
+            raise SystemExit("Only read-only review reservations may be released.")
+        job = load_json(
+            resolve_under_root(
+                root,
+                reservation["intent"]["job_path"],
+                must_exist=True,
+            ),
+            "reserved review job",
+        )
+        if operation == "operator_provisional" and job.get("allowed_write_paths"):
+            raise SystemExit(
+                "A potentially mutating operator reservation cannot be released safely."
+            )
+        candidates: list[str] = []
+        for output_value in reservation["intent"]["roles_and_outputs"].values():
+            output_dir = resolve_under_root(root, output_value, must_exist=False)
+            if not output_dir.exists():
+                continue
+            for path in sorted(output_dir.glob("*.json")):
+                if path.name.endswith(".reviewer_usage_attempt.json") or path.name.endswith(
+                    ".review_input.json"
+                ):
+                    continue
+                try:
+                    payload = load_json(path, "reserved decision candidate")
+                except SystemExit:
+                    continue
+                if payload.get("schema_version") == REVIEW_DECISION_SCHEMA_VERSION:
+                    candidates.append(relpath(root, path))
+        if candidates:
+            raise SystemExit(
+                "Reservation has delivered decision candidates and must be recovered, not released."
+            )
+        release_number = len(cycle.get("released_invocation_reservations") or []) + 1
+        release_path = (
+            _cycle_dir(session_path, review_cycle_id)
+            / "reservations"
+            / f"release_{release_number:03d}_{normalize_slug(operation)}.json"
+        )
+        release = {
+            "schema_version": "responses_runner_v2.invocation_reservation_release.v1",
+            # Use reservation evidence rather than wall-clock time so a crash
+            # after the immutable release write can be retried idempotently.
+            "released_at": reservation.get("updated_at") or reservation.get("created_at"),
+            "supervisor_session_id": session["supervisor_session_id"],
+            "review_cycle_id": review_cycle_id,
+            "operation": operation,
+            "reason": reason.strip(),
+            "reservation": reservation,
+            "decision_candidates": [],
+        }
+        _write_once_json(root, release_path, release, label="invocation reservation release")
+        release_record = {
+            "path": relpath(root, release_path),
+            "sha256": sha256_file(release_path),
+            "operation": operation,
+            "reservation_id": reservation["reservation_id"],
+        }
+        cycle.setdefault("released_invocation_reservations", []).append(release_record)
+        del reservations[operation]
+        _write_session(root, session_path, session)
+        return release_record
+
+
 def invoke_operator(
     *,
     root: Path,
@@ -2046,7 +2143,7 @@ def run_review_cycle(
     session_ref: str | Path,
     review_cycle_id: str,
     review_kind: str,
-    job_json: str | Path,
+    job_json: dict[str, Any] | str | Path,
 ) -> dict[str, Any]:
     """Run operator then parallel reviewers and deterministic consolidation only."""
 
@@ -2076,6 +2173,120 @@ def run_review_cycle(
         "consolidation": consolidation["json_report_path"],
         "acceptance_status": "pending",
     }
+
+
+def _derived_stage_review_job(
+    *,
+    root: Path,
+    session: dict[str, Any],
+    review_cycle_id: str,
+    run_dir: str | Path,
+    stage_id: str,
+) -> dict[str, Any]:
+    registered = _require_registered_run(root, session, run_dir, require_v2=True)
+    manifest = runner_artifacts.load_run_manifest(
+        root,
+        resolve_under_root(root, registered["run_dir"], must_exist=True),
+    )
+    summary = runner_artifacts.find_stage_summary(manifest, stage_id)
+    checkpoint_path = resolve_under_root(
+        root,
+        summary["checkpoint_path"],
+        must_exist=True,
+    )
+    checkpoint = load_json(checkpoint_path, "stage checkpoint")
+    outcomes = [
+        item
+        for item in session.get("stage_outcomes", [])
+        if item.get("run_id") == manifest["run_id"] and item.get("stage_id") == stage_id
+    ]
+    if len(outcomes) != 1:
+        raise SystemExit(
+            "Derived stage review requires exactly one supervisor-classified stage outcome."
+        )
+    reviewed_paths = [str(outcomes[0]["artifact_path"])]
+    for key in (
+        "request_payload_path",
+        "input_manifest_json_path",
+        "input_manifest_markdown_path",
+    ):
+        value = checkpoint.get(key)
+        if isinstance(value, str) and value:
+            reviewed_paths.append(value)
+    stage_artifacts = (
+        checkpoint.get("artifacts")
+        if isinstance(checkpoint.get("artifacts"), dict)
+        else {}
+    )
+    for key in (
+        "artifact_markdown_path",
+        "response_final_json_path",
+        "response_latest_json_path",
+        "structured_output_path",
+        "sidecar_response_json_path",
+    ):
+        value = stage_artifacts.get(key)
+        if isinstance(value, str) and value:
+            reviewed_paths.append(value)
+    attempt_dir = resolve_under_root(root, checkpoint["attempt_dir"], must_exist=True)
+    for filename in (
+        "request_plan.json",
+        "token_preflight.json",
+        "token_preflight.error.json",
+        "uploads.json",
+        "validator_report.json",
+        "usage_attempt.json",
+    ):
+        candidate = attempt_dir / filename
+        if candidate.is_file():
+            reviewed_paths.append(relpath(root, candidate))
+    return {
+        "review_job_id": review_cycle_id,
+        "run_id": manifest["run_id"],
+        "stage_id": stage_id,
+        "reviewed_artifacts": sorted(set(reviewed_paths)),
+    }
+
+
+def run_stage_review_cycle(
+    *,
+    root: Path,
+    session_ref: str | Path,
+    review_cycle_id: str,
+    run_dir: str | Path,
+    stage_id: str,
+) -> dict[str, Any]:
+    """Classify one stage and run its review cycle from derived evidence."""
+
+    session, _session_path = _load_session_and_path(root, session_ref)
+    registered = _require_registered_run(root, session, run_dir, require_v2=True)
+    existing_outcomes = [
+        item
+        for item in session.get("stage_outcomes", [])
+        if item.get("run_id") == registered["run_id"] and item.get("stage_id") == stage_id
+    ]
+    if not existing_outcomes:
+        classify_stage(
+            root=root,
+            session_ref=session_ref,
+            run_dir=run_dir,
+            stage_id=stage_id,
+        )
+        session, _session_path = _load_session_and_path(root, session_ref)
+    job = _derived_stage_review_job(
+        root=root,
+        session=session,
+        review_cycle_id=review_cycle_id,
+        run_dir=run_dir,
+        stage_id=stage_id,
+    )
+    return run_review_cycle(
+        root=root,
+        session_ref=session_ref,
+        review_cycle_id=review_cycle_id,
+        review_kind="stage_output",
+        job_json=job,
+    )
 
 
 def _resume_review_cycle(
@@ -3361,6 +3572,163 @@ def accept_consolidated_review(
             )
 
 
+def accept_and_create_review_bundle(
+    *,
+    root: Path,
+    session_ref: str | Path,
+    review_cycle_id: str,
+    consolidated_review: str | Path | None = None,
+    accepted_recommendation_ids: Sequence[str],
+    acceptance_output: str | Path | None = None,
+    applied_change_evidence: str | Path | None = None,
+    blocker_resolutions: Sequence[str | Path] = (),
+    bundle_output: str | Path | None = None,
+) -> dict[str, Any]:
+    """Record acceptance and create its derived bundle when approval succeeds."""
+
+    session, _session_path = _load_session_and_path(root, session_ref)
+    cycle = _find_cycle(session, review_cycle_id)
+    if cycle.get("acceptance_status") == "accepted":
+        acceptance = _load_decision(
+            root,
+            cycle["acceptance_record"],
+            "existing operator acceptance",
+        )
+    else:
+        acceptance = accept_consolidated_review(
+            root=root,
+            session_ref=session_ref,
+            review_cycle_id=review_cycle_id,
+            consolidated_review=consolidated_review,
+            accepted_recommendation_ids=accepted_recommendation_ids,
+            output=acceptance_output,
+            applied_change_evidence=applied_change_evidence,
+            blocker_resolutions=blocker_resolutions,
+        )
+    if acceptance.get("approval_decision") != "approve":
+        return {"acceptance": acceptance, "bundle": None}
+    session, _session_path = _load_session_and_path(root, session_ref)
+    recorded_bundle = next(
+        (
+            item
+            for item in session.get("approved_review_bundles", [])
+            if item.get("review_cycle_id") == review_cycle_id
+        ),
+        None,
+    )
+    if isinstance(recorded_bundle, dict):
+        bundle_path = resolve_under_root(root, recorded_bundle["bundle_path"], must_exist=True)
+        binding_path = resolve_under_root(root, recorded_bundle["binding_path"], must_exist=True)
+        if sha256_file(binding_path) != recorded_bundle.get("binding_sha256"):
+            raise SystemExit("Recorded approved review-bundle binding hash mismatch.")
+        binding = load_json(binding_path, "approved review-bundle binding")
+        if (
+            binding.get("bundle_path") != relpath(root, bundle_path)
+            or binding.get("bundle_sha256") != sha256_file(bundle_path)
+        ):
+            raise SystemExit("Recorded approved review bundle changed after creation.")
+        bundle = load_json(bundle_path, "existing approved review bundle")
+        supervisor_artifacts.validate_against_schema(
+            bundle,
+            "review_bundle.schema.json",
+            "existing approved review bundle",
+        )
+        bundle["bundle_path"] = relpath(root, bundle_path)
+        return {"acceptance": acceptance, "bundle": bundle}
+    bundle = create_approved_review_bundle_for_cycle(
+        root=root,
+        session_ref=session_ref,
+        review_cycle_id=review_cycle_id,
+        output_path=bundle_output,
+    )
+    return {"acceptance": acceptance, "bundle": bundle}
+
+
+def continue_after_approved_review(
+    *,
+    root: Path,
+    session_ref: str | Path,
+    review_cycle_id: str,
+    wait: bool = False,
+    client: OpenAIClient | None = None,
+) -> dict[str, Any]:
+    """Launch the next stage using the bundle created for one accepted stage."""
+
+    session, session_path = _load_session_and_path(root, session_ref)
+    cycle = _find_cycle(session, review_cycle_id)
+    if cycle.get("review_kind") != "stage_output" or cycle.get("acceptance_status") != "accepted":
+        raise SystemExit("Stage continuation requires one accepted stage_output review cycle.")
+    subject = _load_cycle_subject(root, cycle)
+    _verify_subject_artifacts(root, subject)
+    bundles = [
+        item
+        for item in session.get("approved_review_bundles", [])
+        if item.get("review_cycle_id") == review_cycle_id
+    ]
+    if len(bundles) != 1:
+        raise SystemExit("Stage continuation requires exactly one approved review bundle for the cycle.")
+    bundle_record = bundles[0]
+    bundle_path = resolve_under_root(root, bundle_record["bundle_path"], must_exist=True)
+    binding_path = resolve_under_root(root, bundle_record["binding_path"], must_exist=True)
+    if sha256_file(binding_path) != bundle_record.get("binding_sha256"):
+        raise SystemExit("Stage continuation review-bundle binding hash mismatch.")
+    binding = load_json(binding_path, "approved review-bundle binding")
+    if (
+        binding.get("bundle_path") != relpath(root, bundle_path)
+        or binding.get("bundle_sha256") != sha256_file(bundle_path)
+    ):
+        raise SystemExit("Stage continuation review bundle changed after approval.")
+    registered = next(
+        (item for item in session.get("runs", []) if item.get("run_id") == subject.get("run_id")),
+        None,
+    )
+    if not isinstance(registered, dict):
+        raise SystemExit("Accepted stage review does not belong to a registered supervisor run.")
+    run_dir = resolve_under_root(root, registered["run_dir"], must_exist=True)
+    manifest = runner_artifacts.load_run_manifest(root, run_dir)
+    source_summary = runner_artifacts.find_stage_summary(manifest, str(subject["stage_id"]))
+    if source_summary.get("status") != "waiting_for_review":
+        later_attempt = max(
+            (
+                item
+                for item in manifest.get("stages", [])
+                if int(item.get("stage_number", 0)) > int(source_summary["stage_number"])
+                and item.get("current_attempt_id")
+            ),
+            key=lambda item: int(item["stage_number"]),
+            default=None,
+        )
+        if later_attempt is not None:
+            return {
+                "run_dir": relpath(root, run_dir),
+                "run_manifest_path": relpath(root, runner_artifacts.run_manifest_path(run_dir)),
+                "status": manifest.get("status"),
+                "stage_id": later_attempt.get("stage_id"),
+                "reused_existing": True,
+            }
+        raise SystemExit("Reviewed source stage is no longer waiting for its approved handoff.")
+    contract = load_and_verify_run_contract(root=root, run_dir=run_dir)
+    workflow_path = resolve_under_root(root, manifest["workflow_manifest_path"], must_exist=True)
+    runtime = runtime_from_contract(contract, run_dir=Path(registered["run_dir"]), wait=wait)
+    runtime.review_bundles = [relpath(root, bundle_path)]
+    result = run_workflow(
+        workflow_file=workflow_path,
+        runtime=runtime,
+        client=client or OpenAIClient.from_env(root=root),
+        root=root,
+    )
+    with _session_mutation_lock(session_path):
+        current, current_path = _load_session_and_path(root, session_ref)
+        _register_run_result(root, current, result)
+        result_status = str(result.get("status") or "stage_running")
+        current["status"] = (
+            "stage_running" if result_status in {"in_progress", "running"} else result_status
+        )
+        current["current_phase"] = "stage_execution"
+        _write_session(root, current_path, current)
+    return result
+
+
 def _accept_consolidated_review_locked(
     *,
     root: Path,
@@ -3376,8 +3744,16 @@ def _accept_consolidated_review_locked(
 
     session, session_path = _load_session_and_path(root, session_ref)
     cycle = _find_cycle(session, review_cycle_id)
-    if cycle.get("acceptance_record"):
-        raise SystemExit("Review cycle operator acceptance is immutable once recorded.")
+    previous_acceptance_path = cycle.get("acceptance_record")
+    previous_acceptance: dict[str, Any] | None = None
+    if isinstance(previous_acceptance_path, str) and previous_acceptance_path:
+        previous_acceptance = _load_decision(
+            root,
+            previous_acceptance_path,
+            "previous operator acceptance",
+        )
+        if previous_acceptance.get("approval_decision") == "approve":
+            raise SystemExit("An approving operator acceptance is immutable once recorded.")
     if isinstance(cycle.get("revision"), dict):
         raise SystemExit("Review cycles with an active revision cannot be accepted; accept only the fresh revised review cycle.")
     if cycle.get("acceptance_status") == "superseded" or cycle.get("revision", {}).get("status") == "superseded_by_fresh_review":
@@ -3422,7 +3798,39 @@ def _accept_consolidated_review_locked(
     )
     accepted = set(accepted_recommendation_ids)
     evidence_payload = _load_applied_change_evidence(root, applied_change_evidence)
-    output_json_path = _require_derived_path(root, output, cycle["derived_paths"]["acceptance_json"], "operator acceptance output")
+    acceptance_history = list(cycle.get("acceptance_history") or [])
+    if previous_acceptance is not None and not acceptance_history:
+        previous_binding = cycle.get("acceptance_binding")
+        acceptance_history.append(
+            {
+                "path": str(previous_acceptance_path),
+                "sha256": sha256_file(
+                    resolve_under_root(root, previous_acceptance_path, must_exist=True)
+                ),
+                "binding": previous_binding,
+                "approval_decision": previous_acceptance.get("approval_decision"),
+                "supersedes": None,
+            }
+        )
+    acceptance_attempt = len(acceptance_history) + 1
+    base_acceptance_path = resolve_under_root(
+        root,
+        cycle["derived_paths"]["acceptance_json"],
+        must_exist=False,
+    )
+    expected_acceptance_path = (
+        base_acceptance_path
+        if acceptance_attempt == 1
+        else base_acceptance_path.with_name(
+            f"operator_acceptance_{acceptance_attempt:03d}.json"
+        )
+    )
+    output_json_path = _require_derived_path(
+        root,
+        output,
+        relpath(root, expected_acceptance_path),
+        "operator acceptance output",
+    )
     output_md_path = output_json_path.with_suffix(".md")
 
     recommendations = []
@@ -3527,7 +3935,11 @@ def _accept_consolidated_review_locked(
     approval = "approve" if not blocking_after_acceptance else "do_not_approve"
     decision = {
         "schema_version": REVIEW_DECISION_SCHEMA_VERSION,
-        "decision_id": f"operator_acceptance_{review_cycle_id}",
+        "decision_id": (
+            f"operator_acceptance_{review_cycle_id}"
+            if acceptance_attempt == 1
+            else f"operator_acceptance_{review_cycle_id}_{acceptance_attempt:03d}"
+        ),
         "created_at": cycle["created_at"],
         "supervisor_session_id": session["supervisor_session_id"],
         "workflow_id": consolidated.get("workflow_id"),
@@ -3541,6 +3953,11 @@ def _accept_consolidated_review_locked(
         "approval_decision": approval,
         "summary": (
             "Operator selective acceptance record. Accepted recommendations require applied-change evidence."
+            + (
+                f" Supersedes blocked acceptance {previous_acceptance_path}."
+                if previous_acceptance is not None
+                else ""
+            )
             + (
                 f" Verified present at acceptance ({len(verified_present_paths)} reviewer-reported paths): "
                 + ", ".join(verified_present_paths)
@@ -3589,9 +4006,34 @@ def _accept_consolidated_review_locked(
         "blocker_resolutions": resolution_records,
         "approval_decision": approval,
     }
-    binding_path = cycle["derived_paths"]["acceptance_binding"]
+    base_binding_path = resolve_under_root(
+        root,
+        cycle["derived_paths"]["acceptance_binding"],
+        must_exist=False,
+    )
+    binding_path = (
+        base_binding_path
+        if acceptance_attempt == 1
+        else base_binding_path.with_name(
+            f"acceptance_binding_{acceptance_attempt:03d}.json"
+        )
+    )
     _write_once_json(root, binding_path, binding, "operator_acceptance_binding.schema.json", "operator acceptance binding")
-    cycle["acceptance_binding"] = {"path": binding_path, "sha256": sha256_file(resolve_under_root(root, binding_path, must_exist=True))}
+    binding_record = {
+        "path": relpath(root, binding_path),
+        "sha256": sha256_file(resolve_under_root(root, binding_path, must_exist=True)),
+    }
+    cycle["acceptance_binding"] = binding_record
+    acceptance_history.append(
+        {
+            "path": relpath(root, output_json_path),
+            "sha256": sha256_file(output_json_path),
+            "binding": binding_record,
+            "approval_decision": approval,
+            "supersedes": previous_acceptance_path,
+        }
+    )
+    cycle["acceptance_history"] = acceptance_history
     if cycle.get("review_kind") == "scaffold" and approval == "approve":
         bound = next(item for item in session["scaffold_versions"] if item.get("version_id") == subject["scaffold_version_id"])
         bound["approval_status"] = "accepted"
@@ -4742,6 +5184,64 @@ def _create_approved_review_bundle_locked(
     )
     _write_session(root, session_path, session)
     return payload
+
+
+def create_approved_review_bundle_for_cycle(
+    *,
+    root: Path,
+    session_ref: str | Path,
+    review_cycle_id: str,
+    output_path: str | Path | None = None,
+    approved_handoff_markdown: str | Path | None = None,
+) -> dict[str, Any]:
+    """Create a stage handoff using only supervisor-derived cycle evidence."""
+
+    session, _session_path = _load_session_and_path(root, session_ref)
+    cycle = _find_cycle(session, review_cycle_id)
+    if cycle.get("review_kind") != "stage_output":
+        raise SystemExit("Approved review bundles require a stage_output review cycle.")
+    acceptance_record = cycle.get("acceptance_record")
+    if not isinstance(acceptance_record, str) or not acceptance_record:
+        raise SystemExit("Review cycle has no operator acceptance record.")
+    subject = _load_cycle_subject(root, cycle)
+    _verify_subject_artifacts(root, subject)
+    checkpoint_path = resolve_under_root(
+        root,
+        subject["checkpoint_path"],
+        must_exist=True,
+    )
+    checkpoint = load_json(checkpoint_path, "stage checkpoint")
+    stage_artifacts = (
+        checkpoint.get("artifacts")
+        if isinstance(checkpoint.get("artifacts"), dict)
+        else {}
+    )
+    primary_artifact = stage_artifacts.get("artifact_markdown_path")
+    response_artifact = (
+        stage_artifacts.get("response_final_json_path")
+        or stage_artifacts.get("response_latest_json_path")
+    )
+    if not isinstance(primary_artifact, str) or not primary_artifact:
+        raise SystemExit("Accepted stage checkpoint has no primary artifact.md path.")
+    if not isinstance(response_artifact, str) or not response_artifact:
+        raise SystemExit("Accepted stage checkpoint has no response JSON path.")
+    structured_artifact = stage_artifacts.get("structured_output_path")
+    if not isinstance(structured_artifact, str) or not structured_artifact:
+        structured_artifact = None
+    return create_approved_review_bundle(
+        root=root,
+        session_ref=session_ref,
+        output_path=output_path,
+        workflow_id=str(subject["workflow_id"]),
+        source_stage_id=str(subject["stage_id"]),
+        source_run_id=str(subject["run_id"]),
+        primary_artifact_markdown=primary_artifact,
+        response_artifact_json=response_artifact,
+        reviewer_notes=cycle["derived_paths"]["consolidation_md"],
+        acceptance_record=acceptance_record,
+        approved_handoff_markdown=approved_handoff_markdown,
+        structured_artifact_json=structured_artifact,
+    )
 
 
 def _require_final_bundle_payload(payload: dict[str, Any]) -> None:

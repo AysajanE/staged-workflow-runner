@@ -46,7 +46,7 @@
           503,
           504
         ],
-        "on_retryable_service_failure": "continue_without_token_count"
+        "on_retryable_service_failure": "fail_closed"
       },
       "file_uploads": {
         "purpose": "user_data",

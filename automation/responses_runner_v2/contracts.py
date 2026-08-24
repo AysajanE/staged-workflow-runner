@@ -234,7 +234,6 @@ MODEL_CAPS = {
 
 ASSURANCE_PROFILES: dict[str, dict[str, Any]] = {
     "critical": {
-        "review_quorum": ("operator_codex", "codex_review_agent", "claude_review_agent"),
         "fail_closed": True,
         "require_input_budget": True,
         "data_handling": {
@@ -259,7 +258,6 @@ ASSURANCE_PROFILES: dict[str, dict[str, Any]] = {
         },
     },
     "reviewed": {
-        "review_quorum": ("operator_codex", "codex_review_agent"),
         "fail_closed": True,
         "require_input_budget": True,
         "data_handling": {
@@ -277,7 +275,6 @@ ASSURANCE_PROFILES: dict[str, dict[str, Any]] = {
         },
     },
     "standard": {
-        "review_quorum": (),
         "fail_closed": True,
         "require_input_budget": False,
         "data_handling": {
@@ -295,7 +292,6 @@ ASSURANCE_PROFILES: dict[str, dict[str, Any]] = {
         },
     },
     "fast": {
-        "review_quorum": (),
         "fail_closed": False,
         "require_input_budget": False,
         "data_handling": {
