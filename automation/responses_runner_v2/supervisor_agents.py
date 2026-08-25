@@ -1231,6 +1231,7 @@ def _normalize_agent_decision(
     review_cycle_id: str,
     supervisor_session_id: str,
     raw_decision: dict[str, Any],
+    normalization_source: dict[str, Any] | None = None,
     command: dict[str, Any],
     read_only_check: dict[str, Any] | None,
     invocation_identity: dict[str, Any] | None = None,
@@ -1242,10 +1243,12 @@ def _normalize_agent_decision(
         actor_role=actor_role,
         review_kind=review_kind,
     )
+    source_decision = normalization_source if normalization_source is not None else raw_decision
     normalized_fields = sorted(
         key
         for key in MODEL_OWNED_OUTPUT_KEYS
-        if key in raw_decision and raw_decision.get(key) != decision.get(key)
+        if (key in source_decision) != (key in decision)
+        or source_decision.get(key) != decision.get(key)
     )
     if normalized_fields:
         command = {
@@ -1286,6 +1289,7 @@ def _write_validated_decision(
     review_cycle_id: str,
     supervisor_session_id: str,
     raw_decision: dict[str, Any],
+    normalization_source: dict[str, Any] | None = None,
     command: dict[str, Any],
     read_only_check: dict[str, Any] | None,
     invocation_identity: dict[str, Any] | None = None,
@@ -1299,6 +1303,7 @@ def _write_validated_decision(
         review_cycle_id=review_cycle_id,
         supervisor_session_id=supervisor_session_id,
         raw_decision=raw_decision,
+        normalization_source=normalization_source,
         command=command,
         read_only_check=read_only_check,
         invocation_identity=invocation_identity,
@@ -1515,6 +1520,7 @@ def _invoke_agent(
 
     validation_errors: list[str] = []
     raw_decision: dict[str, Any] | None = None
+    normalization_source: dict[str, Any] | None = None
     status = "succeeded"
     failure_summary = "Agent invocation failed or produced invalid output."
     returncode = int(completed.returncode)
@@ -1546,6 +1552,7 @@ def _invoke_agent(
     else:
         try:
             parsed = _parse_stdout_json(str(completed.stdout or ""))
+            normalization_source = parsed
             raw_decision = _validate_model_owned_output(
                 parsed,
                 actor_role=actor_role,
@@ -1590,6 +1597,7 @@ def _invoke_agent(
         if int(repaired.returncode) == 0:
             try:
                 parsed = _parse_stdout_json(str(repaired.stdout or ""))
+                normalization_source = parsed
                 raw_decision = _validate_model_owned_output(
                     parsed,
                     actor_role=actor_role,
@@ -1745,6 +1753,7 @@ def _invoke_agent(
                 review_cycle_id=review_cycle_id,
                 supervisor_session_id=supervisor_session_id,
                 raw_decision=raw_decision,
+                normalization_source=normalization_source,
                 command=command,
                 read_only_check=read_only_check,
                 invocation_identity={

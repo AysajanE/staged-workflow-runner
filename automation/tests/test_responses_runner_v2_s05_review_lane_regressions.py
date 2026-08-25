@@ -101,6 +101,32 @@ class S05ReviewLaneRegressionTests(unittest.TestCase):
             self.assertIn("path", artifact)
             self.assertIn("role", artifact)
 
+    def test_first_canonicalization_reports_actual_model_shape_drift(self) -> None:
+        parsed = _load_fixture("cycle4_codex_raw_approved_dialect.stdout.json")
+        validated = supervisor_agents._validate_model_owned_output(
+            parsed,
+            actor_role="codex_review_agent",
+            review_kind="stage_output",
+        )
+        decision = supervisor_agents._normalize_agent_decision(
+            root=ROOT,
+            output_dir=ROOT / "unused_replay_output",
+            command_id="cmd_codex_review_agent_first_pass_telemetry",
+            actor_role="codex_review_agent",
+            review_kind="stage_output",
+            review_cycle_id="first_pass_telemetry",
+            supervisor_session_id="sup_replay",
+            raw_decision=validated,
+            normalization_source=parsed,
+            command=_command_stub("codex_review_agent"),
+            read_only_check=_passed_read_only_check(),
+        )
+
+        telemetry = decision["command"]["output_normalization"]
+        self.assertTrue(telemetry["changed"])
+        self.assertIn("status", telemetry["fields"])
+        self.assertIn("approval_decision", telemetry["fields"])
+
     def test_cycle8_misfiled_validation_errors_rehome_as_blocking_issues(self) -> None:
         # 2026-06-11 stage-4 regression: the operator emitted a genuine
         # semantic rejection (succeeded/do_not_approve) but filed its findings

@@ -913,6 +913,7 @@ def _token_preflight_state(
     stage_paths: dict[str, Path],
     payload: dict[str, Any],
     runtime: RuntimeOptions,
+    local_context_estimate: dict[str, Any],
 ) -> dict[str, Any]:
     hard_limit = _effective_max_input_tokens(stage, runtime)
     if runtime.skip_token_count or not workflow.request_defaults.token_preflight.enabled:
@@ -980,6 +981,12 @@ def _token_preflight_state(
             last_error = exc
             if exc.status_code in policy.retryable_http_status_codes and attempt < policy.max_retries:
                 continue
+            continue_without_count = (
+                exc.status_code in policy.retryable_http_status_codes
+                and policy.on_retryable_service_failure == "continue_without_token_count"
+                and hard_limit is None
+                and bool(local_context_estimate.get("passed"))
+            )
             error_payload = {
                 "object": "token_preflight_error",
                 "workflow_id": workflow.workflow_id,
@@ -988,19 +995,14 @@ def _token_preflight_state(
                 "status_code": exc.status_code,
                 "error_message": str(exc),
                 "fallback_decision": (
-                    "continue_without_token_count"
-                    if exc.status_code in policy.retryable_http_status_codes
-                    and policy.on_retryable_service_failure == "continue_without_token_count"
-                    and hard_limit is None
-                    else "fail_closed"
+                    "continue_without_token_count" if continue_without_count else "fail_closed"
+                ),
+                "local_advisory_estimate_passed": bool(
+                    local_context_estimate.get("passed")
                 ),
             }
             error_path = artifacts.write_token_preflight_error(stage_paths, error_payload)
-            if (
-                exc.status_code in policy.retryable_http_status_codes
-                and policy.on_retryable_service_failure == "continue_without_token_count"
-                and hard_limit is None
-            ):
+            if continue_without_count:
                 return {
                     "status": "continued_after_retryable_service_failure",
                     "attempts": attempts,
@@ -2173,6 +2175,11 @@ def run_workflow(
             resolved_manifest=resolved_manifest,
             rendered_manifest_md=rendered_manifest_md,
         )
+        validate_contract(
+            local_estimate,
+            "local_context_estimate.schema.json",
+            label="local context estimate",
+        )
         write_json(stage_paths["local_context_estimate"], local_estimate)
         if (
             not local_estimate["passed"]
@@ -2339,12 +2346,27 @@ def run_workflow(
                     )
             except RunLockError as exc:
                 raise SystemExit(str(exc)) from exc
-            return {
+            result = {
                 "run_dir": relpath(root, run_dir),
                 "run_manifest_path": relpath(root, artifacts.run_manifest_path(run_dir)),
                 "status": run_manifest["status"],
                 "stage_id": stage.stage_id,
             }
+            if not local_estimate["passed"]:
+                result["warnings"] = [
+                    {
+                        "code": "exact_token_preflight_not_executed_in_dry_run",
+                        "message": (
+                            "The conservative local context estimate exceeds a configured limit; "
+                            "live execution will rely on exact token preflight and may block."
+                        ),
+                        "diagnostics_path": relpath(
+                            root,
+                            stage_paths["local_context_estimate"],
+                        ),
+                    }
+                ]
+            return result
 
         if client is None:
             raise SystemExit("A live OpenAI client is required unless --dry-run is used.")
@@ -2460,6 +2482,7 @@ def run_workflow(
                     stage_paths=stage_paths,
                     payload=request_payload,
                     runtime=runtime,
+                    local_context_estimate=local_estimate,
                 )
             except BaseException:
                 _persist_stage_state(

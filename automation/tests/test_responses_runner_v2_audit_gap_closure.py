@@ -4,7 +4,7 @@ import io
 import json
 import tempfile
 import unittest
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from unittest import mock
 
@@ -160,6 +160,33 @@ class AuditGapClosureTests(unittest.TestCase):
         self.assertTrue(args.then_bundle)
         self.assertTrue(args.then_launch)
         self.assertIsNone(args.bundle_output)
+
+    def test_dry_run_cli_surfaces_context_warning(self) -> None:
+        stderr = io.StringIO()
+        result = {
+            "run_manifest_path": ".local/test/run_manifest.json",
+            "warnings": [
+                {
+                    "code": "exact_token_preflight_not_executed_in_dry_run",
+                    "message": "Live execution may block.",
+                    "diagnostics_path": ".local/test/local_context_estimate.json",
+                }
+            ],
+        }
+        argv = [
+            "run",
+            "--root",
+            str(ROOT),
+            "--workflow-file",
+            "automation/examples/responses_runner_v2_synthetic/workflows/one_pass.workflow.json",
+            "--dry-run",
+        ]
+        with mock.patch.object(run_responses_v2, "run_workflow", return_value=result), redirect_stderr(stderr), redirect_stdout(io.StringIO()):
+            exit_code = run_responses_v2.main(argv)
+
+        self.assertEqual(exit_code, 0)
+        self.assertIn("exact_token_preflight_not_executed_in_dry_run", stderr.getvalue())
+        self.assertIn("local_context_estimate.json", stderr.getvalue())
 
     def test_supervisor_usage_report_aggregates_only_reviewer_attempts(self) -> None:
         with tempfile.TemporaryDirectory(dir=ROOT) as temporary_directory:

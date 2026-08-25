@@ -39,7 +39,7 @@ from .pack_loader import (
 from .openai_client import OpenAIClient
 from .review_bundle import create_review_bundle
 from .run_contract import load_and_verify_run_contract, runtime_from_contract
-from .workflow import run_workflow
+from .workflow import REVIEWABLE_APPROVED_SOURCE_STATUSES, run_workflow
 from .validators import validate_commonmark_fences
 from . import artifacts as runner_artifacts
 from . import supervisor_agents
@@ -1803,11 +1803,12 @@ def _recover_reserved_agent_result(
     subject: dict[str, Any],
     reservation: dict[str, Any],
     actor_role: str,
-) -> supervisor_agents.AgentRunResult:
+    allow_missing: bool = False,
+) -> supervisor_agents.AgentRunResult | None:
     output_value = reservation["intent"]["roles_and_outputs"].get(actor_role)
-    output_dir = resolve_under_root(root, output_value, must_exist=True)
+    output_dir = resolve_under_root(root, output_value, must_exist=False)
     candidates: list[tuple[Path, dict[str, Any]]] = []
-    for path in sorted(output_dir.glob("*.json")):
+    for path in sorted(output_dir.glob("*.json")) if output_dir.exists() else []:
         if path.name.endswith(".reviewer_usage_attempt.json") or path.name.endswith(".review_input.json"):
             continue
         try:
@@ -1816,6 +1817,8 @@ def _recover_reserved_agent_result(
             continue
         if payload.get("schema_version") == REVIEW_DECISION_SCHEMA_VERSION:
             candidates.append((path, payload))
+    if not candidates and allow_missing:
+        return None
     if len(candidates) != 1:
         raise SystemExit(
             f"Reserved {actor_role} invocation has {len(candidates)} decision candidates; "
@@ -1964,7 +1967,13 @@ def release_invocation_reservation(
             "reservation": reservation,
             "decision_candidates": [],
         }
-        _write_once_json(root, release_path, release, label="invocation reservation release")
+        _write_once_json(
+            root,
+            release_path,
+            release,
+            "invocation_reservation_release.schema.json",
+            "invocation reservation release",
+        )
         release_record = {
             "path": relpath(root, release_path),
             "sha256": sha256_file(release_path),
@@ -2098,27 +2107,59 @@ def invoke_reviewers(
         )
         if recovering:
             try:
-                codex = _recover_reserved_agent_result(root=root, session=session, cycle=cycle, subject=subject, reservation=reservation, actor_role="codex_review_agent")
-                claude = _recover_reserved_agent_result(root=root, session=session, cycle=cycle, subject=subject, reservation=reservation, actor_role="claude_review_agent")
+                codex = _recover_reserved_agent_result(
+                    root=root,
+                    session=session,
+                    cycle=cycle,
+                    subject=subject,
+                    reservation=reservation,
+                    actor_role="codex_review_agent",
+                    allow_missing=True,
+                )
+                claude = _recover_reserved_agent_result(
+                    root=root,
+                    session=session,
+                    cycle=cycle,
+                    subject=subject,
+                    reservation=reservation,
+                    actor_role="claude_review_agent",
+                    allow_missing=True,
+                )
             except SystemExit as exc:
                 raise SystemExit(
                     f"Reserved independent reviewer invocation requires explicit recovery; "
                     f"reviewers will not be reinvoked. {exc}"
                 ) from exc
-        else:
-            common = {
-                "root": root,
-                "review_kind": review_kind,
-                "review_cycle_id": review_cycle_id,
-                "supervisor_session_id": session["supervisor_session_id"],
-                "job": subject["frozen_job_path"],
-                "review_input": subject["review_input_path"],
-            }
+            if codex is None and claude is None:
+                raise SystemExit(
+                    "Reserved independent reviewer invocation delivered no decision candidates; "
+                    "release the reservation before reinvoking both reviewers."
+                )
+        common = {
+            "root": root,
+            "review_kind": review_kind,
+            "review_cycle_id": review_cycle_id,
+            "supervisor_session_id": session["supervisor_session_id"],
+            "job": subject["frozen_job_path"],
+            "review_input": subject["review_input_path"],
+        }
+        if not recovering:
             with ThreadPoolExecutor(max_workers=2, thread_name_prefix="supervisor-review") as executor:
                 codex_future = executor.submit(supervisor_agents.invoke_codex_review_agent, **common, output_dir=codex_output)
                 claude_future = executor.submit(supervisor_agents.invoke_claude_review_agent, **common, output_dir=claude_output)
                 codex = codex_future.result()
                 claude = claude_future.result()
+        else:
+            if codex is None:
+                codex = supervisor_agents.invoke_codex_review_agent(
+                    **common,
+                    output_dir=codex_output,
+                )
+            if claude is None:
+                claude = supervisor_agents.invoke_claude_review_agent(
+                    **common,
+                    output_dir=claude_output,
+                )
         cycle["review_agent_outputs"]["codex_review_agent"] = codex.decision_path
         cycle["review_agent_outputs"]["claude_review_agent"] = claude.decision_path
         for result in (codex, claude):
@@ -2175,6 +2216,40 @@ def run_review_cycle(
     }
 
 
+def _reviewable_stage_outcomes(
+    *,
+    root: Path,
+    session: dict[str, Any],
+    run_id: str,
+    stage_id: str,
+    checkpoint_path: str | Path | None = None,
+) -> list[tuple[dict[str, Any], dict[str, Any], Path]]:
+    """Return reviewable outcomes in their recorded order without discarding history."""
+
+    reviewable: list[tuple[dict[str, Any], dict[str, Any], Path]] = []
+    expected_checkpoint = (
+        resolve_under_root(root, checkpoint_path, must_exist=True)
+        if checkpoint_path is not None
+        else None
+    )
+    for record in session.get("stage_outcomes", []):
+        if record.get("run_id") != run_id or record.get("stage_id") != stage_id:
+            continue
+        outcome_path = resolve_under_root(root, record.get("artifact_path"), must_exist=True)
+        outcome = load_json(outcome_path, "stage outcome")
+        outcome_checkpoint = outcome.get("checkpoint_path")
+        if (
+            expected_checkpoint is not None
+            and isinstance(outcome_checkpoint, str)
+            and resolve_under_root(root, outcome_checkpoint, must_exist=True)
+            != expected_checkpoint
+        ):
+            continue
+        if outcome.get("reviewable") and outcome.get("review_bundle_allowed"):
+            reviewable.append((record, outcome, outcome_path))
+    return reviewable
+
+
 def _derived_stage_review_job(
     *,
     root: Path,
@@ -2195,16 +2270,19 @@ def _derived_stage_review_job(
         must_exist=True,
     )
     checkpoint = load_json(checkpoint_path, "stage checkpoint")
-    outcomes = [
-        item
-        for item in session.get("stage_outcomes", [])
-        if item.get("run_id") == manifest["run_id"] and item.get("stage_id") == stage_id
-    ]
-    if len(outcomes) != 1:
+    outcomes = _reviewable_stage_outcomes(
+        root=root,
+        session=session,
+        run_id=manifest["run_id"],
+        stage_id=stage_id,
+        checkpoint_path=checkpoint_path,
+    )
+    if not outcomes:
         raise SystemExit(
-            "Derived stage review requires exactly one supervisor-classified stage outcome."
+            "Derived stage review requires a supervisor-classified reviewable stage outcome."
         )
-    reviewed_paths = [str(outcomes[0]["artifact_path"])]
+    outcome_record, _outcome, _outcome_path = outcomes[-1]
+    reviewed_paths = [str(outcome_record["artifact_path"])]
     for key in (
         "request_payload_path",
         "input_manifest_json_path",
@@ -2260,12 +2338,19 @@ def run_stage_review_cycle(
 
     session, _session_path = _load_session_and_path(root, session_ref)
     registered = _require_registered_run(root, session, run_dir, require_v2=True)
-    existing_outcomes = [
-        item
-        for item in session.get("stage_outcomes", [])
-        if item.get("run_id") == registered["run_id"] and item.get("stage_id") == stage_id
-    ]
-    if not existing_outcomes:
+    manifest = runner_artifacts.load_run_manifest(
+        root,
+        resolve_under_root(root, registered["run_dir"], must_exist=True),
+    )
+    summary = runner_artifacts.find_stage_summary(manifest, stage_id)
+    reviewable_outcomes = _reviewable_stage_outcomes(
+        root=root,
+        session=session,
+        run_id=registered["run_id"],
+        stage_id=stage_id,
+        checkpoint_path=summary.get("checkpoint_path"),
+    )
+    if not reviewable_outcomes:
         classify_stage(
             root=root,
             session_ref=session_ref,
@@ -2819,7 +2904,7 @@ def _continue_revision_after_operator(
         if len(candidates) > 1:
             raise SystemExit("Revision continuation found multiple staged scaffold versions.")
         if not candidates:
-            stage_scaffold(
+            staged_result = stage_scaffold(
                 root=root,
                 session_ref=session_ref,
                 scaffold_path=directive["revision_scaffold_path"],
@@ -2828,7 +2913,11 @@ def _continue_revision_after_operator(
             session, session_path = _load_session_and_path(root, session_ref)
             source_cycle = _find_cycle(session, source_review_cycle_id)
             revision = source_cycle["revision"]
-            candidates = [item for item in session.get("scaffold_versions", []) if item.get("created_by") == marker]
+            candidates = [
+                item
+                for item in session.get("scaffold_versions", [])
+                if item.get("version_id") == staged_result["version_id"]
+            ]
         if len(candidates) != 1:
             raise SystemExit("Revision continuation could not identify its staged scaffold version.")
         staged = candidates[0]
@@ -3687,7 +3776,7 @@ def continue_after_approved_review(
     run_dir = resolve_under_root(root, registered["run_dir"], must_exist=True)
     manifest = runner_artifacts.load_run_manifest(root, run_dir)
     source_summary = runner_artifacts.find_stage_summary(manifest, str(subject["stage_id"]))
-    if source_summary.get("status") != "waiting_for_review":
+    if source_summary.get("status") not in REVIEWABLE_APPROVED_SOURCE_STATUSES:
         later_attempt = max(
             (
                 item
@@ -3706,7 +3795,9 @@ def continue_after_approved_review(
                 "stage_id": later_attempt.get("stage_id"),
                 "reused_existing": True,
             }
-        raise SystemExit("Reviewed source stage is no longer waiting for its approved handoff.")
+        raise SystemExit(
+            "Reviewed source stage is no longer in a reviewable state for its approved handoff."
+        )
     contract = load_and_verify_run_contract(root=root, run_dir=run_dir)
     workflow_path = resolve_under_root(root, manifest["workflow_manifest_path"], must_exist=True)
     runtime = runtime_from_contract(contract, run_dir=Path(registered["run_dir"]), wait=wait)
@@ -4884,7 +4975,17 @@ def classify_stage(*, root: Path, session_ref: str | Path, run_dir: str | Path, 
         if not stage_dirs:
             raise SystemExit(f"Could not find stage directory for {stage_id}")
         checkpoint_value = relpath(root, stage_dirs[0] / "stage_checkpoint.json")
-    output_path = output or (session_path / "review_cycles" / f"{stage_id}_classification" / "stage_outcome.json")
+    matching_count = sum(
+        1
+        for item in session.get("stage_outcomes", [])
+        if item.get("run_id") == run_manifest["run_id"] and item.get("stage_id") == stage_id
+    )
+    output_path = output or (
+        session_path
+        / "review_cycles"
+        / f"{stage_id}_classification"
+        / f"stage_outcome_{matching_count + 1:03d}.json"
+    )
     human_pause_path = Path(output_path).with_suffix(".human_pause.json")
     outcome = supervisor_policies.classify_stage_outcome(root=root, checkpoint_path=checkpoint_value, human_pause_output=human_pause_path)
     outcome_rel = supervisor_policies.write_stage_outcome(root, output_path, outcome)
@@ -4895,6 +4996,8 @@ def classify_stage(*, root: Path, session_ref: str | Path, run_dir: str | Path, 
             "classification": outcome.get("classification"),
             "artifact_path": outcome_rel,
             "reviewability": bool(outcome.get("reviewable")),
+            "reviewable": bool(outcome.get("reviewable")),
+            "review_bundle_allowed": bool(outcome.get("review_bundle_allowed")),
         }
     )
     if outcome.get("human_pause"):
@@ -4936,7 +5039,14 @@ def monitor_stage(*, root: Path, session_ref: str | Path, run_dir: str | Path, s
     }
     session["monitoring_events"].append(event)
     if anomaly:
-        outcome_path = output_dir / f"{stage_id}.monitoring_anomaly.json"
+        anomaly_count = sum(
+            1
+            for item in session.get("stage_outcomes", [])
+            if item.get("run_id") == run_manifest["run_id"]
+            and item.get("stage_id") == stage_id
+            and item.get("classification") == "long_running_monitoring_anomaly"
+        )
+        outcome_path = output_dir / f"{stage_id}.monitoring_anomaly_{anomaly_count + 1:03d}.json"
         anomaly_rel = supervisor_policies.write_stage_outcome(root, outcome_path, anomaly)
         session["stage_outcomes"].append(
             {
@@ -4945,6 +5055,8 @@ def monitor_stage(*, root: Path, session_ref: str | Path, run_dir: str | Path, s
                 "classification": anomaly.get("classification"),
                 "artifact_path": anomaly_rel,
                 "reviewability": False,
+                "reviewable": False,
+                "review_bundle_allowed": False,
             }
         )
         if anomaly.get("human_pause"):
@@ -5069,13 +5181,18 @@ def _create_approved_review_bundle_locked(
     if not isinstance(registered, dict):
         raise SystemExit("Approved review bundle source run is not registered to this supervisor session.")
     _require_registered_run(root, session, registered["run_dir"])
-    outcomes = [item for item in session.get("stage_outcomes", []) if item.get("run_id") == source_run_id and item.get("stage_id") == source_stage_id]
-    if len(outcomes) != 1:
-        raise SystemExit("Approved review bundle requires one supervisor-classified stage outcome.")
-    outcome_path = resolve_under_root(root, outcomes[0]["artifact_path"], must_exist=True)
-    outcome = load_json(outcome_path, "stage outcome")
-    if not outcome.get("review_bundle_allowed") or not outcome.get("reviewable"):
-        raise SystemExit("Stage outcome does not permit approved review-bundle progression.")
+    outcomes = _reviewable_stage_outcomes(
+        root=root,
+        session=session,
+        run_id=source_run_id,
+        stage_id=source_stage_id,
+        checkpoint_path=subject.get("checkpoint_path"),
+    )
+    if not outcomes:
+        raise SystemExit(
+            "Approved review bundle requires a supervisor-classified reviewable stage outcome."
+        )
+    _outcome_record, outcome, outcome_path = outcomes[-1]
     expected_output = cycle["derived_paths"]["review_bundle"]
     output_path = _require_derived_path(root, output_path, expected_output, "approved review bundle output")
     manifest = load_json(resolve_under_root(root, subject["reviewed_artifact_manifest_path"], must_exist=True), "reviewed artifact manifest")

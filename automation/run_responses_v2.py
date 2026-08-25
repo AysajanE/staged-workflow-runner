@@ -208,6 +208,12 @@ def main(argv: Sequence[str] | None = None) -> int:
             client=client,
             root=root,
         )
+        for warning in result.get("warnings", []):
+            print(
+                f"WARNING [{warning['code']}] {warning['message']} "
+                f"({warning['diagnostics_path']})",
+                file=sys.stderr,
+            )
         print(result["run_manifest_path"])
         return 0
 

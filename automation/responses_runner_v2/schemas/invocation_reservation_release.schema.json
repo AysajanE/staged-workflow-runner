@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Responses Runner V2 Invocation Reservation Release",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "released_at",
+    "supervisor_session_id",
+    "review_cycle_id",
+    "operation",
+    "reason",
+    "reservation",
+    "decision_candidates"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "responses_runner_v2.invocation_reservation_release.v1"
+    },
+    "released_at": {"type": "string", "format": "date-time"},
+    "supervisor_session_id": {"$ref": "#/$defs/id"},
+    "review_cycle_id": {"$ref": "#/$defs/id"},
+    "operation": {"enum": ["operator_provisional", "independent_reviewers"]},
+    "reason": {"type": "string", "minLength": 1},
+    "reservation": {"$ref": "#/$defs/reservation"},
+    "decision_candidates": {
+      "type": "array",
+      "maxItems": 0
+    }
+  },
+  "$defs": {
+    "id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{0,127}$"},
+    "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "reservation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "reservation_id",
+        "intent",
+        "status",
+        "recovery_count",
+        "created_at",
+        "updated_at",
+        "completed_artifacts"
+      ],
+      "properties": {
+        "reservation_id": {"$ref": "#/$defs/sha256"},
+        "intent": {"type": "object"},
+        "status": {"const": "reserved"},
+        "recovery_count": {"type": "integer", "minimum": 0},
+        "created_at": {"type": "string", "format": "date-time"},
+        "updated_at": {"type": "string", "format": "date-time"},
+        "completed_artifacts": {
+          "type": "array",
+          "items": {"type": "object"}
+        }
+      }
+    }
+  }
+}

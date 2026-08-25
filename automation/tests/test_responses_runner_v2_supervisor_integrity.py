@@ -9,7 +9,13 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from unittest import mock
 
-from automation.responses_runner_v2 import supervisor, supervisor_agents, telemetry, workflow as workflow_module
+from automation.responses_runner_v2 import (
+    supervisor,
+    supervisor_agents,
+    supervisor_artifacts,
+    telemetry,
+    workflow as workflow_module,
+)
 from automation.responses_runner_v2.contracts import ASSURANCE_PROFILES, relpath, runner_now, sha256_file, sha256_text
 from automation.responses_runner_v2.supervisor_artifacts import load_session, validate_against_schema
 from automation.tests.supervisor_test_support import isolate_supervisor_output
@@ -839,11 +845,21 @@ class SupervisorIntegrityTests(unittest.TestCase):
             temp = Path(raw)
             session, _scaffold, _reviewed = self._session(temp)
             run = self._register_v2_run(session, temp)
+            manifest_path = ROOT / run["manifest_path"]
+            failed_complete_manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            failed_complete_manifest["stages"][0]["status"] = "failed_complete"
+            manifest_path.write_text(
+                json.dumps(failed_complete_manifest, indent=2) + "\n",
+                encoding="utf-8",
+            )
             checkpoint = json.loads((ROOT / run["checkpoint_path"]).read_text(encoding="utf-8"))
             response_path = checkpoint["artifacts"]["response_latest_json_path"]
+            anomaly_path = temp / "stage.monitoring_anomaly.json"
+            anomaly_path.write_text(json.dumps({"review_bundle_allowed": False, "reviewable": False}) + "\n", encoding="utf-8")
             outcome_path = temp / "stage_outcome.json"
             outcome_path.write_text(json.dumps({"review_bundle_allowed": True, "reviewable": True}) + "\n", encoding="utf-8")
             current, session_path = supervisor._load_session_and_path(ROOT, session["supervisor_session_id"])
+            current["stage_outcomes"].append({"run_id": "registered_run", "stage_id": "stage", "artifact_path": relpath(ROOT, anomaly_path)})
             current["stage_outcomes"].append({"run_id": "registered_run", "stage_id": "stage", "artifact_path": relpath(ROOT, outcome_path)})
             supervisor._write_session(ROOT, session_path, current)
             cycle_id = "stage_bundle_retry"
@@ -1072,6 +1088,119 @@ class SupervisorIntegrityTests(unittest.TestCase):
             reservation = completed_cycle["invocation_reservations"]["independent_reviewers"]
             self.assertEqual(reservation["status"], "completed")
             self.assertEqual(reservation["recovery_count"], 1)
+
+    def test_partial_reviewer_reservation_recovers_delivered_role_and_reinvokes_missing_role(self) -> None:
+        with tempfile.TemporaryDirectory(dir=ROOT) as raw:
+            session, _scaffold, reviewed = self._session(Path(raw))
+            cycle_id = "cycle_partial_reviewer_recovery"
+            job = reviewed.parent / f"{cycle_id}.job.json"
+            job.write_text(
+                json.dumps(
+                    {
+                        "review_job_id": cycle_id,
+                        "reviewed_artifacts": [relpath(ROOT, reviewed)],
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            with mock.patch.object(
+                supervisor_agents,
+                "invoke_operator_codex",
+                side_effect=lambda **kwargs: _decision(
+                    root=ROOT,
+                    output_dir=Path(kwargs["output_dir"]),
+                    role="operator_codex",
+                    cycle=cycle_id,
+                    review_kind="scaffold",
+                ),
+            ):
+                supervisor.invoke_operator(
+                    root=ROOT,
+                    session_ref=session["supervisor_session_id"],
+                    review_cycle_id=cycle_id,
+                    review_kind="scaffold",
+                    job_json=job.relative_to(ROOT),
+                )
+
+            delivered: supervisor_agents.AgentRunResult | None = None
+
+            def codex_first(**kwargs):
+                nonlocal delivered
+                delivered = _decision(
+                    root=ROOT,
+                    output_dir=Path(kwargs["output_dir"]),
+                    role="codex_review_agent",
+                    cycle=cycle_id,
+                    review_kind="scaffold",
+                )
+                return delivered
+
+            with mock.patch.object(
+                supervisor_agents,
+                "invoke_codex_review_agent",
+                side_effect=codex_first,
+            ), mock.patch.object(
+                supervisor_agents,
+                "invoke_claude_review_agent",
+                side_effect=SystemExit("synthetic claude crash"),
+            ):
+                with self.assertRaisesRegex(SystemExit, "synthetic claude crash"):
+                    supervisor.invoke_reviewers(
+                        root=ROOT,
+                        session_ref=session["supervisor_session_id"],
+                        review_cycle_id=cycle_id,
+                        review_kind="scaffold",
+                        job_json=job.relative_to(ROOT),
+                    )
+            self.assertIsNotNone(delivered)
+
+            def recover_role(**kwargs):
+                return delivered if kwargs["actor_role"] == "codex_review_agent" else None
+
+            with mock.patch.object(
+                supervisor,
+                "_recover_reserved_agent_result",
+                side_effect=recover_role,
+            ), mock.patch.object(
+                supervisor_agents,
+                "invoke_codex_review_agent",
+                side_effect=AssertionError("delivered Codex verdict must not be reinvoked"),
+            ) as codex_reinvoke, mock.patch.object(
+                supervisor_agents,
+                "invoke_claude_review_agent",
+                side_effect=lambda **kwargs: _decision(
+                    root=ROOT,
+                    output_dir=Path(kwargs["output_dir"]),
+                    role="claude_review_agent",
+                    cycle=cycle_id,
+                    review_kind="scaffold",
+                ),
+            ) as claude_reinvoke:
+                recovered = supervisor.invoke_reviewers(
+                    root=ROOT,
+                    session_ref=session["supervisor_session_id"],
+                    review_cycle_id=cycle_id,
+                    review_kind="scaffold",
+                    job_json=job.relative_to(ROOT),
+                )
+
+            self.assertEqual(set(recovered), {"codex_review", "claude_review"})
+            codex_reinvoke.assert_not_called()
+            claude_reinvoke.assert_called_once()
+            updated = load_session(ROOT, session["supervisor_session_id"])
+            cycle = next(
+                item for item in updated["review_cycles"] if item["review_cycle_id"] == cycle_id
+            )
+            self.assertEqual(
+                cycle["invocation_reservations"]["independent_reviewers"]["status"],
+                "completed",
+            )
+            self.assertEqual(
+                cycle["invocation_reservations"]["independent_reviewers"]["recovery_count"],
+                1,
+            )
 
     def test_zero_result_operator_reservation_can_be_released_and_reinvoked(self) -> None:
         with tempfile.TemporaryDirectory(dir=ROOT) as raw:
@@ -1354,22 +1483,53 @@ class SupervisorIntegrityTests(unittest.TestCase):
             temp = Path(raw)
             session, _scaffold, _reviewed = self._session(temp)
             run = self._register_v2_run(session, temp)
-            outcome_path = temp / "stage_outcome.json"
+            anomaly_path = temp / "monitoring_anomaly.json"
+            anomaly_path.write_text(
+                json.dumps({"review_bundle_allowed": False, "reviewable": False}) + "\n",
+                encoding="utf-8",
+            )
+            earlier_outcome_path = temp / "stage_outcome_earlier.json"
+            earlier_outcome_path.write_text(
+                json.dumps({"review_bundle_allowed": True, "reviewable": True}) + "\n",
+                encoding="utf-8",
+            )
+            outcome_path = temp / "stage_outcome_latest.json"
             outcome_path.write_text(
                 json.dumps({"review_bundle_allowed": True, "reviewable": True}) + "\n",
+                encoding="utf-8",
+            )
+            stale_checkpoint = temp / "stale_attempt" / "stage_checkpoint.json"
+            stale_checkpoint.parent.mkdir()
+            stale_checkpoint.write_text("{}\n", encoding="utf-8")
+            stale_outcome_path = temp / "stage_outcome_stale_attempt.json"
+            stale_outcome_path.write_text(
+                json.dumps(
+                    {
+                        "review_bundle_allowed": True,
+                        "reviewable": True,
+                        "checkpoint_path": relpath(ROOT, stale_checkpoint),
+                    }
+                )
+                + "\n",
                 encoding="utf-8",
             )
             current, session_path = supervisor._load_session_and_path(
                 ROOT,
                 session["supervisor_session_id"],
             )
-            current["stage_outcomes"].append(
-                {
-                    "run_id": "registered_run",
-                    "stage_id": "stage",
-                    "artifact_path": relpath(ROOT, outcome_path),
-                }
-            )
+            for path in (
+                anomaly_path,
+                earlier_outcome_path,
+                outcome_path,
+                stale_outcome_path,
+            ):
+                current["stage_outcomes"].append(
+                    {
+                        "run_id": "registered_run",
+                        "stage_id": "stage",
+                        "artifact_path": relpath(ROOT, path),
+                    }
+                )
             supervisor._write_session(ROOT, session_path, current)
 
             job = supervisor._derived_stage_review_job(
@@ -1388,6 +1548,47 @@ class SupervisorIntegrityTests(unittest.TestCase):
             self.assertIn(checkpoint["input_manifest_json_path"], job["reviewed_artifacts"])
             self.assertIn(checkpoint["input_manifest_markdown_path"], job["reviewed_artifacts"])
             self.assertIn(relpath(ROOT, outcome_path), job["reviewed_artifacts"])
+            self.assertNotIn(relpath(ROOT, anomaly_path), job["reviewed_artifacts"])
+            self.assertNotIn(relpath(ROOT, earlier_outcome_path), job["reviewed_artifacts"])
+            self.assertNotIn(relpath(ROOT, stale_outcome_path), job["reviewed_artifacts"])
+
+    def test_stage_review_with_only_anomaly_reclassifies_before_invoking_agents(self) -> None:
+        with tempfile.TemporaryDirectory(dir=ROOT) as raw:
+            temp = Path(raw)
+            session, _scaffold, _reviewed = self._session(temp)
+            run = self._register_v2_run(session, temp)
+            anomaly_path = temp / "monitoring_anomaly.json"
+            anomaly_path.write_text(
+                json.dumps({"review_bundle_allowed": False, "reviewable": False}) + "\n",
+                encoding="utf-8",
+            )
+            current, session_path = supervisor._load_session_and_path(
+                ROOT,
+                session["supervisor_session_id"],
+            )
+            current["stage_outcomes"].append(
+                {
+                    "run_id": "registered_run",
+                    "stage_id": "stage",
+                    "artifact_path": relpath(ROOT, anomaly_path),
+                }
+            )
+            supervisor._write_session(ROOT, session_path, current)
+
+            with mock.patch.object(supervisor, "classify_stage", return_value={}) as classify, mock.patch.object(
+                supervisor,
+                "run_review_cycle",
+            ) as reviewers:
+                with self.assertRaisesRegex(SystemExit, "reviewable stage outcome"):
+                    supervisor.run_stage_review_cycle(
+                        root=ROOT,
+                        session_ref=session["supervisor_session_id"],
+                        review_cycle_id="anomaly_only_cycle",
+                        run_dir=run["run_dir"],
+                        stage_id="stage",
+                    )
+            classify.assert_called_once()
+            reviewers.assert_not_called()
 
     def test_stale_scaffold_cannot_be_accepted(self) -> None:
         with tempfile.TemporaryDirectory(dir=ROOT) as raw:
@@ -1889,6 +2090,13 @@ class SupervisorIntegrityTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(dir=ROOT) as raw:
             temp = Path(raw)
             session, scaffold, reviewed = self._session(temp)
+            revision_target = scaffold / "revision_target.md"
+            revision_target.write_text("stable staged bytes\n", encoding="utf-8")
+            latest_scaffold = supervisor.stage_scaffold(
+                root=ROOT,
+                session_ref=session["supervisor_session_id"],
+                scaffold_path=scaffold.relative_to(ROOT),
+            )
             recommendations = [
                 {
                     "recommendation_id": "apply_change",
@@ -1910,17 +2118,25 @@ class SupervisorIntegrityTests(unittest.TestCase):
                 },
             ]
             first = self._run_cycle(session, reviewed, codex_recommendations=recommendations)
+            latest_scaffold = supervisor.stage_scaffold(
+                root=ROOT,
+                session_ref=session["supervisor_session_id"],
+                scaffold_path=scaffold.relative_to(ROOT),
+            )
             consolidated = json.loads((ROOT / first["consolidation"]).read_text(encoding="utf-8"))
             by_text = {item["recommendation"]: item["recommendation_id"] for item in consolidated["recommendations"]}
             accepted_id = by_text["Apply the grounded content change."]
             rejected_id = by_text["Add unrelated scope."]
+            # Reproduce the edge where a revision changes an unreviewed target
+            # but restores the exact bytes of the already-staged scaffold.
+            revision_target.write_text("drifted before revision\n", encoding="utf-8")
             directive = supervisor.create_revision_directive(
                 root=ROOT,
                 session_ref=session["supervisor_session_id"],
                 review_cycle_id="cycle_bound",
                 accepted_recommendation_ids=[accepted_id],
                 rejected_recommendations={rejected_id: "Unrelated to the authorized task."},
-                revised_artifacts=[reviewed.relative_to(ROOT)],
+                revised_artifacts=[revision_target.relative_to(ROOT)],
                 revision_scaffold_path=scaffold.relative_to(ROOT),
             )
             self.assertEqual(directive["accepted_recommendations"][0]["recommendation_id"], accepted_id)
@@ -1936,7 +2152,20 @@ class SupervisorIntegrityTests(unittest.TestCase):
                     recovery_calls += 1
                     if recovery_calls > 1:
                         raise AssertionError("reserved operator revision must not be reinvoked")
-                    reviewed.write_text("revised and validated\n", encoding="utf-8")
+                    revision_target.write_text("stable staged bytes\n", encoding="utf-8")
+                    staged_root = ROOT / latest_scaffold["path"]
+                    source_files = {
+                        path.relative_to(scaffold).as_posix(): sha256_file(path)
+                        for path in supervisor_artifacts._iter_files(scaffold)
+                    }
+                    staged_files = {
+                        path.relative_to(staged_root).as_posix(): sha256_file(path)
+                        for path in supervisor_artifacts._iter_files(staged_root)
+                    }
+                    self.assertEqual(
+                        source_files,
+                        staged_files,
+                    )
                     traced = [
                         {
                             **directive["accepted_recommendations"][0],
@@ -1944,7 +2173,7 @@ class SupervisorIntegrityTests(unittest.TestCase):
                             "exact_change_needed": "Replace the placeholder content.",
                             "operator_decision": "accepted",
                             "decision_rationale": "Grounded and in scope.",
-                            "changes_applied": [{"path": relpath(ROOT, reviewed), "summary": "Replaced placeholder.", "evidence": [{"source": "revision", "quote_or_summary": "Updated content."}]}],
+                            "changes_applied": [{"path": relpath(ROOT, revision_target), "summary": "Restored the reviewed scaffold state.", "evidence": [{"source": "revision", "quote_or_summary": "Updated content."}]}],
                             "validation_evidence": [{"source": "test", "quote_or_summary": "Validated revised content."}],
                         },
                         {
@@ -1990,6 +2219,11 @@ class SupervisorIntegrityTests(unittest.TestCase):
             updated = load_session(ROOT, session["supervisor_session_id"])
             source_cycle = next(item for item in updated["review_cycles"] if item["review_cycle_id"] == "cycle_bound")
             fresh_cycle = next(item for item in updated["review_cycles"] if item["review_cycle_id"] == "cycle_revised")
+            self.assertEqual(len(updated["scaffold_versions"]), 3)
+            self.assertEqual(
+                source_cycle["revision"]["staged_scaffold_version_id"],
+                latest_scaffold["version_id"],
+            )
             self.assertEqual(source_cycle["invocation_reservations"]["operator_revision"]["recovery_count"], 1)
             self.assertEqual(source_cycle["acceptance_status"], "superseded")
             self.assertEqual(fresh_cycle["acceptance_status"], "pending")

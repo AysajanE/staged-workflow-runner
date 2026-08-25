@@ -136,9 +136,44 @@
       }
     },
     "runs": {"type": "array", "items": {"type": "object", "required": ["run_id", "workflow_id", "run_dir", "run_manifest_path", "status"]}},
-    "stage_outcomes": {"type": "array", "items": {"type": "object"}},
+    "stage_outcomes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["run_id", "stage_id", "artifact_path"],
+        "properties": {
+          "run_id": {"$ref": "#/$defs/id"},
+          "stage_id": {"$ref": "#/$defs/id"},
+          "classification": {"type": "string", "minLength": 1},
+          "artifact_path": {"type": "string", "minLength": 1},
+          "reviewability": {"type": "boolean"},
+          "reviewable": {"type": "boolean"},
+          "review_bundle_allowed": {"type": "boolean"}
+        }
+      }
+    },
     "monitoring_events": {"type": "array", "items": {"type": "object"}},
-    "review_cycles": {"type": "array", "items": {"type": "object", "required": ["review_cycle_id", "review_kind", "artifacts_reviewed", "operator_provisional_record", "review_agent_outputs", "consolidation", "acceptance_status"]}},
+    "review_cycles": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["review_cycle_id", "review_kind", "artifacts_reviewed", "operator_provisional_record", "review_agent_outputs", "consolidation", "acceptance_status"],
+        "properties": {
+          "acceptance_history": {
+            "type": "array",
+            "items": {"$ref": "#/$defs/acceptanceHistoryRecord"}
+          },
+          "invocation_reservations": {
+            "type": "object",
+            "additionalProperties": {"$ref": "#/$defs/invocationReservation"}
+          },
+          "released_invocation_reservations": {
+            "type": "array",
+            "items": {"$ref": "#/$defs/invocationReservationReleaseRecord"}
+          }
+        }
+      }
+    },
     "review_agent_invocations": {"type": "array", "items": {"type": "object"}},
     "consolidations": {"type": "array", "items": {"type": "object"}},
     "operator_acceptance_records": {"type": "array", "items": {"type": "string"}},
@@ -152,6 +187,66 @@
   },
   "$defs": {
     "id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{0,127}$"},
-    "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+    "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "artifactBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "acceptanceHistoryRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256", "binding", "approval_decision", "supersedes"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "binding": {
+          "anyOf": [
+            {"$ref": "#/$defs/artifactBinding"},
+            {"type": "null"}
+          ]
+        },
+        "approval_decision": {"enum": ["approve", "do_not_approve", "blocked"]},
+        "supersedes": {
+          "anyOf": [
+            {"type": "string", "minLength": 1},
+            {"type": "null"}
+          ]
+        }
+      }
+    },
+    "invocationReservation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["reservation_id", "intent", "status", "recovery_count", "created_at", "updated_at", "completed_artifacts"],
+      "properties": {
+        "reservation_id": {"$ref": "#/$defs/sha256"},
+        "intent": {"type": "object"},
+        "status": {"enum": ["reserved", "completed"]},
+        "recovery_count": {"type": "integer", "minimum": 0},
+        "created_at": {"type": "string", "format": "date-time"},
+        "updated_at": {"type": "string", "format": "date-time"},
+        "completed_at": {"type": "string", "format": "date-time"},
+        "completed_artifacts": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/artifactBinding"}
+        }
+      }
+    },
+    "invocationReservationReleaseRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256", "operation", "reservation_id"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "operation": {"enum": ["operator_provisional", "independent_reviewers"]},
+        "reservation_id": {"$ref": "#/$defs/sha256"}
+      }
+    }
   }
 }

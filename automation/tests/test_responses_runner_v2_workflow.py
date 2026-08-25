@@ -5,6 +5,7 @@ import shutil
 import tempfile
 import threading
 import unittest
+from dataclasses import replace
 from pathlib import Path
 from unittest import mock
 
@@ -28,6 +29,7 @@ from automation.responses_runner_v2.openai_client import (
     ApiError,
 )
 from automation.responses_runner_v2.review_bundle import create_review_bundle
+from automation.responses_runner_v2.pack_loader import load_workflow_definition
 from automation.responses_runner_v2.workflow import cancel_stage, refresh_stage, resume_stage, run_workflow
 
 
@@ -1145,16 +1147,27 @@ class ResponsesRunnerV2WorkflowTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(dir=ROOT) as tmp:
             output_root = Path(tmp)
             original_build_request_plan = workflow_module.build_request_plan
+            original_local_context_estimate = workflow_module._local_context_estimate
 
             def oversize_request_plan(**kwargs):
                 plan = original_build_request_plan(**kwargs)
                 plan["estimate"]["fits_context"] = False
                 return plan
 
+            def advisory_local_context_estimate(**kwargs):
+                estimate = original_local_context_estimate(**kwargs)
+                estimate["within_context_window"] = False
+                estimate["passed"] = False
+                return estimate
+
             with mock.patch.object(
                 workflow_module,
                 "build_request_plan",
                 side_effect=oversize_request_plan,
+            ), mock.patch.object(
+                workflow_module,
+                "_local_context_estimate",
+                side_effect=advisory_local_context_estimate,
             ):
                 result = run_workflow(
                     workflow_file="automation/examples/responses_runner_v2_synthetic/workflows/one_pass.workflow.json",
@@ -1176,8 +1189,66 @@ class ResponsesRunnerV2WorkflowTests(unittest.TestCase):
                 "advisory_exact_preflight_pending",
             )
             self.assertEqual(run_manifest["status"], "created")
+            self.assertEqual(
+                result["warnings"][0]["code"],
+                "exact_token_preflight_not_executed_in_dry_run",
+            )
             self.assertTrue((stage_dir / "request_payload.json").exists())
             self.assertFalse((stage_dir / "token_preflight.error.json").exists())
+
+    def test_continue_without_token_count_requires_passing_local_estimate(self) -> None:
+        workflow = load_workflow_definition(
+            "automation/examples/responses_runner_v2_synthetic/workflows/one_pass.workflow.json",
+            root=ROOT,
+        )
+        policy = replace(
+            workflow.request_defaults.token_preflight,
+            max_retries=1,
+            on_retryable_service_failure="continue_without_token_count",
+        )
+        workflow = replace(
+            workflow,
+            request_defaults=replace(workflow.request_defaults, token_preflight=policy),
+        )
+        stage = replace(workflow.stages[0], max_input_tokens=None)
+        runtime = RuntimeOptions()
+
+        with tempfile.TemporaryDirectory(dir=ROOT) as tmp:
+            temp = Path(tmp)
+            stage_paths = {
+                "token_preflight": temp / "token_preflight.json",
+                "token_preflight_error": temp / "token_preflight.error.json",
+            }
+            client = FakeClient(token_error=ApiError("retryable", status_code=503))
+            with self.assertRaisesRegex(SystemExit, "failed closed"):
+                workflow_module._token_preflight_state(
+                    root=ROOT,
+                    client=client,
+                    workflow=workflow,
+                    stage=stage,
+                    stage_paths=stage_paths,
+                    payload={},
+                    runtime=runtime,
+                    local_context_estimate={"passed": False},
+                )
+            failed = json.loads(stage_paths["token_preflight_error"].read_text(encoding="utf-8"))
+            self.assertEqual(failed["fallback_decision"], "fail_closed")
+            self.assertFalse(failed["local_advisory_estimate_passed"])
+
+            continued = workflow_module._token_preflight_state(
+                root=ROOT,
+                client=client,
+                workflow=workflow,
+                stage=stage,
+                stage_paths=stage_paths,
+                payload={},
+                runtime=runtime,
+                local_context_estimate={"passed": True},
+            )
+            self.assertEqual(
+                continued["status"],
+                "continued_after_retryable_service_failure",
+            )
 
     def test_exact_token_preflight_enforces_configured_input_limit(self) -> None:
         with tempfile.TemporaryDirectory(dir=ROOT) as tmp:

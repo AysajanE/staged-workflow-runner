@@ -35,3 +35,9 @@ jobs:
             --root . \
             --workflow-file automation/task_packs/responses_runner_v2_supervisory_lane/workflows/three_stage.workflow.json \
             --dry-run
+      - name: Dry-run supervised end-to-end pack
+        run: |
+          python automation/run_responses_v2.py run \
+            --root . \
+            --workflow-file automation/task_packs/responses_runner_v2_supervised_end_to_end/workflows/four_stage.workflow.json \
+            --dry-run
