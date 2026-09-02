@@ -268,13 +268,9 @@ def _validate_bundle_artifact_matches_stage_summary(
 def expand_review_bundle_inputs(
     bundle: dict[str, Any], *, include_response_artifact_json: bool = False
 ) -> list[AttachmentEntry]:
-    entries = [
-        AttachmentEntry(
-            path=str(bundle["bundle_path"]),
-            kind="file",
-            notes="review bundle contract",
-        ),
-    ]
+    # The bundle JSON is a path/hash pointer for the engine. It carries nothing
+    # the model can use, so it is not attached to the next request.
+    entries: list[AttachmentEntry] = []
     if bundle.get("approved_handoff_markdown") is not None:
         entries.append(
             AttachmentEntry(

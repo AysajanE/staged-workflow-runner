@@ -126,6 +126,8 @@
         "sidecar_response_markdown_path": {"$ref": "#/$defs/path"},
         "sidecar_response_markdown_sha256": {"$ref": "#/$defs/hash"},
         "token_preflight_path": {"$ref": "#/$defs/path"},
+        "validator_report_path": {"$ref": "#/$defs/path"},
+        "validators_passed": {"type": "boolean"},
         "review_bundle_path": {"$ref": "#/$defs/path"},
         "review_approved": {"type": "boolean"},
         "approved_from_status": {"$ref": "#/$defs/localState"}

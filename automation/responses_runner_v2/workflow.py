@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import json
+import sys
 import time
 from contextlib import nullcontext
 from pathlib import Path
@@ -863,8 +864,9 @@ def _local_context_estimate(
                 value = expanded.get("bytes")
                 if isinstance(value, int) and value >= 0:
                     attachment_bytes += value
-    # One input byte per token is deliberately conservative for offline
-    # planning. Exact API counting remains a second pre-submit gate.
+    # One input byte per token overstates real usage by roughly 4x on prose
+    # and source code. The estimate is advisory only; the API enforces the
+    # real context limit and exact preflight, when enabled, enforces budget.
     estimated_input_tokens = (
         instruction_bytes + task_bytes + manifest_bytes + attachment_bytes
     )
@@ -899,7 +901,7 @@ def _local_context_estimate(
             "advisory_exact_preflight_pending"
             if workflow.request_defaults.token_preflight.enabled
             and not runtime.skip_token_count
-            else "blocking_conservative_bound"
+            else "advisory_only"
         ),
     }
 
@@ -1238,6 +1240,13 @@ def _sync_stage_summary(
         summary["sidecar_response_markdown_sha256"] = sha256_file(stage_paths["sidecar_response_md"])
     if token_preflight_path is not None and token_preflight_path.exists():
         summary["token_preflight_path"] = relpath(root, token_preflight_path)
+    if stage_paths["validator_report"].exists():
+        summary["validator_report_path"] = relpath(root, stage_paths["validator_report"])
+        try:
+            report = json.loads(stage_paths["validator_report"].read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            report = {}
+        summary["validators_passed"] = bool(report.get("passed", False))
     if review_bundle_path is not None:
         summary["review_bundle_path"] = review_bundle_path
     if response_json is not None:
@@ -1769,55 +1778,25 @@ def _persist_stage_state(
         raise SystemExit(str(exc)) from exc
 
 
-def _enforce_request_plan_context(
+def _request_plan_context_warning(
     *,
     root: Path,
-    run_dir: Path,
-    run_manifest: dict[str, Any],
-    workflow,
-    stage: StageDefinition,
     stage_paths: dict[str, Path],
     request_plan: dict[str, Any],
-    review_bundle_path: str | None,
-    dry_run: bool,
     conservative_gate_required: bool,
-) -> None:
-    """Enforce the byte upper bound only when no exact token gate will run."""
+) -> dict[str, Any] | None:
+    """Warn when the byte upper bound says the request may exceed the context window."""
 
     if request_plan["estimate"]["fits_context"] or not conservative_gate_required:
-        return
-    write_json(
-        stage_paths["token_preflight_error"],
-        {
-            "object": "request_plan_context_error",
-            "workflow_id": workflow.workflow_id,
-            "stage_id": stage.stage_id,
-            "fallback_decision": "failed_closed",
-            "attempts": 0,
-            "error_message": "request plan exceeds verified model context window",
-        },
-    )
-    _persist_stage_state(
-        root=root,
-        run_dir=run_dir,
-        run_manifest=run_manifest,
-        stage=stage,
-        stage_paths=stage_paths,
-        stage_status=StageStatus.BLOCKED_PREFLIGHT.value,
-        resume_mode=ResumeMode.FRESH_SUBMIT,
-        token_preflight={
-            "status": "failed_closed",
-            "attempts": 0,
-            "error_message": "request plan exceeds verified model context window",
-            "diagnostics_path": relpath(root, stage_paths["request_plan"]),
-        },
-        response_json=None,
-        review_bundle_path=review_bundle_path,
-        allow_prepared_preflight_block=dry_run,
-    )
-    raise SystemExit(
-        f"Stage {stage.stage_id} request plan exceeds the verified model context window."
-    )
+        return None
+    return {
+        "code": "request_plan_context_exceeded",
+        "message": (
+            "The request plan's byte upper bound exceeds the model context window; "
+            "the bound overstates real token usage and the API enforces the real limit."
+        ),
+        "diagnostics_path": relpath(root, stage_paths["request_plan"]),
+    }
 
 
 def _run_stage_validators(
@@ -1852,11 +1831,16 @@ def _run_stage_validators(
                 ),
             },
         )
-    blockers = [item for item in reports if item["gate"] == "blocking" and not item["passed"]]
-    if blockers:
-        raise SystemExit(
-            f"Stage {stage.stage_id} failed deterministic validator(s): "
-            + ", ".join(item["validator_id"] for item in blockers)
+    failed = [item for item in reports if not item["passed"]]
+    if failed:
+        # Validators are advisory. A failed check is recorded in the report and
+        # in the stage summary so a review gate can act on it; a paid response
+        # is never left un-finalized because of a citation slip.
+        print(
+            f"WARNING [validator_failed] stage {stage.stage_id}: "
+            + ", ".join(f"{item['validator_id']} ({item['gate']})" for item in failed)
+            + f" ({relpath(root, stage_paths['validator_report'])})",
+            file=sys.stderr,
         )
     return reports
 
@@ -2080,6 +2064,7 @@ def run_workflow(
     run_dir, run_manifest = _load_or_create_run_manifest(root=root, workflow=workflow, runtime=runtime)
     review_bundles = _load_review_bundles(root, runtime.review_bundles)
     current_stage: StageDefinition | None = None
+    warnings: list[dict[str, Any]] = []
 
     while True:
         try:
@@ -2181,41 +2166,24 @@ def run_workflow(
             label="local context estimate",
         )
         write_json(stage_paths["local_context_estimate"], local_estimate)
-        if (
-            not local_estimate["passed"]
-            and local_estimate["enforcement"] == "blocking_conservative_bound"
-        ):
-            write_json(
-                stage_paths["token_preflight_error"],
+        if not local_estimate["passed"]:
+            warnings.append(
                 {
-                    "object": "local_context_preflight_error",
-                    "workflow_id": workflow.workflow_id,
-                    "stage_id": stage.stage_id,
-                    "fallback_decision": "fail_closed",
-                    "reason": "pre_upload_context_budget_exceeded",
-                    "estimate": local_estimate,
-                },
-            )
-            _persist_stage_state(
-                root=root,
-                run_dir=run_dir,
-                run_manifest=run_manifest,
-                stage=stage,
-                stage_paths=stage_paths,
-                stage_status=StageStatus.BLOCKED_PREFLIGHT.value,
-                resume_mode=ResumeMode.FRESH_SUBMIT,
-                token_preflight={
-                    "status": "failed_closed",
-                    "attempts": 0,
-                    "error_message": "pre-upload context budget exceeded",
+                    "code": (
+                        "exact_token_preflight_not_executed_in_dry_run"
+                        if runtime.dry_run
+                        else "local_context_estimate_exceeded"
+                    ),
+                    "message": (
+                        "The conservative local context estimate exceeds a configured limit; "
+                        + (
+                            "live execution will rely on exact token preflight and may block."
+                            if runtime.dry_run
+                            else "the estimate is advisory and the API enforces the real limit."
+                        )
+                    ),
                     "diagnostics_path": relpath(root, stage_paths["local_context_estimate"]),
-                },
-                response_json=None,
-                review_bundle_path=consumed_review_bundle_path,
-                allow_prepared_preflight_block=runtime.dry_run,
-            )
-            raise SystemExit(
-                f"Stage {stage.stage_id} exceeds its conservative pre-upload context budget."
+                }
             )
 
         uploads_payload: dict[str, Any] | None = None
@@ -2283,21 +2251,17 @@ def run_workflow(
             symbolic_request_payload=symbolic_request_payload,
         )
         write_json(stage_paths["request_plan"], request_plan)
-        _enforce_request_plan_context(
+        plan_warning = _request_plan_context_warning(
             root=root,
-            run_dir=run_dir,
-            run_manifest=run_manifest,
-            workflow=workflow,
-            stage=stage,
             stage_paths=stage_paths,
             request_plan=request_plan,
-            review_bundle_path=consumed_review_bundle_path,
-            dry_run=runtime.dry_run,
             conservative_gate_required=(
                 runtime.skip_token_count
                 or not workflow.request_defaults.token_preflight.enabled
             ),
         )
+        if plan_warning is not None:
+            warnings.append(plan_warning)
 
         if runtime.dry_run:
             request_payload = request_plan["symbolic_request_payload"]
@@ -2352,20 +2316,8 @@ def run_workflow(
                 "status": run_manifest["status"],
                 "stage_id": stage.stage_id,
             }
-            if not local_estimate["passed"]:
-                result["warnings"] = [
-                    {
-                        "code": "exact_token_preflight_not_executed_in_dry_run",
-                        "message": (
-                            "The conservative local context estimate exceeds a configured limit; "
-                            "live execution will rely on exact token preflight and may block."
-                        ),
-                        "diagnostics_path": relpath(
-                            root,
-                            stage_paths["local_context_estimate"],
-                        ),
-                    }
-                ]
+            if warnings:
+                result["warnings"] = list(warnings)
             return result
 
         if client is None:
@@ -2736,6 +2688,7 @@ def run_workflow(
                 "run_manifest_path": relpath(root, artifacts.run_manifest_path(run_dir)),
                 "status": run_manifest["status"],
                 "stage_id": stage.stage_id,
+                **({"warnings": list(warnings)} if warnings else {}),
             }
 
 

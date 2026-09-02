@@ -301,3 +301,26 @@ class AuditGapClosureTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class EngineCliDefaultsTests(unittest.TestCase):
+    def test_run_and_resume_wait_by_default_and_accept_no_wait(self) -> None:
+        run_args = run_responses_v2.parse_args(
+            ["run", "--root", str(ROOT), "--workflow-file", "workflow.json"]
+        )
+        self.assertTrue(run_args.wait)
+        self.assertEqual(run_args.poll_interval, 20.0)
+
+        no_wait = run_responses_v2.parse_args(
+            ["run", "--root", str(ROOT), "--workflow-file", "workflow.json", "--no-wait"]
+        )
+        self.assertFalse(no_wait.wait)
+
+        resume_args = run_responses_v2.parse_args(
+            ["resume", "--root", str(ROOT), "--run-dir", "run", "--stage", "stage"]
+        )
+        self.assertTrue(resume_args.wait)
+        resume_no_wait = run_responses_v2.parse_args(
+            ["resume", "--root", str(ROOT), "--run-dir", "run", "--stage", "stage", "--no-wait"]
+        )
+        self.assertFalse(resume_no_wait.wait)

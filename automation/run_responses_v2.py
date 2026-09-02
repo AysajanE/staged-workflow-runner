@@ -82,7 +82,19 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     run_parser.add_argument("--primary-model")
     run_parser.add_argument("--structural-model")
     run_parser.add_argument("--dry-run", action="store_true")
-    run_parser.add_argument("--wait", action="store_true")
+    run_parser.add_argument(
+        "--wait",
+        dest="wait",
+        action="store_true",
+        default=True,
+        help="Wait in-process until the stage reaches a terminal state (default).",
+    )
+    run_parser.add_argument(
+        "--no-wait",
+        dest="wait",
+        action="store_false",
+        help="Return right after submission; finish the stage later with resume.",
+    )
     run_parser.add_argument("--poll-interval", type=float, default=DEFAULT_POLL_INTERVAL)
     run_parser.add_argument("--max-wait-seconds", type=float, default=DEFAULT_MAX_WAIT_SECONDS)
     run_parser.add_argument("--service-tier", choices=["auto", "default", "flex", "priority", "scale"])
@@ -101,7 +113,19 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     _add_root_argument(resume_parser)
     resume_parser.add_argument("--run-dir", required=True, type=_path_argument)
     resume_parser.add_argument("--stage", required=True)
-    resume_parser.add_argument("--wait", action="store_true")
+    resume_parser.add_argument(
+        "--wait",
+        dest="wait",
+        action="store_true",
+        default=True,
+        help="Wait in-process until the stage reaches a terminal state (default).",
+    )
+    resume_parser.add_argument(
+        "--no-wait",
+        dest="wait",
+        action="store_false",
+        help="Record the current remote status and return.",
+    )
     resume_parser.add_argument("--poll-interval", type=float, default=DEFAULT_POLL_INTERVAL)
     resume_parser.add_argument("--max-wait-seconds", type=float, default=DEFAULT_MAX_WAIT_SECONDS)
 

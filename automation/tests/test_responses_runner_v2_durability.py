@@ -543,3 +543,49 @@ class SidecarDurabilityTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class InputTokenCountPayloadTests(unittest.TestCase):
+    def test_count_input_tokens_projects_payload_onto_count_endpoint_fields(self) -> None:
+        client = OpenAIClient(api_key="test")
+        create_payload = {
+            "model": "gpt-5.6",
+            "input": [{"role": "user", "content": "hello"}],
+            "instructions": "instructions",
+            "reasoning": {"effort": "xhigh", "mode": "pro"},
+            "text": {"verbosity": "high"},
+            "tools": [],
+            "tool_choice": "auto",
+            "parallel_tool_calls": False,
+            "truncation": "disabled",
+            "background": True,
+            "store": True,
+            "max_output_tokens": 48000,
+            "metadata": {"workflow_id": "w"},
+            "prompt_cache_key": "key",
+            "prompt_cache_options": {"mode": "implicit", "ttl": "30m"},
+            "service_tier": "default",
+            "safety_identifier": "safe",
+        }
+        with mock.patch.object(
+            OpenAIClient, "json_request", return_value={"input_tokens": 7}
+        ) as json_request:
+            result = client.count_input_tokens_once(create_payload)
+
+        self.assertEqual(result, {"input_tokens": 7})
+        sent = json_request.call_args.kwargs["payload"]
+        self.assertEqual(
+            set(sent),
+            {
+                "model",
+                "input",
+                "instructions",
+                "reasoning",
+                "text",
+                "tools",
+                "tool_choice",
+                "parallel_tool_calls",
+                "truncation",
+            },
+        )
+        self.assertEqual(json_request.call_args.args[:2], ("POST", "/responses/input_tokens"))

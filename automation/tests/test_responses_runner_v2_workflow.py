@@ -1098,7 +1098,7 @@ class ResponsesRunnerV2WorkflowTests(unittest.TestCase):
                 request_plan.normalized_request_sha256(dry_payload),
             )
 
-    def test_dry_run_fails_closed_when_request_plan_exceeds_context(self) -> None:
+    def test_dry_run_warns_when_request_plan_exceeds_context(self) -> None:
         with tempfile.TemporaryDirectory(dir=ROOT) as tmp:
             output_root = Path(tmp)
             original_build_request_plan = workflow_module.build_request_plan
@@ -1113,35 +1113,28 @@ class ResponsesRunnerV2WorkflowTests(unittest.TestCase):
                 "build_request_plan",
                 side_effect=oversize_request_plan,
             ):
-                with self.assertRaisesRegex(
-                    SystemExit,
-                    "request plan exceeds the verified model context window",
-                ):
-                    run_workflow(
-                        workflow_file="automation/examples/responses_runner_v2_synthetic/workflows/one_pass.workflow.json",
-                        runtime=RuntimeOptions(
-                            run_name="synthetic-oversize-dry-run",
-                            output_root=output_root.relative_to(ROOT),
-                            dry_run=True,
-                            skip_token_count=True,
-                        ),
-                        root=ROOT,
-                    )
+                result = run_workflow(
+                    workflow_file="automation/examples/responses_runner_v2_synthetic/workflows/one_pass.workflow.json",
+                    runtime=RuntimeOptions(
+                        run_name="synthetic-oversize-dry-run",
+                        output_root=output_root.relative_to(ROOT),
+                        dry_run=True,
+                        skip_token_count=True,
+                    ),
+                    root=ROOT,
+                )
 
-            run_dir = next(
-                path for path in output_root.iterdir() if (path / "run_manifest.json").exists()
-            )
-            run_manifest = artifacts.load_run_manifest(ROOT, run_dir)
+            run_manifest = artifacts.load_run_manifest(ROOT, ROOT / result["run_dir"])
             stage_dir = _stage_dir(run_manifest)
-            checkpoint = json.loads(
-                (stage_dir / "stage_checkpoint.json").read_text(encoding="utf-8")
+            self.assertEqual(run_manifest["status"], "created")
+            self.assertEqual(run_manifest["stages"][0]["status"], "prepared")
+            self.assertEqual(
+                [warning["code"] for warning in result["warnings"]],
+                ["request_plan_context_exceeded"],
             )
-            self.assertEqual(run_manifest["status"], "blocked")
-            self.assertEqual(run_manifest["stages"][0]["status"], "blocked_preflight")
-            self.assertEqual(checkpoint["status"], "blocked_preflight")
             self.assertTrue((stage_dir / "request_plan.json").exists())
-            self.assertTrue((stage_dir / "token_preflight.error.json").exists())
-            self.assertFalse((stage_dir / "request_payload.json").exists())
+            self.assertTrue((stage_dir / "request_payload.json").exists())
+            self.assertFalse((stage_dir / "token_preflight.error.json").exists())
 
     def test_byte_upper_bound_is_advisory_when_exact_preflight_will_run(self) -> None:
         with tempfile.TemporaryDirectory(dir=ROOT) as tmp:
@@ -1426,7 +1419,6 @@ class ResponsesRunnerV2WorkflowTests(unittest.TestCase):
         self.assertEqual(
             reviewed_paths,
             [
-                bundle.relative_to(ROOT).as_posix(),
                 notes.relative_to(ROOT).as_posix(),
                 (proposal_stage_dir / "artifact.md").relative_to(ROOT).as_posix(),
             ],
@@ -1554,7 +1546,6 @@ class ResponsesRunnerV2WorkflowTests(unittest.TestCase):
         self.assertEqual(
             reviewed_paths,
             [
-                bundle.relative_to(ROOT).as_posix(),
                 handoff.relative_to(ROOT).as_posix(),
                 notes.relative_to(ROOT).as_posix(),
                 (proposal_stage_dir / "artifact.md").relative_to(ROOT).as_posix(),
@@ -2228,3 +2219,51 @@ class ResponsesRunnerV2WorkflowTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class AdvisoryValidatorTests(unittest.TestCase):
+    def test_failed_blocking_validator_is_recorded_without_wedging_the_stage(self) -> None:
+        import shutil
+
+        with tempfile.TemporaryDirectory(dir=ROOT) as tmp:
+            tmp_path = Path(tmp)
+            pack = tmp_path / "pack"
+            shutil.copytree(ROOT / "automation/examples/responses_runner_v2_synthetic", pack)
+            workflow_path = pack / "workflows/one_pass.workflow.json"
+            payload = json.loads(workflow_path.read_text(encoding="utf-8"))
+            stage = payload["stages"][0]
+            stage["output"] = {"primary_format": "text"}
+            stage["citation_policy"] = {"allowed_locator_types": ["workspace_file"]}
+            stage["post_output_validators"] = [
+                {"validator_id": "evidence_references_v1", "gate": "blocking"}
+            ]
+            workflow_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+            output_root = tmp_path / "runs"
+            output_root.mkdir()
+
+            client = FakeClient()
+            result = run_workflow(
+                workflow_file=workflow_path.relative_to(ROOT),
+                runtime=RuntimeOptions(
+                    run_name="synthetic-advisory-validator",
+                    output_root=output_root.relative_to(ROOT),
+                    wait=True,
+                ),
+                client=client,
+                root=ROOT,
+            )
+
+            run_manifest = artifacts.load_run_manifest(ROOT, ROOT / result["run_dir"])
+            summary = run_manifest["stages"][0]
+            stage_dir = _stage_dir(run_manifest)
+            report = json.loads((stage_dir / "validator_report.json").read_text(encoding="utf-8"))
+            finalization_error_exists = (stage_dir / "finalization.error.json").exists()
+            artifact_exists = (stage_dir / "artifact.md").exists()
+
+        self.assertEqual(run_manifest["status"], "completed")
+        self.assertEqual(summary["status"], "completed")
+        self.assertFalse(report["passed"])
+        self.assertFalse(summary["validators_passed"])
+        self.assertTrue(summary["validator_report_path"].endswith("validator_report.json"))
+        self.assertFalse(finalization_error_exists)
+        self.assertTrue(artifact_exists)

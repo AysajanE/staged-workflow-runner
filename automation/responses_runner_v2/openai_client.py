@@ -30,6 +30,24 @@ OUTCOME_AMBIGUOUS = "ambiguous"
 MULTIPART_CHUNK_BYTES = 1024 * 1024
 
 
+# Fields accepted by POST /responses/input_tokens. Delivery options on the
+# create payload (background, store, max_output_tokens, metadata, prompt cache
+# routing, service_tier, safety_identifier) are rejected with HTTP 400.
+INPUT_TOKEN_COUNT_FIELDS = (
+    "model",
+    "input",
+    "instructions",
+    "reasoning",
+    "text",
+    "tools",
+    "tool_choice",
+    "parallel_tool_calls",
+    "truncation",
+    "previous_response_id",
+    "conversation",
+)
+
+
 class ApiError(RuntimeError):
     def __init__(
         self,
@@ -264,7 +282,19 @@ class OpenAIClient:
         return self.json_request("GET", f"/responses/{quoted}")
 
     def count_input_tokens_once(self, payload: dict[str, Any]) -> dict[str, Any]:
-        return self.json_request("POST", "/responses/input_tokens", payload=payload, max_retries=1)
+        """Count input tokens for a create-response payload.
+
+        The count endpoint accepts only the request-shaping subset of the
+        create payload, so the payload is projected onto INPUT_TOKEN_COUNT_FIELDS
+        before it is sent.
+        """
+
+        count_payload = {
+            key: payload[key] for key in INPUT_TOKEN_COUNT_FIELDS if key in payload
+        }
+        return self.json_request(
+            "POST", "/responses/input_tokens", payload=count_payload, max_retries=1
+        )
 
     def delete_file(self, file_id: str) -> dict[str, Any]:
         quoted = parse.quote(file_id, safe="")

@@ -77,8 +77,9 @@ class ResponsesRunnerV2ReviewBundleTests(unittest.TestCase):
             )
             entries = expand_review_bundle_inputs(bundle)
 
-        self.assertEqual(len(entries), 3)
-        self.assertEqual(entries[0].path, "review_bundle.json")
+        self.assertEqual(len(entries), 2)
+        self.assertEqual(entries[0].path, "reviewer_notes.md")
+        self.assertNotIn("review_bundle.json", [entry.path for entry in entries])
         self.assertNotIn("response.final.json", [entry.path for entry in entries])
 
     def test_expand_review_bundle_inputs_can_exclude_raw_response_json(self) -> None:
@@ -106,7 +107,6 @@ class ResponsesRunnerV2ReviewBundleTests(unittest.TestCase):
             entries = expand_review_bundle_inputs(bundle, include_response_artifact_json=False)
 
         self.assertEqual([entry.path for entry in entries], [
-            "review_bundle.json",
             "reviewer_notes.md",
             "response.final.md",
         ])
@@ -139,7 +139,6 @@ class ResponsesRunnerV2ReviewBundleTests(unittest.TestCase):
             entries = expand_review_bundle_inputs(bundle, include_response_artifact_json=False)
 
         self.assertEqual([entry.path for entry in entries], [
-            "review_bundle.json",
             "approved_handoff.md",
             "reviewer_notes.md",
             "response.final.md",

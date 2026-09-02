@@ -52,7 +52,7 @@
     "enforcement": {
       "enum": [
         "advisory_exact_preflight_pending",
-        "blocking_conservative_bound"
+        "advisory_only"
       ]
     }
   }
