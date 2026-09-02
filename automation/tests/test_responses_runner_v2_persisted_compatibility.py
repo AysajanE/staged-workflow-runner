@@ -4,7 +4,7 @@ import json
 import unittest
 from pathlib import Path
 
-from automation.responses_runner_v2 import artifacts, supervisor_artifacts
+from automation.responses_runner_v2 import artifacts
 from automation.responses_runner_v2.review_bundle import load_review_bundle
 from automation.responses_runner_v2.schema_validation import validate_contract
 from automation.responses_runner_v2.workflow import resume_stage
@@ -27,9 +27,6 @@ class PersistedV1CompatibilityTests(unittest.TestCase):
 
         bundle = load_review_bundle(root=ROOT, bundle_path=FIXTURE / "review_bundle.json")
         self.assertEqual(bundle["schema_version"], "responses_runner_v2.review_bundle.v1")
-
-        session = supervisor_artifacts.load_session(ROOT, FIXTURE.relative_to(ROOT))
-        self.assertEqual(session["schema_version"], "responses_runner_v2.supervisor_session.v1")
 
     def test_frozen_v1_run_live_continuation_fails_closed_with_recovery_direction(self) -> None:
         with self.assertRaisesRegex(SystemExit, "cannot be resumed under v2 semantics"):

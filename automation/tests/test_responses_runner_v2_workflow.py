@@ -12,7 +12,6 @@ from unittest import mock
 from automation.responses_runner_v2 import (
     artifacts,
     request_plan,
-    supervisor_policies,
     telemetry,
     workflow as workflow_module,
 )
@@ -999,27 +998,7 @@ class ResponsesRunnerV2WorkflowTests(unittest.TestCase):
             run_manifest = json.loads(
                 (ROOT / result["run_manifest_path"]).read_text(encoding="utf-8")
             )
-            checkpoint_path = ROOT / run_manifest["stages"][0]["checkpoint_path"]
-            outcome = supervisor_policies.classify_stage_outcome(
-                root=ROOT,
-                checkpoint_path=checkpoint_path.relative_to(ROOT),
-            )
-            self.assertEqual(outcome["classification"], "cancelled")
-            self.assertEqual(outcome["response_status"], "cancelled")
-            self.assertEqual(outcome["action"], "preserve_cancelled")
-            self.assertFalse(outcome["rerun_allowed"])
-            self.assertFalse(outcome["rerun_requires_archive"])
-            self.assertFalse(
-                supervisor_policies.can_rerun_failed_no_artifact(
-                    outcome=outcome,
-                    archive_manifest={"rerun_as_is_eligible": True},
-                )
-            )
-            supervisor_policies.write_stage_outcome(
-                ROOT,
-                (tmp_path / "cancelled.stage_outcome.json").relative_to(ROOT),
-                outcome,
-            )
+            self.assertEqual(run_manifest["stages"][0]["status"], "cancelled")
 
     def test_dry_run_writes_request_payload_and_checkpoint(self) -> None:
         with tempfile.TemporaryDirectory(dir=ROOT) as tmp:

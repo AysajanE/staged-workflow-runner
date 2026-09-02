@@ -11,7 +11,7 @@ requires-python = ">=3.10"
 license = { file = "LICENSE" }
 authors = [{ name = "staged-workflow-runner contributors" }]
 dependencies = ["jsonschema>=4.0"]
-keywords = ["openai", "responses-api", "workflow", "automation", "supervisor"]
+keywords = ["openai", "responses-api", "workflow", "automation"]
 classifiers = [
   "Development Status :: 3 - Alpha",
   "Intended Audience :: Developers",
@@ -29,7 +29,6 @@ dev = ["jsonschema>=4.0", "pytest>=7.0"]
 
 [project.scripts]
 staged-workflow-run = "automation.run_responses_v2:main"
-staged-workflow-supervisor = "automation.run_responses_supervisor_v2:main"
 staged-workflow-create-bundle = "automation.create_review_bundle_v2:main"
 staged-workflow-eval = "automation.run_responses_v2_eval:main"
 

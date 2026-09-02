@@ -53,6 +53,10 @@
         "delete_on_completion": false,
         "expires_after_seconds": 604800
       }
+    },
+    "review": {
+      "reviewer": "codex",
+      "max_revisions": 1
     }
   },
   "stages": [
@@ -65,7 +69,7 @@
       "model_role": "primary_generation",
       "max_input_tokens": 700000,
       "max_output_tokens": 128000,
-      "gate": "review_required",
+      "gate": "reviewed",
       "output": {
         "primary_format": "text"
       }
@@ -79,13 +83,12 @@
       "model_role": "primary_generation",
       "max_input_tokens": 700000,
       "max_output_tokens": 128000,
-      "gate": "review_required",
+      "gate": "reviewed",
       "carry_forward": {
         "reference_context_from_stage_ids": [
           "source_authority_map"
         ],
-        "review_bundle_from_stage_id": "source_authority_map",
-        "review_bundle_include_response_artifact_json": false
+        "handoff_from_stage_id": "source_authority_map"
       },
       "output": {
         "primary_format": "text"
@@ -100,14 +103,13 @@
       "model_role": "primary_generation",
       "max_input_tokens": 700000,
       "max_output_tokens": 128000,
-      "gate": "review_required",
+      "gate": "reviewed",
       "carry_forward": {
         "reference_context_from_stage_ids": [
           "source_authority_map",
           "repo_grounding"
         ],
-        "review_bundle_from_stage_id": "repo_grounding",
-        "review_bundle_include_response_artifact_json": false
+        "handoff_from_stage_id": "repo_grounding"
       },
       "output": {
         "primary_format": "text"
@@ -122,15 +124,14 @@
       "model_role": "primary_generation",
       "max_input_tokens": 700000,
       "max_output_tokens": 128000,
-      "gate": "review_required",
+      "gate": "reviewed",
       "carry_forward": {
         "reference_context_from_stage_ids": [
           "source_authority_map",
           "repo_grounding",
           "execution_row_draft"
         ],
-        "review_bundle_from_stage_id": "execution_row_draft",
-        "review_bundle_include_response_artifact_json": false
+        "handoff_from_stage_id": "execution_row_draft"
       },
       "output": {
         "primary_format": "text"
@@ -150,8 +151,7 @@
         "reference_context_from_stage_ids": [
           "repo_grounding"
         ],
-        "review_bundle_from_stage_id": "gate_and_contract_review",
-        "review_bundle_include_response_artifact_json": false
+        "handoff_from_stage_id": "gate_and_contract_review"
       },
       "output": {
         "primary_format": "text"

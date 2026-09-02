@@ -29,15 +29,10 @@ jobs:
             --root . \
             --workflow-file automation/examples/responses_runner_v2_synthetic/workflows/one_pass.workflow.json \
             --dry-run
-      - name: Dry-run supervisory lane regression pack
+      - name: Dry-run every stage of the gstack playbook pack
         run: |
           python automation/run_responses_v2.py run \
             --root . \
-            --workflow-file automation/task_packs/responses_runner_v2_supervisory_lane/workflows/three_stage.workflow.json \
-            --dry-run
-      - name: Dry-run supervised end-to-end pack
-        run: |
-          python automation/run_responses_v2.py run \
-            --root . \
-            --workflow-file automation/task_packs/responses_runner_v2_supervised_end_to_end/workflows/four_stage.workflow.json \
+            --workflow-file automation/task_packs/gstack_design_to_po_playbook/workflows/gstack_design_to_po_playbook.workflow.json \
+            --primary-job-input docs/runbooks/first-use-adaptation-example.md \
             --dry-run

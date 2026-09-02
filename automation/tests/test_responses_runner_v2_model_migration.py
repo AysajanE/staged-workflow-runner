@@ -19,15 +19,12 @@ WORKFLOW_PATHS = [
     "automation/examples/responses_runner_v2_synthetic/workflows/reviewed_three_stage.workflow.json",
     "automation/examples/responses_runner_v2_evidence_synthesis/workflows/document_evidence_synthesis.workflow.json",
     "automation/task_packs/gstack_design_to_po_playbook/workflows/gstack_design_to_po_playbook.workflow.json",
-    "automation/task_packs/responses_runner_v2_supervisory_lane/workflows/three_stage.workflow.json",
-    "automation/task_packs/responses_runner_v2_supervised_end_to_end/workflows/four_stage.workflow.json",
 ]
 
 STATIC_SCAN_TARGETS = [
     "AGENTS.md",
     "README.md",
     "docs/runbooks/responses-runner-v2.md",
-    "automation/run_responses_supervisor_v2.py",
     "automation/responses_runner_v2",
     "automation/task_packs",
     "automation/examples",
@@ -216,19 +213,6 @@ class ResponsesRunnerV2ModelMigrationTests(unittest.TestCase):
                     )
                 load_workflow_definition(workflow_path, root=ROOT)
 
-    def test_supervised_end_to_end_workflow_locks_128000_outputs(self) -> None:
-        path = ROOT / "automation/task_packs/responses_runner_v2_supervised_end_to_end/workflows/four_stage.workflow.json"
-        payload = json.loads(path.read_text(encoding="utf-8"))
-        self.assertTrue(payload["stages"])
-        for stage in payload["stages"]:
-            self.assertEqual(stage["max_output_tokens"], 128000)
-
-    def test_current_four_stage_stage3_has_no_tool_profile(self) -> None:
-        path = ROOT / "automation/task_packs/responses_runner_v2_supervised_end_to_end/workflows/four_stage.workflow.json"
-        payload = json.loads(path.read_text(encoding="utf-8"))
-        stage3 = [stage for stage in payload["stages"] if stage["stage_id"] == "draft_drop_in_packet"][0]
-        self.assertNotIn("tool_profile_file", stage3)
-
     def test_synthetic_fact_sheet_migrated(self) -> None:
         fact_sheet = ROOT / "automation/examples/responses_runner_v2_synthetic/corpus/repo_fact_sheet.md"
         text = fact_sheet.read_text(encoding="utf-8")
@@ -256,105 +240,6 @@ class ResponsesRunnerV2ModelMigrationTests(unittest.TestCase):
                     offenders.append(f"{rel}:{match.group(0)}")
         self.assertEqual(offenders, [])
 
-    def test_final_supervisory_packet_schema_requires_consolidation(self) -> None:
-        schema_path = ROOT / "automation/task_packs/responses_runner_v2_supervised_end_to_end/schemas/final_supervisory_packet.schema.json"
-        schema = json.loads(schema_path.read_text(encoding="utf-8"))
-        incomplete_packet = {
-            "packet_version": "responses_runner_v2.supervised_end_to_end.packet.v1",
-            "workflow_id": "responses_runner_v2_supervised_end_to_end_self_improvement",
-            "summary": "x",
-            "model_migration": {
-                "primary_generation_model": "gpt-5.6",
-                "primary_reasoning_mode": "pro",
-                "structural_processing_model": "gpt-5.6",
-                "structural_reasoning_mode": "standard",
-                "prompt_cache_options": {"mode": "implicit", "ttl": "30m"},
-                "max_output_tokens": 128000,
-                "surfaces_updated": ["engine"],
-            },
-            "files": [{"path": "AGENTS.md", "action": "create", "category": "config", "purpose": "root"}],
-            "agent_protocols": [
-                {"agent": "operator_codex", "command_shape": "codex exec", "prompt_file": "p", "output_artifacts": ["o"], "json_transport": "stdout", "failure_behavior": "fail"},
-                {"agent": "codex_review_agent", "command_shape": "codex exec", "prompt_file": "p", "output_artifacts": ["o"], "json_transport": "stdout", "failure_behavior": "fail"},
-                {"agent": "claude_review_agent", "command_shape": "claude -p", "prompt_file": "p", "output_artifacts": ["o"], "json_transport": "stdout", "failure_behavior": "fail"},
-            ],
-            "review_protocol": {
-                "operator_provisional_review": "yes",
-                "codex_review": "yes",
-                "claude_review": "yes",
-                "consolidation": "yes",
-                "operator_selective_acceptance": "yes",
-                "json_transport": "stdout",
-                "read_only_enforcement": "snapshot",
-            },
-            "failure_policies": [
-                {"case_id": "completed_complete_artifact", "trigger": "t", "decision_rule": "d", "automation_action": "a", "human_pause_required": False},
-                {"case_id": "failed_complete_artifact", "trigger": "t", "decision_rule": "d", "automation_action": "a", "human_pause_required": False},
-                {"case_id": "failed_no_artifact", "trigger": "t", "decision_rule": "d", "automation_action": "a", "human_pause_required": False},
-                {"case_id": "incomplete_output_limit", "trigger": "t", "decision_rule": "d", "automation_action": "a", "human_pause_required": True},
-                {"case_id": "blocked_token_preflight", "trigger": "t", "decision_rule": "d", "automation_action": "a", "human_pause_required": True},
-                {"case_id": "long_running_monitoring_anomaly", "trigger": "t", "decision_rule": "d", "automation_action": "a", "human_pause_required": True},
-            ],
-            "human_pause_conditions": [],
-            "acceptance_checks": ["pytest"],
-        }
-        complete_packet = json.loads(json.dumps(incomplete_packet))
-        complete_packet["agent_protocols"].append(
-            {
-                "agent": "consolidation_pass",
-                "command_shape": "python3 automation/run_responses_supervisor_v2.py consolidate",
-                "prompt_file": "automation/task_packs/responses_runner_v2_supervisor_internal/prompts/review_consolidation.md",
-                "output_artifacts": ["consolidated_review.json"],
-                "json_transport": "file",
-                "failure_behavior": "fail",
-            }
-        )
-        try:
-            import jsonschema  # type: ignore
-        except ImportError:
-            agents = {item["agent"] for item in incomplete_packet["agent_protocols"]}
-            self.assertNotIn("consolidation_pass", agents)
-            agents = {item["agent"] for item in complete_packet["agent_protocols"]}
-            self.assertIn("consolidation_pass", agents)
-        else:
-            validator = jsonschema.Draft202012Validator(schema)
-            self.assertTrue(list(validator.iter_errors(incomplete_packet)))
-            validator.validate(complete_packet)
-
-    def test_final_bundle_versions_do_not_mix_current_and_historical_model_fields(self) -> None:
-        import jsonschema  # type: ignore
-
-        schema = json.loads(
-            (
-                ROOT
-                / "automation/responses_runner_v2/schemas/final_implementation_bundle.schema.json"
-            ).read_text(encoding="utf-8")
-        )
-        current, historical = schema["properties"]["model_migration_summary"]["oneOf"]
-        current_payload = {
-            "primary_generation_model": "gpt-5.6",
-            "primary_reasoning_mode": "pro",
-            "structural_processing_model": "gpt-5.6",
-            "structural_reasoning_mode": "standard",
-            "prompt_cache_options": {"mode": "implicit", "ttl": "30m"},
-            "surfaces_updated": ["engine"],
-        }
-        historical_payload = {
-            "primary_generation_model": "gpt-5.5-pro",
-            "structural_processing_model": "gpt-5.5",
-            "prompt_cache_retention": "24h",
-            "surfaces_updated": ["frozen_fixture"],
-        }
-        jsonschema.Draft202012Validator(current).validate(current_payload)
-        jsonschema.Draft202012Validator(historical).validate(historical_payload)
-        with self.assertRaises(jsonschema.ValidationError):
-            jsonschema.Draft202012Validator(current).validate(
-                {**current_payload, "prompt_cache_retention": "24h"}
-            )
-        with self.assertRaises(jsonschema.ValidationError):
-            jsonschema.Draft202012Validator(historical).validate(
-                {**historical_payload, "prompt_cache_options": {"mode": "implicit", "ttl": "30m"}}
-            )
 
 
 if __name__ == "__main__":

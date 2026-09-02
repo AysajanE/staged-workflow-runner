@@ -27,14 +27,14 @@ class ResponsesRunnerV2GstackPlaybookPackTests(unittest.TestCase):
         self.assertEqual(workflow.operator_requirements["minimum_primary_job_inputs"], 1)
         self.assertEqual(workflow.operator_requirements["maximum_primary_job_inputs"], 4)
         self.assertTrue(workflow.operator_requirements["allow_reference_context"])
-        self.assertEqual([stage.gate.value for stage in workflow.stages[:-1]], ["review_required"] * 4)
+        self.assertEqual([stage.gate.value for stage in workflow.stages[:-1]], ["reviewed"] * 4)
         self.assertEqual(workflow.stages[-1].gate.value, "terminal")
         self.assertEqual(
             workflow.stages[-1].carry_forward.reference_context_from_stage_ids,
             ("repo_grounding",),
         )
         self.assertEqual(
-            workflow.stages[-1].carry_forward.review_bundle_from_stage_id,
+            workflow.stages[-1].carry_forward.handoff_from_stage_id,
             "gate_and_contract_review",
         )
 
