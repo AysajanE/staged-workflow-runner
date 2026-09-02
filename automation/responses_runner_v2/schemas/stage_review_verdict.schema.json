@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "responses_runner_v2.stage_review_verdict.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["verdict", "summary", "blocking_findings", "notes"],
+  "properties": {
+    "verdict": {"type": "string", "enum": ["approve", "revise"]},
+    "summary": {"type": "string"},
+    "blocking_findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "description", "evidence", "required_change"],
+        "properties": {
+          "id": {"type": "string"},
+          "description": {"type": "string"},
+          "evidence": {"type": "string"},
+          "required_change": {"type": "string"}
+        }
+      }
+    },
+    "notes": {"type": "array", "items": {"type": "string"}}
+  }
+}

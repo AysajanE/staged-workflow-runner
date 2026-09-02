@@ -94,7 +94,7 @@
         "submission_outcome_unknown", "submitted", "in_progress",
         "remote_terminal_pending_finalization", "finalized", "waiting_for_review",
         "completed", "failed", "failed_complete", "failed_no_artifact", "cancelled",
-        "cancelling", "incomplete", "blocked", "blocked_preflight"
+        "cancelling", "incomplete", "blocked", "blocked_preflight", "revision_requested"
       ]
     }
   }

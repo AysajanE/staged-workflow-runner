@@ -83,6 +83,19 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     run_parser.add_argument("--structural-model")
     run_parser.add_argument("--dry-run", action="store_true")
     run_parser.add_argument(
+        "--handoff-note",
+        type=_path_argument,
+        help=(
+            "Approve the stage waiting at a human gate (or a blocked reviewed gate) with this "
+            "markdown note; the note is attached to the next stage as a reviewed handoff input."
+        ),
+    )
+    run_parser.add_argument(
+        "--reviewer",
+        choices=["codex", "claude", "none"],
+        help="Override the workflow's reviewer for reviewed gates in this invocation.",
+    )
+    run_parser.add_argument(
         "--wait",
         dest="wait",
         action="store_true",
@@ -221,6 +234,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             wait=args.wait,
             poll_interval=args.poll_interval,
             max_wait_seconds=args.max_wait_seconds,
+            handoff_note=str(args.handoff_note) if args.handoff_note else None,
+            reviewer_override=args.reviewer,
             service_tier=args.service_tier,
             safety_identifier=args.safety_identifier,
             prompt_cache_key_strategy=args.prompt_cache_key_strategy,

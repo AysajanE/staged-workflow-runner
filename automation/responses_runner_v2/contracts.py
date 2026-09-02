@@ -323,11 +323,25 @@ Primary Job Inputs -> Reviewed Handoff Inputs -> Attached Workspace Evidence (le
 """
 
 
+REVISION_INSTRUCTIONS = """REVISION OF YOUR PREVIOUS OUTPUT FOR THIS STAGE.
+
+Your earlier artifact for this stage is attached under Reviewed Handoff Inputs together with
+the reviewer's findings. Produce the complete revised artifact for the same task:
+- resolve every blocking finding exactly as the reviewer's required change states, or state
+  in the artifact why the finding does not hold, citing the evidence;
+- preserve every part of the earlier artifact that the findings do not touch;
+- keep the same structure, identifiers, and citation format;
+- output the full artifact, not a diff or a change list.
+"""
+
+
 class GateType(str, Enum):
     """Stage progression gate categories understood by the workflow engine."""
 
     AUTO = "auto"
     REVIEW_REQUIRED = "review_required"
+    REVIEWED = "reviewed"
+    HUMAN = "human"
     TERMINAL = "terminal"
 
 
@@ -375,6 +389,7 @@ class StageStatus(str, Enum):
     FAILED_COMPLETE = "failed_complete"
     FAILED_NO_ARTIFACT = "failed_no_artifact"
     CANCELLING = "cancelling"
+    REVISION_REQUESTED = "revision_requested"
 
 
 class ResumeMode(str, Enum):
@@ -401,7 +416,8 @@ ALLOWED_STAGE_TRANSITIONS: dict[str, frozenset[str]] = {
     "submission_outcome_unknown": frozenset(),
     "blocked_preflight": frozenset(),
     "waiting_for_review": frozenset(),
-    "completed": frozenset(),
+    "completed": frozenset({"revision_requested", "waiting_for_review"}),
+    "revision_requested": frozenset({"staging_inputs"}),
     "failed_complete": frozenset(),
     "failed_no_artifact": frozenset(),
     "cancelled": frozenset(),
@@ -449,6 +465,35 @@ class FileUploadPolicy:
     expires_after_seconds: int | None = None
 
 
+REVIEWERS = ("codex", "claude", "none")
+REVIEW_EFFORTS = ("low", "medium", "high", "xhigh", "max")
+DEFAULT_REVIEW_MODEL_BY_REVIEWER = {"codex": "gpt-5.6-sol", "claude": "opus"}
+DEFAULT_REVIEW_EFFORT_BY_REVIEWER = {"codex": "high", "claude": "xhigh"}
+
+
+@dataclass(frozen=True)
+class ReviewConfig:
+    """How a `reviewed` gate invokes its single independent reviewer."""
+
+    reviewer: str = "codex"
+    model: str | None = None
+    effort: str | None = None
+    timeout_seconds: int = 1800
+    max_revisions: int = 1
+
+    @property
+    def effective_model(self) -> str | None:
+        if self.model is not None:
+            return self.model
+        return DEFAULT_REVIEW_MODEL_BY_REVIEWER.get(self.reviewer)
+
+    @property
+    def effective_effort(self) -> str:
+        if self.effort is not None:
+            return self.effort
+        return DEFAULT_REVIEW_EFFORT_BY_REVIEWER.get(self.reviewer, "high")
+
+
 @dataclass(frozen=True)
 class RequestDefaults:
     """Workflow-level defaults applied to each Responses API request."""
@@ -471,6 +516,7 @@ class CarryForwardConfig:
     reference_context_from_stage_ids: tuple[str, ...] = ()
     review_bundle_from_stage_id: str | None = None
     review_bundle_include_response_artifact_json: bool = False
+    handoff_from_stage_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -537,6 +583,7 @@ class StageDefinition:
     output: OutputConfig
     post_output_validators: tuple[PostOutputValidator, ...] = ()
     citation_policy: dict[str, Any] = field(default_factory=dict)
+    review: ReviewConfig | None = None
 
 
 @dataclass(frozen=True)
@@ -556,6 +603,7 @@ class WorkflowDefinition:
     model_roles: dict[str, ModelRoleProfile]
     request_defaults: RequestDefaults
     stages: tuple[StageDefinition, ...]
+    review_defaults: ReviewConfig = field(default_factory=ReviewConfig)
 
     def stage(self, stage_id: str) -> StageDefinition:
         for stage in self.stages:
@@ -611,6 +659,8 @@ class RuntimeOptions:
     safety_identifier: str | None = None
     prompt_cache_key_strategy: str = "stable_lane_v1"
     rerun_archive_manifest: str | None = None
+    handoff_note: str | None = None
+    reviewer_override: str | None = None
 
 
 def _coerce_workspace_root(candidate: str | Path, *, label: str) -> Path:

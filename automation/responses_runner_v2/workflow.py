@@ -8,7 +8,10 @@ from contextlib import nullcontext
 from pathlib import Path
 from typing import Any
 
+from dataclasses import replace as dataclass_replace
+
 from . import attachments, artifacts, review_bundle, sidecar
+from . import reviewer as stage_reviewer
 from .request_plan import (
     build_request_plan,
     materialize_request_payload,
@@ -50,6 +53,8 @@ from .contracts import (
     unique_strings,
     validate_model_options,
     write_json,
+    REVISION_INSTRUCTIONS,
+    ReviewConfig,
 )
 from .locking import RunLockError, run_lock
 from .openai_client import ApiError, OpenAIClient
@@ -77,7 +82,7 @@ REVIEWABLE_APPROVED_SOURCE_STATUSES = {
     StageStatus.FAILED_COMPLETE.value,
 }
 
-RUNNABLE_STAGE_STATES = {StageStatus.PREPARED.value}
+RUNNABLE_STAGE_STATES = {StageStatus.PREPARED.value, StageStatus.REVISION_REQUESTED.value}
 LIVE_OR_UNCERTAIN_STAGE_STATES = {
     StageStatus.STAGING_INPUTS.value,
     StageStatus.UPLOADING.value,
@@ -447,6 +452,11 @@ def _determine_next_stage(
 ) -> StageDefinition:
     def approved_review_handoff_exists(previous_stage, previous_summary: dict[str, Any]) -> bool:
         previous_status = str(previous_summary.get("status", ""))
+        if previous_stage.gate in {GateType.HUMAN, GateType.REVIEWED}:
+            return (
+                previous_status == StageStatus.WAITING_FOR_REVIEW.value
+                and bool(previous_summary.get("handoff_note_path"))
+            )
         return (
             previous_stage.gate == GateType.REVIEW_REQUIRED
             and previous_status in REVIEWABLE_APPROVED_SOURCE_STATUSES
@@ -482,8 +492,13 @@ def _determine_next_stage(
             if approved_review_handoff_exists(previous_stage, previous_summary):
                 continue
             if previous_status == StageStatus.WAITING_FOR_REVIEW.value:
+                if previous_stage.gate == GateType.REVIEW_REQUIRED:
+                    raise SystemExit(
+                        f"Stage {stage.stage_id} requires a review bundle from stage {previous_stage.stage_id}."
+                    )
                 raise SystemExit(
-                    f"Stage {stage.stage_id} requires a review bundle from stage {previous_stage.stage_id}."
+                    f"Stage {previous_stage.stage_id} is waiting for a handoff note; "
+                    f"supply --handoff-note <path> before stage {stage.stage_id} can run."
                 )
             if previous_status != StageStatus.COMPLETED.value:
                 raise SystemExit(
@@ -509,8 +524,13 @@ def _determine_next_stage(
         if approved_review_handoff_exists(previous_stage, previous_summary):
             return stage
         if previous_summary["status"] == StageStatus.WAITING_FOR_REVIEW.value:
+            if previous_stage.gate == GateType.REVIEW_REQUIRED:
+                raise SystemExit(
+                    f"Run is waiting for review after stage {previous_stage.stage_id}. Supply --review-bundle."
+                )
             raise SystemExit(
-                f"Run is waiting for review after stage {previous_stage.stage_id}. Supply --review-bundle."
+                f"Run is waiting for a handoff note after stage {previous_stage.stage_id}. "
+                "Supply --handoff-note <path>."
             )
     raise SystemExit("No eligible stage was found for this run.")
 
@@ -704,6 +724,9 @@ def _reference_context_from_stage_outputs(
     workflow,
     run_manifest: dict[str, Any],
     stage: StageDefinition,
+    root: Path | None = None,
+    run_dir: Path | None = None,
+    dry_run: bool = False,
 ) -> list[attachments.AttachmentEntry]:
     from .contracts import AttachmentEntry
 
@@ -714,6 +737,14 @@ def _reference_context_from_stage_outputs(
         response_markdown_path = summary.get("artifact_markdown_path")
         if not response_markdown_path and run_manifest.get("schema_version") == "responses_runner_v2.run_manifest.v1":
             response_markdown_path = summary.get("response_markdown_path")
+        if not response_markdown_path and dry_run and root is not None and run_dir is not None:
+            response_markdown_path = _dry_run_stub(
+                root,
+                run_dir,
+                source_stage_id,
+                "artifact.md",
+                f"# Dry-run placeholder for the artifact of stage {source_stage_id}\n",
+            )
         if not response_markdown_path:
             raise SystemExit(
                 f"Stage {stage.stage_id} cannot carry forward {source_stage_id}; no response markdown was recorded."
@@ -735,10 +766,37 @@ def _review_handoff_entries(
     run_manifest: dict[str, Any],
     stage: StageDefinition,
     review_bundles: dict[str, dict[str, Any]],
+    run_dir: Path | None = None,
+    dry_run: bool = False,
 ) -> tuple[list[attachments.AttachmentEntry], str | None]:
     source_stage_id = stage.carry_forward.review_bundle_from_stage_id
     if source_stage_id is None:
         return [], None
+    if source_stage_id not in review_bundles and dry_run and run_dir is not None:
+        return [
+            attachments.AttachmentEntry(
+                path=_dry_run_stub(
+                    root,
+                    run_dir,
+                    source_stage_id,
+                    "reviewer_notes.md",
+                    f"# Dry-run placeholder for reviewer notes from stage {source_stage_id}\n",
+                ),
+                kind="file",
+                notes="dry-run placeholder reviewer notes",
+            ),
+            attachments.AttachmentEntry(
+                path=_dry_run_stub(
+                    root,
+                    run_dir,
+                    source_stage_id,
+                    "artifact.md",
+                    f"# Dry-run placeholder for the artifact of stage {source_stage_id}\n",
+                ),
+                kind="file",
+                notes=f"dry-run placeholder artifact from stage {source_stage_id}",
+            ),
+        ], None
     if source_stage_id not in review_bundles:
         raise SystemExit(
             f"Stage {stage.stage_id} requires a review bundle from stage {source_stage_id}."
@@ -766,6 +824,387 @@ def _review_handoff_entries(
         bundle,
         include_response_artifact_json=stage.carry_forward.review_bundle_include_response_artifact_json,
     ), str(bundle["bundle_path"])
+
+
+def _dry_run_stub(root: Path, run_dir: Path, source_stage_id: str, filename: str, text: str) -> str:
+    """Materialize a placeholder file so later stages can be dry-run before earlier ones exist."""
+
+    stub_dir = run_dir / "dry_runs" / "stubs" / source_stage_id
+    stub_dir.mkdir(parents=True, exist_ok=True)
+    path = stub_dir / filename
+    if not path.exists():
+        path.write_text(text, encoding="utf-8")
+    return relpath(root, path)
+
+
+def _attempt_record(summary: dict[str, Any], attempt_id: str | None) -> dict[str, Any] | None:
+    if not isinstance(attempt_id, str):
+        return None
+    for attempt in summary.get("attempts", []):
+        if attempt.get("attempt_id") == attempt_id:
+            return attempt
+    return None
+
+
+def _current_attempt_record(summary: dict[str, Any]) -> dict[str, Any] | None:
+    return _attempt_record(summary, summary.get("current_attempt_id"))
+
+
+def _revision_count(summary: dict[str, Any]) -> int:
+    return sum(1 for attempt in summary.get("attempts", []) if attempt.get("revision_of_attempt_id"))
+
+
+def _stage_task_text(run_manifest: dict[str, Any], stage: StageDefinition) -> str:
+    """Stage task text, prefixed with revision instructions when this attempt is a revision."""
+
+    text = load_text_asset(stage.task_path).strip()
+    try:
+        summary = artifacts.find_stage_summary(run_manifest, stage.stage_id)
+    except (KeyError, SystemExit):
+        return text
+    current = _current_attempt_record(summary)
+    if current is not None and current.get("revision_of_attempt_id"):
+        return REVISION_INSTRUCTIONS.strip() + "\n\n" + text
+    return text
+
+
+def _revision_handoff_entries(
+    *,
+    root: Path,
+    run_manifest: dict[str, Any],
+    stage: StageDefinition,
+) -> list[attachments.AttachmentEntry]:
+    """For a revision attempt, attach the previous draft and the reviewer findings."""
+
+    summary = artifacts.find_stage_summary(run_manifest, stage.stage_id)
+    current = _current_attempt_record(summary)
+    if current is None or not current.get("revision_of_attempt_id"):
+        return []
+    prior = _attempt_record(summary, str(current["revision_of_attempt_id"]))
+    if prior is None:
+        raise SystemExit(
+            f"Revision of stage {stage.stage_id} names unknown prior attempt "
+            f"{current.get('revision_of_attempt_id')!r}."
+        )
+    prior_dir = resolve_under_root(root, str(prior["attempt_dir"]), must_exist=True)
+    entries: list[attachments.AttachmentEntry] = []
+    notes = prior_dir / "review" / "reviewer_notes.md"
+    if notes.exists():
+        entries.append(
+            attachments.AttachmentEntry(
+                path=relpath(root, notes),
+                kind="file",
+                notes=f"reviewer findings to resolve in this revision of stage {stage.stage_id}",
+            )
+        )
+    artifact = prior_dir / "artifact.md"
+    if not artifact.exists():
+        raise SystemExit(
+            f"Revision of stage {stage.stage_id} requires the prior artifact {relpath(root, artifact)}."
+        )
+    entries.append(
+        attachments.AttachmentEntry(
+            path=relpath(root, artifact),
+            kind="file",
+            notes=f"previous draft of stage {stage.stage_id} ({prior['attempt_id']}) to revise",
+        )
+    )
+    return entries
+
+
+def _gate_handoff_entries(
+    *,
+    root: Path,
+    run_dir: Path,
+    workflow,
+    run_manifest: dict[str, Any],
+    stage: StageDefinition,
+    runtime: RuntimeOptions,
+) -> list[attachments.AttachmentEntry]:
+    """Attach the reviewed or human-approved output of the configured earlier stage."""
+
+    source_id = stage.carry_forward.handoff_from_stage_id
+    if source_id is None:
+        return []
+    source_stage = workflow.stage(source_id)
+    source_summary = artifacts.find_stage_summary(run_manifest, source_id)
+    artifact_path = source_summary.get("artifact_markdown_path")
+    if runtime.dry_run and not artifact_path:
+        return [
+            attachments.AttachmentEntry(
+                path=_dry_run_stub(
+                    root,
+                    run_dir,
+                    source_id,
+                    "handoff_notes.md",
+                    f"# Dry-run placeholder for handoff notes from stage {source_id}\n",
+                ),
+                kind="file",
+                notes="dry-run placeholder handoff notes",
+            ),
+            attachments.AttachmentEntry(
+                path=_dry_run_stub(
+                    root,
+                    run_dir,
+                    source_id,
+                    "artifact.md",
+                    f"# Dry-run placeholder for the artifact of stage {source_id}\n",
+                ),
+                kind="file",
+                notes=f"dry-run placeholder artifact from stage {source_id}",
+            ),
+        ]
+    status = str(source_summary.get("status", ""))
+    note_path = source_summary.get("handoff_note_path")
+    review_status = source_summary.get("review_status")
+    notes_paths: list[tuple[str, str]] = []
+    if source_stage.gate == GateType.HUMAN:
+        if status != StageStatus.WAITING_FOR_REVIEW.value or not note_path:
+            raise SystemExit(
+                f"Stage {stage.stage_id} requires a human handoff note for stage {source_id}; "
+                "supply --handoff-note <path>."
+            )
+        notes_paths.append((str(note_path), f"human handoff note for stage {source_id}"))
+    elif source_stage.gate == GateType.REVIEWED:
+        if note_path:
+            notes_paths.append((str(note_path), f"human handoff note for stage {source_id}"))
+            if source_summary.get("reviewer_notes_path"):
+                notes_paths.append(
+                    (str(source_summary["reviewer_notes_path"]), f"reviewer notes for stage {source_id}")
+                )
+        elif status == StageStatus.COMPLETED.value and review_status == "approved":
+            if source_summary.get("reviewer_notes_path"):
+                notes_paths.append(
+                    (str(source_summary["reviewer_notes_path"]), f"reviewer notes for stage {source_id}")
+                )
+        elif status == StageStatus.COMPLETED.value and review_status == "not_required":
+            pass
+        else:
+            raise SystemExit(
+                f"Stage {stage.stage_id} cannot start: stage {source_id} review is "
+                f"{review_status or 'pending'} (status {status!r})."
+            )
+    else:
+        raise SystemExit(
+            f"Stage {stage.stage_id} handoff source {source_id} must use a reviewed or human gate."
+        )
+    if not artifact_path:
+        raise SystemExit(f"Stage {source_id} has no recorded artifact to hand off.")
+    source_summary["review_approved"] = True
+    entries = [
+        attachments.AttachmentEntry(path=path, kind="file", notes=notes)
+        for path, notes in notes_paths
+    ]
+    entries.append(
+        attachments.AttachmentEntry(
+            path=str(artifact_path),
+            kind="file",
+            notes=f"approved markdown from stage {source_id}",
+        )
+    )
+    return entries
+
+
+def _effective_review_config(workflow, stage: StageDefinition, runtime: RuntimeOptions) -> ReviewConfig:
+    config = stage.review or workflow.review_defaults
+    if runtime.reviewer_override:
+        config = dataclass_replace(config, reviewer=runtime.reviewer_override)
+    return config
+
+
+def _stage_review_pending(stage: StageDefinition, summary: dict[str, Any]) -> bool:
+    return (
+        stage.gate == GateType.REVIEWED
+        and str(summary.get("status", "")) == StageStatus.COMPLETED.value
+        and summary.get("review_status") not in {"approved", "human_approved", "not_required"}
+    )
+
+
+def _reviewed_handoff_paths(root: Path, stage_paths: dict[str, Path]) -> list[Path]:
+    manifest_path = stage_paths["input_manifest_json"]
+    if not manifest_path.exists():
+        return []
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return []
+    paths: list[Path] = []
+    for entry in manifest.get("reviewed_handoff_inputs", []):
+        for expanded in entry.get("resolved", {}).get("expanded_paths", []):
+            path = expanded.get("path")
+            if isinstance(path, str):
+                paths.append(resolve_under_root(root, path, must_exist=False))
+    return paths
+
+
+def _gate_persist(
+    *,
+    root: Path,
+    run_dir: Path,
+    run_manifest: dict[str, Any],
+    stage: StageDefinition,
+    stage_paths: dict[str, Path],
+    stage_status: str,
+) -> None:
+    summary = artifacts.find_stage_summary(run_manifest, stage.stage_id)
+    response_json = (
+        load_json(stage_paths["response_final_json"], "final response")
+        if stage_paths["response_final_json"].exists()
+        else None
+    )
+    _persist_stage_state(
+        root=root,
+        run_dir=run_dir,
+        run_manifest=run_manifest,
+        stage=stage,
+        stage_paths=stage_paths,
+        stage_status=stage_status,
+        resume_mode=ResumeMode.RESUME_RESPONSE_ID,
+        token_preflight={"status": "previously_completed", "attempts": 0},
+        response_json=response_json,
+        review_bundle_path=summary.get("review_bundle_path"),
+        structured_output_written=stage_paths["structured_output"].exists(),
+        sidecar_written=stage_paths["sidecar_response_json"].exists(),
+        uploads_payload_path=(
+            stage_paths["uploads_json"] if stage_paths["uploads_json"].exists() else None
+        ),
+    )
+
+
+def _apply_stage_gate(
+    *,
+    root: Path,
+    run_dir: Path,
+    run_manifest: dict[str, Any],
+    workflow,
+    stage: StageDefinition,
+    stage_paths: dict[str, Path],
+    runtime: RuntimeOptions,
+    review_runner: stage_reviewer.Runner | None,
+) -> str:
+    """Run the `reviewed` gate for a completed stage and return the resulting stage status."""
+
+    summary = artifacts.find_stage_summary(run_manifest, stage.stage_id)
+    status = str(summary.get("status", ""))
+    if stage.gate != GateType.REVIEWED or status != StageStatus.COMPLETED.value:
+        return status
+    if summary.get("review_status") in {"approved", "human_approved", "not_required"}:
+        return status
+    config = _effective_review_config(workflow, stage, runtime)
+    attempt_id = str(summary.get("current_attempt_id"))
+    stage_paths["review_dir"].mkdir(parents=True, exist_ok=True)
+    if config.reviewer == "none":
+        write_json(
+            stage_paths["review_verdict"],
+            {
+                "schema_version": stage_reviewer.REVIEW_VERDICT_SCHEMA_VERSION,
+                "verdict": "approve",
+                "summary": "No reviewer configured for this stage.",
+                "blocking_findings": [],
+                "notes": [],
+                "reviewer": "none",
+                "disposition": "not_required",
+                "recorded_at": runner_now().isoformat(),
+            },
+        )
+        _gate_persist(
+            root=root,
+            run_dir=run_dir,
+            run_manifest=run_manifest,
+            stage=stage,
+            stage_paths=stage_paths,
+            stage_status=StageStatus.COMPLETED.value,
+        )
+        return StageStatus.COMPLETED.value
+    current = _current_attempt_record(summary) or {}
+    job = stage_reviewer.build_review_job(
+        root=root,
+        workflow_id=workflow.workflow_id,
+        run_id=str(run_manifest["run_id"]),
+        stage_id=stage.stage_id,
+        stage_title=stage.title,
+        attempt_id=attempt_id,
+        task_text=load_text_asset(stage.task_path).strip(),
+        artifact_path=stage_paths["artifact_md"],
+        input_manifest_markdown_path=stage_paths["input_manifest_md"],
+        handoff_paths=_reviewed_handoff_paths(root, stage_paths),
+        revision_of_attempt_id=current.get("revision_of_attempt_id"),
+    )
+    result = stage_reviewer.run_review(
+        root=root,
+        config=config,
+        job=job,
+        review_dir=stage_paths["review_dir"],
+        runner=review_runner,
+    )
+    if result.approved:
+        disposition, new_status = "approved", StageStatus.COMPLETED.value
+    elif _revision_count(summary) < config.max_revisions:
+        disposition, new_status = "revision_requested", StageStatus.REVISION_REQUESTED.value
+    else:
+        disposition, new_status = "blocked", StageStatus.WAITING_FOR_REVIEW.value
+    verdict = dict(result.verdict)
+    verdict["disposition"] = disposition
+    write_json(stage_paths["review_verdict"], verdict)
+    _gate_persist(
+        root=root,
+        run_dir=run_dir,
+        run_manifest=run_manifest,
+        stage=stage,
+        stage_paths=stage_paths,
+        stage_status=new_status,
+    )
+    print(
+        f"REVIEW [{stage.stage_id}/{attempt_id}] {result.verdict['verdict']} -> {disposition} "
+        f"({result.notes_path})",
+        file=sys.stderr,
+    )
+    return new_status
+
+
+def _apply_handoff_note(
+    *,
+    root: Path,
+    run_dir: Path,
+    run_manifest: dict[str, Any],
+    workflow,
+    runtime: RuntimeOptions,
+) -> None:
+    """Record a human handoff note against the stage waiting at a human or blocked reviewed gate."""
+
+    if not runtime.handoff_note:
+        return
+    note_path = resolve_under_root(root, runtime.handoff_note, must_exist=True)
+    note_rel = relpath(root, note_path)
+    try:
+        with run_lock(run_dir):
+            manifest = artifacts.load_run_manifest(root, run_dir)
+            waiting = [
+                candidate
+                for candidate in workflow.stages
+                if candidate.gate in {GateType.HUMAN, GateType.REVIEWED}
+                and str(artifacts.find_stage_summary(manifest, candidate.stage_id).get("status", ""))
+                == StageStatus.WAITING_FOR_REVIEW.value
+            ]
+            if not waiting:
+                raise SystemExit("No stage is waiting for a handoff note.")
+            target = waiting[0]
+            summary = artifacts.find_stage_summary(manifest, target.stage_id)
+            if summary.get("handoff_note_path") == note_rel:
+                run_manifest.clear()
+                run_manifest.update(manifest)
+                return
+            summary["handoff_note_path"] = note_rel
+            summary["review_approved"] = True
+            summary["review_status"] = "human_approved"
+            manifest["revision"] = int(manifest.get("revision", 0)) + 1
+            manifest["updated_at"] = runner_now().isoformat()
+            artifacts.write_run_manifest(run_dir, manifest)
+    except RunLockError as exc:
+        raise SystemExit(str(exc)) from exc
+    run_manifest.clear()
+    run_manifest.update(manifest)
+    print(f"HANDOFF [{target.stage_id}] approved with note {note_rel}", file=sys.stderr)
 
 
 def _build_request_payload(
@@ -1028,7 +1467,7 @@ def _stage_status_from_response(
     if status in TERMINAL_RESPONSE_STATUSES and not finalized:
         return StageStatus.REMOTE_TERMINAL_PENDING_FINALIZATION.value
     if status == "completed":
-        if stage.gate == GateType.REVIEW_REQUIRED and has_next_stage:
+        if stage.gate in {GateType.REVIEW_REQUIRED, GateType.HUMAN} and has_next_stage:
             return StageStatus.WAITING_FOR_REVIEW.value
         return StageStatus.COMPLETED.value
     if status == "failed":
@@ -1108,7 +1547,8 @@ def _build_checkpoint(
             StageStatus.FAILED_NO_ARTIFACT.value,
         },
         "resume_mode": resume_mode.value,
-        "review_checkpoint_required": stage.gate == GateType.REVIEW_REQUIRED,
+        "review_checkpoint_required": stage.gate
+        in {GateType.REVIEW_REQUIRED, GateType.HUMAN, GateType.REVIEWED},
         "request_payload_path": relpath(root, stage_paths["request_payload"]),
         "input_manifest_json_path": relpath(root, stage_paths["input_manifest_json"]),
         "input_manifest_markdown_path": relpath(root, stage_paths["input_manifest_md"]),
@@ -1247,6 +1687,19 @@ def _sync_stage_summary(
         except (OSError, json.JSONDecodeError):
             report = {}
         summary["validators_passed"] = bool(report.get("passed", False))
+    if stage_paths["review_verdict"].exists():
+        summary["review_verdict_path"] = relpath(root, stage_paths["review_verdict"])
+        if stage_paths["reviewer_notes"].exists():
+            summary["reviewer_notes_path"] = relpath(root, stage_paths["reviewer_notes"])
+        try:
+            verdict = json.loads(stage_paths["review_verdict"].read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            verdict = {}
+        disposition = verdict.get("disposition")
+        if summary.get("handoff_note_path"):
+            summary["review_status"] = "human_approved"
+        elif disposition in {"approved", "revision_requested", "blocked", "not_required"}:
+            summary["review_status"] = disposition
     if review_bundle_path is not None:
         summary["review_bundle_path"] = review_bundle_path
     if response_json is not None:
@@ -1300,6 +1753,7 @@ def _build_stage_runtime_manifest(
     static_manifest: dict[str, Any],
     runtime: RuntimeOptions,
     review_bundles: dict[str, dict[str, Any]],
+    run_dir: Path | None = None,
 ) -> tuple[dict[str, Any], str | None]:
     reviewed_entries, consumed_review_bundle_path = _review_handoff_entries(
         root=root,
@@ -1307,14 +1761,35 @@ def _build_stage_runtime_manifest(
         run_manifest=run_manifest,
         stage=stage,
         review_bundles=review_bundles,
+        run_dir=run_dir,
+        dry_run=runtime.dry_run,
     )
+    gate_entries = (
+        _gate_handoff_entries(
+            root=root,
+            run_dir=run_dir,
+            workflow=workflow,
+            run_manifest=run_manifest,
+            stage=stage,
+            runtime=runtime,
+        )
+        if run_dir is not None
+        else []
+    )
+    revision_entries = _revision_handoff_entries(root=root, run_manifest=run_manifest, stage=stage)
     carry_forward_reference_entries = _reference_context_from_stage_outputs(
         workflow=workflow,
         run_manifest=run_manifest,
         stage=stage,
+        root=root,
+        run_dir=run_dir,
+        dry_run=runtime.dry_run,
     )
-    if stage.carry_forward.review_bundle_from_stage_id is not None:
-        duplicate_source = stage.carry_forward.review_bundle_from_stage_id
+    duplicate_source = (
+        stage.carry_forward.review_bundle_from_stage_id
+        or stage.carry_forward.handoff_from_stage_id
+    )
+    if duplicate_source is not None:
         carry_forward_reference_entries = [
             entry
             for entry in carry_forward_reference_entries
@@ -1347,6 +1822,8 @@ def _build_stage_runtime_manifest(
         reviewed_handoff_inputs=[
             *static_manifest["reviewed_handoff_inputs"],
             *reviewed_entries,
+            *gate_entries,
+            *revision_entries,
         ],
         attached_repository_files=static_manifest["attached_repository_files"],
         reference_context=[
@@ -1484,9 +1961,19 @@ def _record_attempt_start(
     attempt_number: int,
     stage_paths: dict[str, Path],
     rerun_authorization: dict[str, Any] | None = None,
+    revision_of_attempt_id: str | None = None,
 ) -> None:
     summary = artifacts.find_stage_summary(run_manifest, stage.stage_id)
     attempt_id = f"attempt_{attempt_number:03d}"
+    if revision_of_attempt_id is not None:
+        for key in (
+            "review_status",
+            "review_verdict_path",
+            "reviewer_notes_path",
+            "handoff_note_path",
+            "review_approved",
+        ):
+            summary.pop(key, None)
     summary["current_attempt_id"] = attempt_id
     summary["status"] = StageStatus.STAGING_INPUTS.value
     summary["local_state"] = StageStatus.STAGING_INPUTS.value
@@ -1499,6 +1986,8 @@ def _record_attempt_start(
     }
     if rerun_authorization is not None:
         attempt_record["rerun_authorization"] = rerun_authorization
+    if revision_of_attempt_id is not None:
+        attempt_record["revision_of_attempt_id"] = revision_of_attempt_id
     summary.setdefault("attempts", []).append(attempt_record)
     run_manifest["current_stage_id"] = stage.stage_id
     run_manifest["status"] = RunStatus.RUNNING.value
@@ -2046,6 +2535,7 @@ def run_workflow(
     runtime: RuntimeOptions,
     client: OpenAIClient | None = None,
     root: Path | None = None,
+    review_runner: stage_reviewer.Runner | None = None,
 ) -> dict[str, Any]:
     """Launch the next eligible workflow stage or dry-run request construction."""
 
@@ -2065,8 +2555,54 @@ def run_workflow(
     review_bundles = _load_review_bundles(root, runtime.review_bundles)
     current_stage: StageDefinition | None = None
     warnings: list[dict[str, Any]] = []
+    stage_results: list[dict[str, Any]] = []
+    handoff_note_applied = False
 
     while True:
+        if not runtime.dry_run and current_stage is None:
+            if runtime.handoff_note and not handoff_note_applied:
+                _apply_handoff_note(
+                    root=root,
+                    run_dir=run_dir,
+                    run_manifest=run_manifest,
+                    workflow=workflow,
+                    runtime=runtime,
+                )
+                handoff_note_applied = True
+            latest_manifest = artifacts.load_run_manifest(root, run_dir)
+            pending_stage = next(
+                (
+                    candidate
+                    for candidate in workflow.stages
+                    if _stage_review_pending(
+                        candidate, artifacts.find_stage_summary(latest_manifest, candidate.stage_id)
+                    )
+                ),
+                None,
+            )
+            if pending_stage is not None:
+                pending_summary = artifacts.find_stage_summary(latest_manifest, pending_stage.stage_id)
+                gate_status = _apply_stage_gate(
+                    root=root,
+                    run_dir=run_dir,
+                    run_manifest=latest_manifest,
+                    workflow=workflow,
+                    stage=pending_stage,
+                    stage_paths=_stage_paths_for_summary(run_dir, pending_stage, pending_summary),
+                    runtime=runtime,
+                    review_runner=review_runner,
+                )
+                run_manifest = latest_manifest
+                if gate_status == StageStatus.REVISION_REQUESTED.value and runtime.stage_id is None:
+                    current_stage = pending_stage
+                elif gate_status != StageStatus.COMPLETED.value:
+                    return {
+                        "run_dir": relpath(root, run_dir),
+                        "run_manifest_path": relpath(root, artifacts.run_manifest_path(run_dir)),
+                        "status": run_manifest["status"],
+                        "stage_id": pending_stage.stage_id,
+                        **({"warnings": list(warnings)} if warnings else {}),
+                    }
         try:
             with run_lock(run_dir):
                 run_manifest = artifacts.load_run_manifest(root, run_dir)
@@ -2112,6 +2648,12 @@ def run_workflow(
                             f"Stage {stage.stage_id} changed state before allocation: "
                             f"{summary.get('status')!r}."
                         )
+                    revision_of_attempt_id = (
+                        str(summary.get("current_attempt_id"))
+                        if summary.get("status") == StageStatus.REVISION_REQUESTED.value
+                        and summary.get("current_attempt_id")
+                        else None
+                    )
                     attempt_number, stage_paths = artifacts.allocate_stage_attempt(
                         run_dir,
                         stage.stage_number,
@@ -2124,6 +2666,7 @@ def run_workflow(
                         attempt_number=attempt_number,
                         stage_paths=stage_paths,
                         rerun_authorization=rerun_authorization,
+                        revision_of_attempt_id=revision_of_attempt_id,
                     )
                     artifacts.write_run_manifest(run_dir, run_manifest)
         except RunLockError as exc:
@@ -2137,6 +2680,7 @@ def run_workflow(
             static_manifest=static_manifest,
             runtime=runtime,
             review_bundles=review_bundles,
+            run_dir=run_dir,
         )
         # A dry run and its later live execution are two renderings of one
         # run-scoped manifest. Anchor the otherwise volatile field to the run.
@@ -2214,7 +2758,7 @@ def run_workflow(
             else:
                 symbolic_by_role.setdefault(prepared["role_label"], []).append(symbolic_id)
         symbolic_content, role_blocks = attachments.build_request_input_content(
-            task_text=load_text_asset(stage.task_path).strip(),
+            task_text=_stage_task_text(run_manifest, stage),
             input_manifest_file_id=symbolic_manifest_file_id,
             role_to_file_ids=symbolic_by_role,
         )
@@ -2236,7 +2780,7 @@ def run_workflow(
         request_plan = build_request_plan(
             text_parts=[
                 _build_instructions(workflow, stage),
-                load_text_asset(stage.task_path).strip(),
+                _stage_task_text(run_manifest, stage),
                 rendered_manifest_md,
             ],
             files=descriptors,
@@ -2316,8 +2860,18 @@ def run_workflow(
                 "status": run_manifest["status"],
                 "stage_id": stage.stage_id,
             }
+            stage_results.append(result)
+            next_dry_stage = workflow.next_stage(stage.stage_id)
+            if runtime.stage_id is None and next_dry_stage is not None:
+                current_stage = next_dry_stage
+                continue
             if warnings:
                 result["warnings"] = list(warnings)
+            if len(stage_results) > 1:
+                result["stages"] = [
+                    {"stage_id": item["stage_id"], "status": item["status"]}
+                    for item in stage_results
+                ]
             return result
 
         if client is None:
@@ -2674,8 +3228,29 @@ def run_workflow(
 
                 if (
                     final_stage_status == StageStatus.COMPLETED.value
+                    and stage.gate == GateType.REVIEWED
+                ):
+                    final_stage_status = _apply_stage_gate(
+                        root=root,
+                        run_dir=run_dir,
+                        run_manifest=run_manifest,
+                        workflow=workflow,
+                        stage=stage,
+                        stage_paths=stage_paths,
+                        runtime=runtime,
+                        review_runner=review_runner,
+                    )
+                if (
+                    final_stage_status == StageStatus.REVISION_REQUESTED.value
+                    and runtime.stage_id is None
+                    and runtime.wait
+                ):
+                    current_stage = stage
+                    continue
+                if (
+                    final_stage_status == StageStatus.COMPLETED.value
                     and has_next_stage
-                    and stage.gate == GateType.AUTO
+                    and stage.gate in {GateType.AUTO, GateType.REVIEWED}
                     and runtime.stage_id is None
                     and runtime.wait
                 ):
@@ -2774,6 +3349,7 @@ def resume_stage(
     client: OpenAIClient,
     root: Path | None = None,
     refresh_status_only: bool = False,
+    review_runner: stage_reviewer.Runner | None = None,
 ) -> dict[str, Any]:
     """Resume or finalize a previously submitted stage from its stored response id."""
 
@@ -2872,7 +3448,7 @@ def resume_stage(
         }
     remote_terminal = str(response_json.get("status")) in TERMINAL_RESPONSE_STATUSES
     if remote_terminal and not refresh_status_only and local_state not in finalized_local_states:
-        _finalize_terminal_response(
+        final_status, _uploads = _finalize_terminal_response(
             root=root,
             run_dir=resolved_run_dir,
             run_manifest=run_manifest,
@@ -2887,6 +3463,17 @@ def resume_stage(
             uploads_payload=uploads_payload,
             resume_mode=ResumeMode.RESUME_RESPONSE_ID,
         )
+        if final_status == StageStatus.COMPLETED.value and stage.gate == GateType.REVIEWED:
+            _apply_stage_gate(
+                root=root,
+                run_dir=resolved_run_dir,
+                run_manifest=run_manifest,
+                workflow=workflow,
+                stage=stage,
+                stage_paths=stage_paths,
+                runtime=effective_runtime,
+                review_runner=review_runner,
+            )
         return {
             "run_dir": relpath(root, resolved_run_dir),
             "run_manifest_path": relpath(root, artifacts.run_manifest_path(resolved_run_dir)),

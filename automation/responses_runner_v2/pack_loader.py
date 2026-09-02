@@ -30,6 +30,9 @@ from .contracts import (
     require_keys,
     resolve_under_root,
     validate_model_options,
+    ReviewConfig,
+    REVIEWERS,
+    REVIEW_EFFORTS,
 )
 from .schema_validation import (
     persisted_schema_filename,
@@ -82,6 +85,39 @@ def _parse_model_role_profile(
         prompt_cache_mode=(str(prompt_cache_mode) if prompt_cache_mode is not None else None),
         prompt_cache_ttl=(str(prompt_cache_ttl) if prompt_cache_ttl is not None else None),
         prompt_cache_retention=prompt_cache_retention,
+    )
+
+
+def _parse_review_config(
+    payload: dict[str, Any] | None,
+    *,
+    base: ReviewConfig | None = None,
+) -> ReviewConfig:
+    """Parse a workflow-level or stage-level `review` block over optional defaults."""
+
+    base = base or ReviewConfig()
+    payload = payload or {}
+    if not isinstance(payload, dict):
+        raise SystemExit("review configuration must be an object when present.")
+    reviewer = str(payload.get("reviewer", base.reviewer))
+    if reviewer not in REVIEWERS:
+        raise SystemExit(f"review.reviewer must be one of {REVIEWERS}; got {reviewer!r}.")
+    effort = payload.get("effort", base.effort)
+    if effort is not None and str(effort) not in REVIEW_EFFORTS:
+        raise SystemExit(f"review.effort must be one of {REVIEW_EFFORTS}; got {effort!r}.")
+    timeout_seconds = int(payload.get("timeout_seconds", base.timeout_seconds))
+    if timeout_seconds <= 0:
+        raise SystemExit("review.timeout_seconds must be positive.")
+    max_revisions = int(payload.get("max_revisions", base.max_revisions))
+    if max_revisions < 0:
+        raise SystemExit("review.max_revisions must be zero or more.")
+    model = payload.get("model", base.model)
+    return ReviewConfig(
+        reviewer=reviewer,
+        model=str(model) if model is not None else None,
+        effort=str(effort) if effort is not None else None,
+        timeout_seconds=timeout_seconds,
+        max_revisions=max_revisions,
     )
 
 
@@ -193,6 +229,7 @@ def _parse_stage(
     payload: dict[str, Any],
     *,
     legacy_v1_defaults: bool = False,
+    review_defaults: ReviewConfig | None = None,
 ) -> StageDefinition:
     require_keys(
         payload,
@@ -228,6 +265,23 @@ def _parse_stage(
                 legacy_v1_defaults,
             )
         ),
+        handoff_from_stage_id=(
+            str(carry_forward_payload["handoff_from_stage_id"])
+            if carry_forward_payload.get("handoff_from_stage_id") is not None
+            else None
+        ),
+    )
+    if (
+        carry_forward.handoff_from_stage_id is not None
+        and carry_forward.review_bundle_from_stage_id is not None
+    ):
+        raise SystemExit(
+            "stage.carry_forward may name handoff_from_stage_id or review_bundle_from_stage_id, not both."
+        )
+    stage_review = (
+        _parse_review_config(payload["review"], base=review_defaults)
+        if payload.get("review") is not None
+        else None
     )
     validator_payloads = payload.get("post_output_validators", [])
     post_output_validators = tuple(
@@ -289,6 +343,7 @@ def _parse_stage(
         output=output,
         post_output_validators=post_output_validators,
         citation_policy=dict(payload.get("citation_policy", {})),
+        review=stage_review,
     )
 
 
@@ -341,6 +396,7 @@ def load_workflow_definition(
         ),
     }
     request_defaults = _parse_request_defaults(request_payload)
+    review_defaults = _parse_review_config(defaults_payload.get("review"))
     base_dir = workflow_path.parent
     stages_payload = payload["stages"]
     if not isinstance(stages_payload, list) or not stages_payload:
@@ -353,6 +409,7 @@ def load_workflow_definition(
             legacy_v1_defaults=(
                 payload.get("schema_version") == "responses_runner_v2.workflow_manifest.v1"
             ),
+            review_defaults=review_defaults,
         )
         for item in stages_payload
     )
@@ -399,6 +456,22 @@ def load_workflow_definition(
             raise SystemExit(
                 f"stage {stage.stage_id} review-bundle dependency {source_bundle_stage!r} must point backward."
             )
+        handoff_source = stage.carry_forward.handoff_from_stage_id
+        if handoff_source is not None:
+            if handoff_source not in stage_ids:
+                raise SystemExit(
+                    f"stage {stage.stage_id} references unknown handoff stage {handoff_source!r}"
+                )
+            if stage_number_by_id[handoff_source] >= stage.stage_number:
+                raise SystemExit(
+                    f"stage {stage.stage_id} handoff dependency {handoff_source!r} must point backward."
+                )
+            source_gate = next(item.gate for item in stages if item.stage_id == handoff_source)
+            if source_gate not in {GateType.REVIEWED, GateType.HUMAN}:
+                raise SystemExit(
+                    f"stage {stage.stage_id} handoff source {handoff_source!r} must use a "
+                    "`reviewed` or `human` gate."
+                )
         role_profile = model_roles[stage.model_role.value]
         validate_model_options(
             model=role_profile.model,
@@ -475,6 +548,7 @@ def load_workflow_definition(
         model_roles=model_roles,
         request_defaults=request_defaults,
         stages=stages,
+        review_defaults=review_defaults,
     )
 
 

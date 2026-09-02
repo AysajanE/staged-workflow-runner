@@ -51,7 +51,7 @@
         "submission_outcome_unknown", "submitted", "in_progress",
         "remote_terminal_pending_finalization", "finalized", "waiting_for_review",
         "completed", "failed", "failed_complete", "failed_no_artifact", "cancelled",
-        "cancelling", "incomplete", "blocked", "blocked_preflight"
+        "cancelling", "incomplete", "blocked", "blocked_preflight", "revision_requested"
       ]
     },
     "remoteState": {
@@ -74,7 +74,8 @@
         "response_id": {"type": ["string", "null"]},
         "remote_status": {"type": ["string", "null"]},
         "request_wall_ms": {"type": "integer", "minimum": 0},
-        "rerun_authorization": {"$ref": "#/$defs/rerunAuthorization"}
+        "rerun_authorization": {"$ref": "#/$defs/rerunAuthorization"},
+        "revision_of_attempt_id": {"type": "string", "pattern": "^attempt_[0-9]{3,}$"}
       }
     },
     "rerunAuthorization": {
@@ -100,7 +101,7 @@
       "properties": {
         "stage_id": {"$ref": "#/$defs/id"},
         "stage_number": {"type": "integer", "minimum": 1},
-        "gate": {"enum": ["auto", "review_required", "terminal"]},
+        "gate": {"enum": ["auto", "review_required", "reviewed", "human", "terminal"]},
         "stage_dir": {"$ref": "#/$defs/path"},
         "status": {"$ref": "#/$defs/localState"},
         "local_state": {"$ref": "#/$defs/localState"},
@@ -129,6 +130,12 @@
         "validator_report_path": {"$ref": "#/$defs/path"},
         "validators_passed": {"type": "boolean"},
         "review_bundle_path": {"$ref": "#/$defs/path"},
+        "review_status": {
+          "enum": ["approved", "revision_requested", "blocked", "human_approved", "not_required"]
+        },
+        "review_verdict_path": {"$ref": "#/$defs/path"},
+        "reviewer_notes_path": {"$ref": "#/$defs/path"},
+        "handoff_note_path": {"$ref": "#/$defs/path"},
         "review_approved": {"type": "boolean"},
         "approved_from_status": {"$ref": "#/$defs/localState"}
       }

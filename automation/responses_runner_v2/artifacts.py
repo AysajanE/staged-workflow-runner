@@ -106,6 +106,9 @@ def build_stage_paths(
         "sidecar_response_json": stage_dir / "sidecar.response.json",
         "sidecar_response_md": stage_dir / "sidecar.response.md",
         "stage_checkpoint": stage_dir / "stage_checkpoint.json",
+        "review_dir": stage_dir / "review",
+        "review_verdict": stage_dir / "review" / "verdict.json",
+        "reviewer_notes": stage_dir / "review" / "reviewer_notes.md",
     }
 
 

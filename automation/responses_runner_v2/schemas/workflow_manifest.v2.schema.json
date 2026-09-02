@@ -50,7 +50,8 @@
             "structural_processing": {"$ref": "#/$defs/modelRole"}
           }
         },
-        "request": {"$ref": "#/$defs/request"}
+        "request": {"$ref": "#/$defs/request"},
+        "review": {"$ref": "#/$defs/review"}
       }
     },
     "stages": {
@@ -156,7 +157,19 @@
           "items": {"$ref": "#/$defs/id"}
         },
         "review_bundle_from_stage_id": {"$ref": "#/$defs/id"},
-        "review_bundle_include_response_artifact_json": {"type": "boolean"}
+        "review_bundle_include_response_artifact_json": {"type": "boolean"},
+        "handoff_from_stage_id": {"$ref": "#/$defs/id"}
+      }
+    },
+    "review": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "reviewer": {"enum": ["codex", "claude", "none"]},
+        "model": {"type": "string", "minLength": 1},
+        "effort": {"enum": ["low", "medium", "high", "xhigh", "max"]},
+        "timeout_seconds": {"type": "integer", "minimum": 1},
+        "max_revisions": {"type": "integer", "minimum": 0, "maximum": 3}
       }
     },
     "output": {
@@ -233,7 +246,8 @@
         "verbosity": {"enum": ["low", "medium", "high"]},
         "max_input_tokens": {"type": "integer", "minimum": 1},
         "max_output_tokens": {"type": "integer", "minimum": 1, "maximum": 128000},
-        "gate": {"enum": ["auto", "review_required", "terminal"]},
+        "gate": {"enum": ["auto", "review_required", "reviewed", "human", "terminal"]},
+        "review": {"$ref": "#/$defs/review"},
         "carry_forward": {"$ref": "#/$defs/carryForward"},
         "citation_policy": {"$ref": "#/$defs/citationPolicy"},
         "post_output_validators": {
