@@ -40,10 +40,6 @@ def _asset_paths(workflow: WorkflowDefinition, runtime: RuntimeOptions, root: Pa
             (f"{prefix}:instructions", stage.stage_instructions_path),
             (f"{prefix}:tool_profile", stage.tool_profile_path),
             (f"{prefix}:output_schema", stage.output.schema_path),
-            (
-                f"{prefix}:sidecar_schema",
-                stage.output.sidecar.schema_path if stage.output.sidecar else None,
-            ),
         ):
             if path is not None:
                 members.append((role, path))
@@ -119,7 +115,6 @@ def _runtime_payload(runtime: RuntimeOptions) -> dict[str, Any]:
     return {
         "primary_job_inputs": list(runtime.primary_job_inputs),
         "reference_context": list(runtime.reference_context),
-        "review_bundles": list(runtime.review_bundles),
         "input_bindings": [
             {
                 "binding_id": binding.binding_id,
@@ -236,9 +231,6 @@ def verify_effective_runtime(
     # after a review gate; the exact effective value is frozen in that stage's
     # request plan and payload. All other request defaults and operator source
     # inputs remain frozen here.
-    payload["review_bundles"] = list(
-        contract["effective_runtime"].get("review_bundles", [])
-    )
     if allow_stage_output_increase:
         payload["max_output_tokens"] = contract["effective_runtime"].get(
             "max_output_tokens"
@@ -258,7 +250,6 @@ def runtime_from_contract(contract: dict[str, Any], **control: Any) -> RuntimeOp
     return RuntimeOptions(
         primary_job_inputs=list(payload.get("primary_job_inputs", [])),
         reference_context=list(payload.get("reference_context", [])),
-        review_bundles=list(payload.get("review_bundles", [])),
         input_bindings=[
             RuntimeInputBinding(
                 binding_id=str(binding["binding_id"]),

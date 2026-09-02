@@ -29,7 +29,6 @@ dev = ["jsonschema>=4.0", "pytest>=7.0"]
 
 [project.scripts]
 staged-workflow-run = "automation.run_responses_v2:main"
-staged-workflow-create-bundle = "automation.create_review_bundle_v2:main"
 staged-workflow-eval = "automation.run_responses_v2_eval:main"
 
 [tool.setuptools.packages.find]

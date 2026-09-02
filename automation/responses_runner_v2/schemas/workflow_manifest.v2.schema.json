@@ -179,19 +179,7 @@
       "properties": {
         "primary_format": {"enum": ["text", "json_schema"]},
         "schema_file": {"$ref": "#/$defs/path"},
-        "schema_name": {"type": "string", "pattern": "^[A-Za-z0-9_-]{1,64}$"},
-        "sidecar": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["schema_file", "schema_name"],
-          "properties": {
-            "schema_file": {"$ref": "#/$defs/path"},
-            "schema_name": {"type": "string", "pattern": "^[A-Za-z0-9_-]{1,64}$"},
-            "source_mode": {
-              "enum": ["artifact_only", "artifact_plus_raw_recovery"]
-            }
-          }
-        }
+        "schema_name": {"type": "string", "pattern": "^[A-Za-z0-9_-]{1,64}$"}
       }
     },
     "citationPolicy": {

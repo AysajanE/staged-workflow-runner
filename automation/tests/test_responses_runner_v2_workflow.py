@@ -12,7 +12,6 @@ from unittest import mock
 from automation.responses_runner_v2 import (
     artifacts,
     request_plan,
-    telemetry,
     workflow as workflow_module,
 )
 from automation.responses_runner_v2.contracts import (
@@ -27,7 +26,6 @@ from automation.responses_runner_v2.openai_client import (
     OUTCOME_KNOWN_REJECTED,
     ApiError,
 )
-from automation.responses_runner_v2.review_bundle import create_review_bundle
 from automation.responses_runner_v2.pack_loader import load_workflow_definition
 from automation.responses_runner_v2.workflow import cancel_stage, refresh_stage, resume_stage, run_workflow
 
@@ -269,14 +267,14 @@ class BlockingUploadClient(FakeClient):
 
 
 class ResponsesRunnerV2WorkflowTests(unittest.TestCase):
-    def test_archived_failed_no_artifact_rerun_creates_new_bound_attempt(self) -> None:
+    def test_failed_no_artifact_stage_can_be_rerun_with_explicit_stage(self) -> None:
         with tempfile.TemporaryDirectory(dir=ROOT) as tmp:
             tmp_path = Path(tmp)
             with self.assertRaisesRegex(SystemExit, "failed_no_artifact"):
                 run_workflow(
                     workflow_file="automation/examples/responses_runner_v2_synthetic/workflows/one_pass.workflow.json",
                     runtime=RuntimeOptions(
-                        run_name="authorized-rerun",
+                        run_name="plain-rerun",
                         output_root=tmp_path.relative_to(ROOT),
                     ),
                     client=KnownRejectedSubmitClient(),
@@ -284,80 +282,22 @@ class ResponsesRunnerV2WorkflowTests(unittest.TestCase):
                 )
             run_dir = next(path for path in tmp_path.iterdir() if (path / "run_manifest.json").exists())
             failed = artifacts.load_run_manifest(ROOT, run_dir)
-            first_attempt = failed["stages"][0]["attempts"][0]
-            first_attempt_dir = ROOT / first_attempt["attempt_dir"]
+            first_attempt_dir = ROOT / failed["stages"][0]["attempts"][0]["attempt_dir"]
             first_error_hash = sha256_file(first_attempt_dir / "submission.error.json")
-            failed_usage_attempt = json.loads(
-                (first_attempt_dir / "usage_attempt.json").read_text(encoding="utf-8")
-            )
-            self.assertEqual(failed_usage_attempt["status"], "failed_no_artifact")
-            self.assertIsInstance(failed_usage_attempt["request_wall_ms"], int)
-            self.assertEqual(failed_usage_attempt["retry_count"], 0)
-            self.assertIsNone(failed_usage_attempt["usage"])
-            failed_usage_result = workflow_module.usage_report(
-                run_dir=run_dir.relative_to(ROOT),
-                root=ROOT,
-            )
-            failed_usage_report = json.loads(
-                (ROOT / failed_usage_result["usage_report_path"]).read_text(encoding="utf-8")
-            )
-            self.assertEqual(failed_usage_report["totals"]["attempt_count"], 1)
-            self.assertIsNone(failed_usage_report["totals"]["total_tokens"])
-            request_path = first_attempt_dir / "request_payload.json"
-            archive_dir = tmp_path / "supervisor_archive"
-            archive_dir.mkdir()
-            archived_request = archive_dir / "request_payload.json"
-            shutil.copy2(request_path, archived_request)
-            archive_path = archive_dir / "supervisor_archive.json"
-            request_hash = "a" * 64
-            write_json(
-                archive_path,
-                {
-                    "schema_version": "responses_runner_v2.supervisor_archive.v1",
-                    "archive_id": "archive_authorized_rerun",
-                    "archived_at": "2026-08-11T12:00:00+00:00",
-                    "reason": "failed_no_artifact",
-                    "source": {
-                        "run_dir": run_dir.relative_to(ROOT).as_posix(),
-                        "run_id": failed["run_id"],
-                        "workflow_id": failed["workflow_id"],
-                        "stage_id": "draft_summary",
-                        "response_id": None,
-                    },
-                    "included_artifacts": [
-                        {
-                            "source_path": request_path.relative_to(ROOT).as_posix(),
-                            "archive_path": archived_request.relative_to(ROOT).as_posix(),
-                            "sha256": sha256_file(request_path),
-                            "bytes": request_path.stat().st_size,
-                        }
-                    ],
-                    "request_hash": request_hash,
-                    "scaffold_hash": "",
-                    "request_evidence": {
-                        "status": "complete",
-                        "request_hash": request_hash,
-                        "evidence_files": [],
-                        "model_tool_settings": {},
-                    },
-                    "scaffold_evidence": {"status": "complete", "scaffold_hash": ""},
-                    "unchanged_input_evidence": {
-                        "request_hash_before": request_hash,
-                        "scaffold_hash_before": "",
-                        "rerun_requires_same_hashes": True,
-                    },
-                    "retry_budget_before": {"failed_no_artifact": 1},
-                    "retry_budget_after": {"failed_no_artifact": 0},
-                    "rerun_as_is_eligible": True,
-                },
-            )
+
+            with self.assertRaisesRegex(SystemExit, "No eligible stage"):
+                run_workflow(
+                    workflow_file="automation/examples/responses_runner_v2_synthetic/workflows/one_pass.workflow.json",
+                    runtime=RuntimeOptions(run_dir=run_dir.relative_to(ROOT), wait=True),
+                    client=FakeClient(),
+                    root=ROOT,
+                )
 
             result = run_workflow(
                 workflow_file="automation/examples/responses_runner_v2_synthetic/workflows/one_pass.workflow.json",
                 runtime=RuntimeOptions(
                     run_dir=run_dir.relative_to(ROOT),
                     stage_id="draft_summary",
-                    rerun_archive_manifest=archive_path.relative_to(ROOT).as_posix(),
                     wait=True,
                 ),
                 client=FakeClient(),
@@ -369,14 +309,7 @@ class ResponsesRunnerV2WorkflowTests(unittest.TestCase):
             attempts = rerun["stages"][0]["attempts"]
             self.assertEqual([item["attempt_id"] for item in attempts], ["attempt_001", "attempt_002"])
             self.assertEqual(sha256_file(first_attempt_dir / "submission.error.json"), first_error_hash)
-            self.assertEqual(
-                attempts[1]["rerun_authorization"]["prior_attempt_id"],
-                "attempt_001",
-            )
-            self.assertEqual(
-                attempts[1]["rerun_authorization"]["archive_sha256"],
-                sha256_file(archive_path),
-            )
+            self.assertTrue((ROOT / attempts[1]["attempt_dir"] / "artifact.md").exists())
 
     def test_existing_run_rejects_effective_runtime_drift(self) -> None:
         with tempfile.TemporaryDirectory(dir=ROOT) as tmp:
@@ -400,61 +333,6 @@ class ResponsesRunnerV2WorkflowTests(unittest.TestCase):
                     ),
                     root=ROOT,
                 )
-
-    def test_review_gated_next_stage_allows_output_limit_increase(self) -> None:
-        with tempfile.TemporaryDirectory(dir=ROOT) as tmp:
-            tmp_path = Path(tmp)
-            workflow_path = "automation/examples/responses_runner_v2_synthetic/workflows/reviewed_three_stage.workflow.json"
-            stage1 = run_workflow(
-                workflow_file=workflow_path,
-                runtime=RuntimeOptions(
-                    run_name="review-gated-output-increase",
-                    output_root=tmp_path.relative_to(ROOT),
-                    wait=True,
-                ),
-                client=FakeClient(),
-                root=ROOT,
-            )
-            run_dir = ROOT / stage1["run_dir"]
-            run_manifest = artifacts.load_run_manifest(ROOT, run_dir)
-            proposal_dir = _stage_dir(run_manifest, "proposal")
-            notes = run_dir / "proposal.review.md"
-            notes.write_text("# approved\n", encoding="utf-8")
-            bundle = run_dir / "proposal.review_bundle.json"
-            create_review_bundle(
-                root=ROOT,
-                output_path=bundle.relative_to(ROOT),
-                workflow_id="synthetic_reviewed_three_stage",
-                source_stage_id="proposal",
-                source_run_id=run_manifest["run_id"],
-                primary_artifact_markdown=(proposal_dir / "artifact.md").relative_to(ROOT),
-                response_artifact_json=(proposal_dir / "response.final.json").relative_to(ROOT),
-                reviewer_notes=notes.relative_to(ROOT),
-            )
-
-            run_workflow(
-                workflow_file=workflow_path,
-                runtime=RuntimeOptions(
-                    run_dir=run_dir.relative_to(ROOT),
-                    stage_id="revision",
-                    review_bundles=[bundle.relative_to(ROOT).as_posix()],
-                    max_output_tokens=96000,
-                    dry_run=True,
-                ),
-                root=ROOT,
-            )
-
-            request_payload = json.loads(
-                (
-                    run_dir
-                    / "dry_runs/stages/02_revision/request_payload.json"
-                ).read_text(encoding="utf-8")
-            )
-            contract = json.loads(
-                (run_dir / "run_contract.json").read_text(encoding="utf-8")
-            )
-            self.assertEqual(request_payload["max_output_tokens"], 96000)
-            self.assertIsNone(contract["effective_runtime"]["max_output_tokens"])
 
     def test_existing_run_rejects_same_id_workflow_from_another_path(self) -> None:
         with tempfile.TemporaryDirectory(dir=ROOT) as tmp:
@@ -486,10 +364,6 @@ class ResponsesRunnerV2WorkflowTests(unittest.TestCase):
             stage["tool_profile_file"] = (
                 ROOT
                 / "automation/examples/responses_runner_v2_synthetic/tools/no_tools.profile.json"
-            ).as_posix()
-            stage["output"]["sidecar"]["schema_file"] = (
-                ROOT
-                / "automation/examples/responses_runner_v2_synthetic/schemas/synthetic_summary.schema.json"
             ).as_posix()
             alternate_path = tmp_path / "alternate.workflow.json"
             alternate_path.write_text(
@@ -720,13 +594,6 @@ class ResponsesRunnerV2WorkflowTests(unittest.TestCase):
             self.assertEqual(run_manifest["status"], "submission_outcome_unknown")
             self.assertTrue((stage_dir / "submission.intent.json").exists())
             self.assertTrue((stage_dir / "submission.error.json").exists())
-            usage_attempt = json.loads(
-                (stage_dir / "usage_attempt.json").read_text(encoding="utf-8")
-            )
-            self.assertEqual(usage_attempt["status"], "submission_outcome_unknown")
-            self.assertIsInstance(usage_attempt["request_wall_ms"], int)
-            self.assertEqual(usage_attempt["retry_count"], 0)
-            self.assertIsNone(usage_attempt["usage"])
 
             second_client = FakeClient()
             with self.assertRaises(SystemExit):
@@ -747,15 +614,6 @@ class ResponsesRunnerV2WorkflowTests(unittest.TestCase):
                     client=second_client,
                     root=ROOT,
                 )
-            usage_result = workflow_module.usage_report(
-                run_dir=run_dir.relative_to(ROOT),
-                root=ROOT,
-            )
-            usage_report = json.loads(
-                (ROOT / usage_result["usage_report_path"]).read_text(encoding="utf-8")
-            )
-            self.assertEqual(usage_report["totals"]["attempt_count"], 1)
-            self.assertIsNone(usage_report["totals"]["total_tokens"])
             self.assertEqual(len(client.create_requests), 1)
             self.assertEqual(second_client.create_requests, [])
 
@@ -1280,257 +1138,6 @@ class ResponsesRunnerV2WorkflowTests(unittest.TestCase):
             self.assertEqual(diagnostics["reason"], "model_context_window_exceeded")
             self.assertEqual(client.create_requests, [])
 
-    def test_stage_can_exclude_raw_response_json_from_review_handoff_inputs(self) -> None:
-        with tempfile.TemporaryDirectory(dir=ROOT) as tmp:
-            tmp_path = Path(tmp)
-            workflow_path = tmp_path / "workflow.json"
-            workflow_payload = {
-                "schema_version": "responses_runner_v2.workflow_manifest.v1",
-                "workflow_id": "synthetic_review_handoff_trimmed",
-                "workflow_mode": "two_pass",
-                "description": "Synthetic workflow that trims raw response JSON from review handoff.",
-                "shared_instructions_file": SYNTHETIC_SHARED_INSTRUCTIONS,
-                "defaults": {
-                    "model_roles": {
-                        "primary_generation": {
-                            "model": "gpt-5.5-pro",
-                            "reasoning_effort": "xhigh",
-                            "verbosity": "high",
-                            "prompt_cache_retention": "24h"
-                        },
-                        "structural_processing": {
-                            "model": "gpt-5.5",
-                            "reasoning_effort": "medium",
-                            "verbosity": "medium",
-                            "prompt_cache_retention": "24h"
-                        }
-                    },
-                    "request": {
-                        "background": True,
-                        "store": True,
-                        "parallel_tool_calls": True,
-                        "max_tool_calls": 8,
-                        "token_preflight": {
-                            "enabled": True,
-                            "max_retries": 1,
-                            "retryable_http_status_codes": [429, 500, 502, 503, 504],
-                            "on_retryable_service_failure": "continue_without_token_count"
-                        },
-                        "file_uploads": {
-                            "purpose": "user_data",
-                            "delete_on_completion": False
-                        }
-                    }
-                },
-                "stages": [
-                    {
-                        "stage_id": "proposal",
-                        "stage_number": 1,
-                        "title": "Proposal",
-                        "task_file": SYNTHETIC_REVIEWED_STAGE1_PROMPT,
-                        "input_manifest_file": SYNTHETIC_REVIEWED_STAGE1_INPUT,
-                        "model_role": "primary_generation",
-                        "gate": "review_required",
-                        "output": {"primary_format": "text"}
-                    },
-                    {
-                        "stage_id": "revision",
-                        "stage_number": 2,
-                        "title": "Revision",
-                        "task_file": SYNTHETIC_REVIEWED_STAGE2_PROMPT,
-                        "input_manifest_file": SYNTHETIC_REVIEWED_STAGE2_INPUT,
-                        "model_role": "primary_generation",
-                        "gate": "terminal",
-                        "carry_forward": {
-                            "review_bundle_from_stage_id": "proposal",
-                            "review_bundle_include_response_artifact_json": False
-                        },
-                        "output": {"primary_format": "text"}
-                    }
-                ]
-            }
-            workflow_path.write_text(json.dumps(workflow_payload, indent=2) + "\n", encoding="utf-8")
-
-            stage1 = run_workflow(
-                workflow_file=workflow_path.relative_to(ROOT).as_posix(),
-                runtime=RuntimeOptions(
-                    run_name="synthetic-trimmed-review-handoff",
-                    output_root=tmp_path.relative_to(ROOT),
-                    wait=True,
-                ),
-                client=FakeClient(),
-                root=ROOT,
-            )
-            run_dir = ROOT / stage1["run_dir"]
-            run_manifest = json.loads((run_dir / "run_manifest.json").read_text(encoding="utf-8"))
-            proposal_stage_dir = _stage_dir(run_manifest, "proposal")
-            notes = run_dir / "proposal.review.md"
-            notes.write_text("# approved\n", encoding="utf-8")
-            bundle = run_dir / "proposal.review_bundle.json"
-            create_review_bundle(
-                root=ROOT,
-                output_path=bundle.relative_to(ROOT),
-                workflow_id="synthetic_review_handoff_trimmed",
-                source_stage_id="proposal",
-                source_run_id=run_manifest["run_id"],
-                primary_artifact_markdown=(proposal_stage_dir / "artifact.md").relative_to(ROOT),
-                response_artifact_json=(proposal_stage_dir / "response.final.json").relative_to(ROOT),
-                reviewer_notes=notes.relative_to(ROOT),
-            )
-
-            run_workflow(
-                workflow_file=workflow_path.relative_to(ROOT).as_posix(),
-                runtime=RuntimeOptions(
-                    run_dir=run_dir.relative_to(ROOT),
-                    stage_id="revision",
-                    output_root=tmp_path.relative_to(ROOT),
-                    review_bundles=[bundle.relative_to(ROOT).as_posix()],
-                    dry_run=True,
-                ),
-                root=ROOT,
-            )
-
-            run_manifest = json.loads((run_dir / "run_manifest.json").read_text(encoding="utf-8"))
-            revision_stage_dir = _stage_dir(run_manifest, "revision")
-            manifest = json.loads((revision_stage_dir / "input_manifest.json").read_text(encoding="utf-8"))
-            reviewed_paths = [entry["path"] for entry in manifest["reviewed_handoff_inputs"]]
-
-        self.assertEqual(
-            reviewed_paths,
-            [
-                notes.relative_to(ROOT).as_posix(),
-                (proposal_stage_dir / "artifact.md").relative_to(ROOT).as_posix(),
-            ],
-        )
-
-    def test_run_workflow_can_carry_approved_handoff_markdown_ahead_of_raw_stage_artifact(self) -> None:
-        with tempfile.TemporaryDirectory(dir=ROOT) as tmp:
-            tmp_path = Path(tmp)
-            workflow_path = tmp_path / "workflow.json"
-            workflow_payload = {
-                "schema_version": "responses_runner_v2.workflow_manifest.v1",
-                "workflow_id": "synthetic_review_handoff_with_approved_markdown",
-                "workflow_name": "Synthetic Reviewed Handoff With Approved Markdown",
-                "workflow_mode": "two_pass",
-                "description": "Synthetic workflow that carries a concise approved handoff markdown.",
-                "shared_instructions_file": SYNTHETIC_SHARED_INSTRUCTIONS,
-                "defaults": {
-                    "model_roles": {
-                        "primary_generation": {
-                            "model": "gpt-5.5-pro",
-                            "reasoning_effort": "xhigh",
-                            "verbosity": "high",
-                            "prompt_cache_retention": "24h"
-                        },
-                        "structural_processing": {
-                            "model": "gpt-5.5",
-                            "reasoning_effort": "medium",
-                            "verbosity": "medium",
-                            "prompt_cache_retention": "24h"
-                        }
-                    },
-                    "request": {
-                        "background": False,
-                        "store": True,
-                        "parallel_tool_calls": True,
-                        "max_tool_calls": 4,
-                        "token_preflight": {
-                            "enabled": False,
-                            "max_retries": 1,
-                            "retryable_http_status_codes": [429],
-                            "on_retryable_service_failure": "continue_without_token_count"
-                        },
-                        "file_uploads": {
-                            "purpose": "user_data",
-                            "delete_on_completion": False
-                        }
-                    }
-                },
-                "stages": [
-                    {
-                        "stage_id": "proposal",
-                        "stage_number": 1,
-                        "title": "Proposal",
-                        "task_file": SYNTHETIC_REVIEWED_STAGE1_PROMPT,
-                        "input_manifest_file": SYNTHETIC_REVIEWED_STAGE1_INPUT,
-                        "model_role": "primary_generation",
-                        "gate": "review_required",
-                        "output": {"primary_format": "text"}
-                    },
-                    {
-                        "stage_id": "revision",
-                        "stage_number": 2,
-                        "title": "Revision",
-                        "task_file": SYNTHETIC_REVIEWED_STAGE2_PROMPT,
-                        "input_manifest_file": SYNTHETIC_REVIEWED_STAGE2_INPUT,
-                        "model_role": "primary_generation",
-                        "gate": "terminal",
-                        "carry_forward": {
-                            "review_bundle_from_stage_id": "proposal",
-                            "review_bundle_include_response_artifact_json": False
-                        },
-                        "output": {"primary_format": "text"}
-                    }
-                ]
-            }
-            workflow_path.write_text(json.dumps(workflow_payload, indent=2) + "\n", encoding="utf-8")
-
-            stage1 = run_workflow(
-                workflow_file=workflow_path.relative_to(ROOT).as_posix(),
-                runtime=RuntimeOptions(
-                    run_name="synthetic-approved-review-handoff",
-                    output_root=tmp_path.relative_to(ROOT),
-                    wait=True,
-                ),
-                client=FakeClient(),
-                root=ROOT,
-            )
-            run_dir = ROOT / stage1["run_dir"]
-            run_manifest = json.loads((run_dir / "run_manifest.json").read_text(encoding="utf-8"))
-            proposal_stage_dir = _stage_dir(run_manifest, "proposal")
-            notes = run_dir / "proposal.review.md"
-            notes.write_text("# approved\n", encoding="utf-8")
-            handoff = run_dir / "proposal.approved_handoff.md"
-            handoff.write_text("# concise reviewed handoff\n", encoding="utf-8")
-            bundle = run_dir / "proposal.review_bundle.json"
-            create_review_bundle(
-                root=ROOT,
-                output_path=bundle.relative_to(ROOT),
-                workflow_id="synthetic_review_handoff_with_approved_markdown",
-                source_stage_id="proposal",
-                source_run_id=run_manifest["run_id"],
-                primary_artifact_markdown=(proposal_stage_dir / "artifact.md").relative_to(ROOT),
-                response_artifact_json=(proposal_stage_dir / "response.final.json").relative_to(ROOT),
-                reviewer_notes=notes.relative_to(ROOT),
-                approved_handoff_markdown=handoff.relative_to(ROOT),
-            )
-
-            run_workflow(
-                workflow_file=workflow_path.relative_to(ROOT).as_posix(),
-                runtime=RuntimeOptions(
-                    run_dir=run_dir.relative_to(ROOT),
-                    stage_id="revision",
-                    output_root=tmp_path.relative_to(ROOT),
-                    review_bundles=[bundle.relative_to(ROOT).as_posix()],
-                    dry_run=True,
-                ),
-                root=ROOT,
-            )
-
-            run_manifest = json.loads((run_dir / "run_manifest.json").read_text(encoding="utf-8"))
-            revision_stage_dir = _stage_dir(run_manifest, "revision")
-            manifest = json.loads((revision_stage_dir / "input_manifest.json").read_text(encoding="utf-8"))
-            reviewed_paths = [entry["path"] for entry in manifest["reviewed_handoff_inputs"]]
-
-        self.assertEqual(
-            reviewed_paths,
-            [
-                handoff.relative_to(ROOT).as_posix(),
-                notes.relative_to(ROOT).as_posix(),
-                (proposal_stage_dir / "artifact.md").relative_to(ROOT).as_posix(),
-            ],
-        )
-
     def test_critical_workflow_fails_closed_on_token_count_service_failure(self) -> None:
         with tempfile.TemporaryDirectory(dir=ROOT) as tmp:
             runtime = RuntimeOptions(
@@ -1621,212 +1228,6 @@ class ResponsesRunnerV2WorkflowTests(unittest.TestCase):
                 {"status": "skipped_by_operator", "attempts": 0},
             )
 
-    def test_refresh_status_only_does_not_rewrite_terminal_artifacts_or_rerun_sidecar(self) -> None:
-        class RefreshOnlyClient:
-            def retrieve_response(self, response_id):
-                return _completed_response(response_id)
-
-            def upload_file(self, *_args, **_kwargs):
-                raise AssertionError("refresh must not upload files")
-
-            def create_response(self, *_args, **_kwargs):
-                raise AssertionError("refresh must not create a sidecar response")
-
-            def wait_for_terminal_response(self, *_args, **_kwargs):
-                raise AssertionError("refresh must not wait on a terminal response")
-
-            def delete_file(self, *_args, **_kwargs):
-                raise AssertionError("refresh must not delete uploaded files")
-
-        with tempfile.TemporaryDirectory(dir=ROOT) as tmp:
-            runtime = RuntimeOptions(
-                run_name="synthetic-refresh-only",
-                output_root=Path(tmp).relative_to(ROOT),
-                wait=True,
-            )
-            result = run_workflow(
-                workflow_file="automation/examples/responses_runner_v2_synthetic/workflows/one_pass.workflow.json",
-                runtime=runtime,
-                client=FakeClient(),
-                root=ROOT,
-            )
-            run_dir = ROOT / result["run_dir"]
-            run_manifest = json.loads((run_dir / "run_manifest.json").read_text(encoding="utf-8"))
-            stage_dir = _stage_dir(run_manifest)
-            sentinel_main = "# sentinel main artifact\n"
-            sentinel_sidecar = "# sentinel sidecar artifact\n"
-            sentinel_structured = '{\n  "sentinel": true\n}\n'
-            (stage_dir / "response.final.md").write_text(sentinel_main, encoding="utf-8")
-            (stage_dir / "sidecar.response.md").write_text(sentinel_sidecar, encoding="utf-8")
-            (stage_dir / "output.structured.json").write_text(sentinel_structured, encoding="utf-8")
-
-            refreshed = refresh_stage(
-                run_dir=run_dir.relative_to(ROOT),
-                stage_id="draft_summary",
-                client=RefreshOnlyClient(),
-                root=ROOT,
-            )
-
-            self.assertEqual(refreshed["status"], "completed")
-            self.assertEqual((stage_dir / "response.final.md").read_text(encoding="utf-8"), sentinel_main)
-            self.assertEqual((stage_dir / "sidecar.response.md").read_text(encoding="utf-8"), sentinel_sidecar)
-            self.assertEqual((stage_dir / "output.structured.json").read_text(encoding="utf-8"), sentinel_structured)
-            checkpoint = json.loads((stage_dir / "stage_checkpoint.json").read_text(encoding="utf-8"))
-            self.assertEqual(checkpoint["resume_mode"], "refresh_status_only")
-
-    def test_resume_after_refresh_materializes_missing_terminal_sidecar_artifacts(self) -> None:
-        with tempfile.TemporaryDirectory(dir=ROOT) as tmp:
-            runtime = RuntimeOptions(
-                run_name="synthetic-refresh-then-resume",
-                output_root=Path(tmp).relative_to(ROOT),
-                wait=False,
-            )
-            result = run_workflow(
-                workflow_file="automation/examples/responses_runner_v2_synthetic/workflows/one_pass.workflow.json",
-                runtime=runtime,
-                client=FakeClient(completed=False),
-                root=ROOT,
-            )
-            run_dir = ROOT / result["run_dir"]
-            run_manifest = json.loads((run_dir / "run_manifest.json").read_text(encoding="utf-8"))
-            stage_dir = _stage_dir(run_manifest)
-
-            self.assertFalse((stage_dir / "response.final.md").exists())
-            self.assertFalse((stage_dir / "output.structured.json").exists())
-            self.assertFalse((stage_dir / "sidecar.response.json").exists())
-            self.assertFalse((stage_dir / "sidecar.response.md").exists())
-
-            refreshed = refresh_stage(
-                run_dir=run_dir.relative_to(ROOT),
-                stage_id="draft_summary",
-                client=FakeClient(),
-                root=ROOT,
-            )
-            self.assertEqual(refreshed["status"], "pending_finalization")
-            self.assertFalse((stage_dir / "response.final.md").exists())
-            self.assertFalse((stage_dir / "output.structured.json").exists())
-            self.assertFalse((stage_dir / "sidecar.response.json").exists())
-            self.assertFalse((stage_dir / "sidecar.response.md").exists())
-
-            resumed = resume_stage(
-                run_dir=run_dir.relative_to(ROOT),
-                stage_id="draft_summary",
-                wait=False,
-                poll_interval=0.1,
-                max_wait_seconds=10.0,
-                client=FakeClient(),
-                root=ROOT,
-            )
-            self.assertEqual(resumed["status"], "completed")
-            self.assertTrue((stage_dir / "response.final.md").exists())
-            self.assertTrue((stage_dir / "output.structured.json").exists())
-            self.assertTrue((stage_dir / "sidecar.response.json").exists())
-            self.assertTrue((stage_dir / "sidecar.response.md").exists())
-            usage_result = workflow_module.usage_report(
-                run_dir=run_dir.relative_to(ROOT),
-                root=ROOT,
-            )
-            usage_report = json.loads(
-                (ROOT / usage_result["usage_report_path"]).read_text(encoding="utf-8")
-            )
-            self.assertEqual(
-                sum(
-                    attempt["lane"] == "primary"
-                    for attempt in usage_report["attempts"]
-                ),
-                1,
-            )
-
-    def test_sidecar_uses_background_high_budget_and_persists_recovery_state(self) -> None:
-        with tempfile.TemporaryDirectory(dir=ROOT) as tmp:
-            runtime = RuntimeOptions(
-                run_name="synthetic-sidecar-state",
-                output_root=Path(tmp).relative_to(ROOT),
-                wait=True,
-            )
-            client = FakeClient()
-            result = run_workflow(
-                workflow_file="automation/examples/responses_runner_v2_synthetic/workflows/one_pass.workflow.json",
-                runtime=runtime,
-                client=client,
-                root=ROOT,
-            )
-            run_manifest = json.loads((ROOT / result["run_manifest_path"]).read_text(encoding="utf-8"))
-            stage_dir = _stage_dir(run_manifest)
-            stage_summary = run_manifest["stages"][0]
-            sidecar_requests = [
-                request
-                for request in client.create_requests
-                if request.get("metadata", {}).get("kind") == "sidecar"
-            ]
-
-            self.assertEqual(len(sidecar_requests), 1)
-            self.assertTrue(sidecar_requests[0]["background"])
-            self.assertEqual(sidecar_requests[0]["max_output_tokens"], 128000)
-            self.assertTrue((stage_dir / "sidecar.response.request.json").exists())
-            self.assertTrue((stage_dir / "sidecar.response.latest.json").exists())
-            self.assertTrue((stage_dir / "sidecar.response.raw.json").exists())
-            request_payload = json.loads((stage_dir / "sidecar.response.request.json").read_text(encoding="utf-8"))
-            submission_journal = json.loads(
-                (stage_dir / "sidecar.response.submissions.json").read_text(encoding="utf-8")
-            )
-            sidecar_uploads = json.loads(
-                (stage_dir / "sidecar.response.uploads.json").read_text(encoding="utf-8")
-            )
-            primary_usage_attempt = json.loads(
-                (stage_dir / "usage_attempt.json").read_text(encoding="utf-8")
-            )
-            sidecar_usage_attempts = json.loads(
-                (stage_dir / "sidecar.response.attempts.json").read_text(encoding="utf-8")
-            )["attempts"]
-            self.assertTrue(request_payload["background"])
-            self.assertEqual(request_payload["max_output_tokens"], 128000)
-            self.assertEqual(
-                request_payload["prompt_cache_key"],
-                build_prompt_cache_key(
-                    f"stable:v1:synthetic_one_pass:{RUNNER_VERSION}:gpt-5.6",
-                    "structural_processing",
-                ),
-            )
-            self.assertEqual(submission_journal["attempts"][0]["status"], "submitted")
-            self.assertEqual(
-                submission_journal["attempts"][0]["request_sha256"],
-                sha256_file(stage_dir / "sidecar.response.request.json"),
-            )
-            self.assertEqual(sidecar_uploads["files"][0]["status"], "uploaded")
-            self.assertIsNone(primary_usage_attempt["usage"])
-            self.assertIsNone(sidecar_usage_attempts[0]["usage"])
-            usage_result = workflow_module.usage_report(
-                run_dir=result["run_dir"],
-                root=ROOT,
-            )
-            usage_report = json.loads(
-                (ROOT / usage_result["usage_report_path"]).read_text(encoding="utf-8")
-            )
-            self.assertEqual(
-                [attempt["lane"] for attempt in usage_report["attempts"]],
-                ["primary", "sidecar"],
-            )
-            for attempt in usage_report["attempts"]:
-                self.assertTrue(
-                    all(
-                        attempt["usage"][field] is None
-                        for field in telemetry.USAGE_COUNTER_FIELDS
-                    )
-                )
-            for totals in [*usage_report["by_lane"].values(), usage_report["totals"]]:
-                self.assertTrue(
-                    all(totals[field] is None for field in telemetry.USAGE_COUNTER_FIELDS)
-                )
-            self.assertEqual(
-                stage_summary["sidecar_response_json_path"],
-                (stage_dir / "sidecar.response.json").relative_to(ROOT).as_posix(),
-            )
-            self.assertEqual(
-                stage_summary["sidecar_response_markdown_path"],
-                (stage_dir / "sidecar.response.md").relative_to(ROOT).as_posix(),
-            )
-
     def test_completed_stage_rejects_resume_without_side_effects(self) -> None:
         with tempfile.TemporaryDirectory(dir=ROOT) as tmp:
             runtime = RuntimeOptions(
@@ -1857,344 +1258,6 @@ class ResponsesRunnerV2WorkflowTests(unittest.TestCase):
                 )
             self.assertEqual(client.upload_count, upload_count)
             self.assertEqual(len(client.create_requests), create_count)
-
-    def test_resume_retries_legacy_output_limited_sidecar_with_current_budget(self) -> None:
-        with tempfile.TemporaryDirectory(dir=ROOT) as tmp:
-            runtime = RuntimeOptions(
-                run_name="synthetic-sidecar-output-limit-retry",
-                output_root=Path(tmp).relative_to(ROOT),
-                wait=False,
-            )
-            result = run_workflow(
-                workflow_file="automation/examples/responses_runner_v2_synthetic/workflows/one_pass.workflow.json",
-                runtime=runtime,
-                client=FakeClient(completed=False),
-                root=ROOT,
-            )
-            run_dir = ROOT / result["run_dir"]
-            run_manifest = json.loads((run_dir / "run_manifest.json").read_text(encoding="utf-8"))
-            stage_dir = _stage_dir(run_manifest)
-            (stage_dir / "sidecar.response.latest.json").write_text(
-                json.dumps(
-                    {
-                        "id": "resp_legacy_sidecar",
-                        "status": "incomplete",
-                        "max_output_tokens": 16000,
-                        "incomplete_details": {"reason": "max_output_tokens"},
-                        "output": [],
-                    },
-                    indent=2,
-                )
-                + "\n",
-                encoding="utf-8",
-            )
-            (stage_dir / "sidecar.response.request.json").write_text(
-                json.dumps({"max_output_tokens": 16000}, indent=2) + "\n",
-                encoding="utf-8",
-            )
-            client = FakeClient()
-
-            resumed = resume_stage(
-                run_dir=run_dir.relative_to(ROOT),
-                stage_id="draft_summary",
-                wait=False,
-                poll_interval=0.1,
-                max_wait_seconds=10.0,
-                client=client,
-                root=ROOT,
-            )
-            sidecar_requests = [
-                request
-                for request in client.create_requests
-                if request.get("metadata", {}).get("kind") == "sidecar"
-            ]
-
-            self.assertEqual(resumed["status"], "completed")
-            self.assertEqual(len(sidecar_requests), 1)
-            self.assertEqual(sidecar_requests[0]["max_output_tokens"], 128000)
-            latest = json.loads((stage_dir / "sidecar.response.latest.json").read_text(encoding="utf-8"))
-            self.assertEqual(latest["id"], "resp_sidecar")
-            self.assertTrue((stage_dir / "sidecar.response.json").exists())
-            self.assertTrue((stage_dir / "output.structured.json").exists())
-
-    def test_resume_retries_retryable_failed_sidecar_and_records_attempt(self) -> None:
-        with tempfile.TemporaryDirectory(dir=ROOT) as tmp:
-            runtime = RuntimeOptions(
-                run_name="synthetic-sidecar-server-error-retry",
-                output_root=Path(tmp).relative_to(ROOT),
-                wait=False,
-            )
-            result = run_workflow(
-                workflow_file="automation/examples/responses_runner_v2_synthetic/workflows/one_pass.workflow.json",
-                runtime=runtime,
-                client=FakeClient(completed=False),
-                root=ROOT,
-            )
-            run_dir = ROOT / result["run_dir"]
-            run_manifest = json.loads((run_dir / "run_manifest.json").read_text(encoding="utf-8"))
-            stage_dir = _stage_dir(run_manifest)
-            (stage_dir / "sidecar.response.latest.json").write_text(
-                json.dumps(
-                    {
-                        "id": "resp_failed_sidecar",
-                        "status": "failed",
-                        "max_output_tokens": 128000,
-                        "error": {"code": "server_error", "message": "Synthetic transient failure"},
-                        "output": [],
-                    },
-                    indent=2,
-                )
-                + "\n",
-                encoding="utf-8",
-            )
-            client = FakeClient()
-
-            resumed = resume_stage(
-                run_dir=run_dir.relative_to(ROOT),
-                stage_id="draft_summary",
-                wait=False,
-                poll_interval=0.1,
-                max_wait_seconds=10.0,
-                client=client,
-                root=ROOT,
-            )
-            sidecar_requests = [
-                request
-                for request in client.create_requests
-                if request.get("metadata", {}).get("kind") == "sidecar"
-            ]
-            attempts = json.loads((stage_dir / "sidecar.response.attempts.json").read_text(encoding="utf-8"))
-
-            self.assertEqual(resumed["status"], "completed")
-            self.assertEqual(len(sidecar_requests), 1)
-            self.assertEqual(
-                [attempt["response_id"] for attempt in attempts["attempts"]],
-                ["resp_failed_sidecar", "resp_sidecar"],
-            )
-            self.assertEqual(attempts["attempts"][0]["retry_reason"], "retryable_terminal_server_error")
-            self.assertEqual(
-                [attempt["retry_count"] for attempt in attempts["attempts"]],
-                [None, 1],
-            )
-            self.assertTrue((stage_dir / "sidecar.response.json").exists())
-
-    def test_terminal_cleanup_tracks_and_deletes_sidecar_uploads(self) -> None:
-        with tempfile.TemporaryDirectory(dir=ROOT) as tmp:
-            runtime = RuntimeOptions(
-                run_name="synthetic-sidecar-cleanup",
-                output_root=Path(tmp).relative_to(ROOT),
-                wait=True,
-                delete_uploaded_files_on_complete=True,
-                file_expires_after="3600",
-            )
-            client = FakeClient()
-            result = run_workflow(
-                workflow_file="automation/examples/responses_runner_v2_synthetic/workflows/one_pass.workflow.json",
-                runtime=runtime,
-                client=client,
-                root=ROOT,
-            )
-            run_manifest = json.loads((ROOT / result["run_manifest_path"]).read_text(encoding="utf-8"))
-            stage_dir = _stage_dir(run_manifest)
-            uploads_payload = json.loads((stage_dir / "uploads.json").read_text(encoding="utf-8"))
-
-            self.assertEqual(len(client.delete_calls), 5)
-            self.assertEqual(len(uploads_payload["files"]), 5)
-            self.assertEqual(
-                uploads_payload["file_expiration_policy"],
-                {"anchor": "created_at", "seconds": 3600},
-            )
-            sidecar_files = [
-                record
-                for record in uploads_payload["files"]
-                if str(record.get("attachment_role", "")).startswith("Sidecar ")
-            ]
-            self.assertEqual(len(sidecar_files), 1)
-            self.assertTrue(all(record.get("delete_status") == "deleted" for record in uploads_payload["files"]))
-            self.assertTrue(
-                all(
-                    request["file_expiration_policy"] == {"anchor": "created_at", "seconds": 3600}
-                    for request in client.upload_requests[-2:]
-                )
-            )
-
-    def test_review_required_stage_blocks_without_bundle(self) -> None:
-        with tempfile.TemporaryDirectory(dir=ROOT) as tmp:
-            runtime = RuntimeOptions(
-                run_name="synthetic-reviewed",
-                output_root=Path(tmp).relative_to(ROOT),
-                wait=True,
-            )
-            client = FakeClient()
-            result = run_workflow(
-                workflow_file="automation/examples/responses_runner_v2_synthetic/workflows/reviewed_three_stage.workflow.json",
-                runtime=runtime,
-                client=client,
-                root=ROOT,
-            )
-            with self.assertRaises(SystemExit):
-                run_workflow(
-                    workflow_file="automation/examples/responses_runner_v2_synthetic/workflows/reviewed_three_stage.workflow.json",
-                    runtime=RuntimeOptions(
-                        run_dir=Path(result["run_dir"]),
-                        output_root=Path(tmp).relative_to(ROOT),
-                        wait=True,
-                    ),
-                    client=client,
-                    root=ROOT,
-                )
-
-    def test_failed_stage_with_real_artifacts_can_progress_via_approved_bundle_without_rewriting_status(self) -> None:
-        with tempfile.TemporaryDirectory(dir=ROOT) as tmp:
-            output_root = Path(tmp).relative_to(ROOT)
-            client = SequenceClient([_failed_response("resp_stage1"), _completed_response("resp_stage2")])
-
-            stage1 = run_workflow(
-                workflow_file="automation/examples/responses_runner_v2_synthetic/workflows/reviewed_three_stage.workflow.json",
-                runtime=RuntimeOptions(
-                    run_name="synthetic-failed-reviewed-handoff",
-                    output_root=output_root,
-                    wait=True,
-                ),
-                client=client,
-                root=ROOT,
-            )
-            run_dir = ROOT / stage1["run_dir"]
-            run_manifest = json.loads((run_dir / "run_manifest.json").read_text(encoding="utf-8"))
-            run_id = run_manifest["run_id"]
-            proposal_stage_dir = _stage_dir(run_manifest, "proposal")
-
-            notes = run_dir / "stage1.review.md"
-            notes.write_text("# approved\n", encoding="utf-8")
-            bundle = run_dir / "stage1.review_bundle.json"
-            create_review_bundle(
-                root=ROOT,
-                output_path=bundle.relative_to(ROOT),
-                workflow_id="synthetic_reviewed_three_stage",
-                source_stage_id="proposal",
-                source_run_id=run_id,
-                primary_artifact_markdown=(proposal_stage_dir / "artifact.md").relative_to(ROOT),
-                response_artifact_json=(proposal_stage_dir / "response.final.json").relative_to(ROOT),
-                reviewer_notes=notes.relative_to(ROOT),
-            )
-
-            stage2 = run_workflow(
-                workflow_file="automation/examples/responses_runner_v2_synthetic/workflows/reviewed_three_stage.workflow.json",
-                runtime=RuntimeOptions(
-                    run_dir=run_dir.relative_to(ROOT),
-                    output_root=output_root,
-                    stage_id="revision",
-                    review_bundles=[bundle.relative_to(ROOT).as_posix()],
-                    wait=True,
-                ),
-                client=client,
-                root=ROOT,
-            )
-
-            self.assertIn(stage2["status"], {"waiting_for_review", "running"})
-            updated_manifest = json.loads((run_dir / "run_manifest.json").read_text(encoding="utf-8"))
-            proposal_summary = updated_manifest["stages"][0]
-            self.assertEqual(proposal_summary["status"], "failed_complete")
-            self.assertTrue(proposal_summary["review_approved"])
-            self.assertEqual(proposal_summary["approved_from_status"], "failed_complete")
-            self.assertEqual(proposal_summary["review_bundle_path"], bundle.relative_to(ROOT).as_posix())
-
-    def test_blocked_stage_cannot_progress_via_review_bundle(self) -> None:
-        with tempfile.TemporaryDirectory(dir=ROOT) as tmp:
-            output_root = Path(tmp).relative_to(ROOT)
-            stage1 = run_workflow(
-                workflow_file="automation/examples/responses_runner_v2_synthetic/workflows/reviewed_three_stage.workflow.json",
-                runtime=RuntimeOptions(
-                    run_name="synthetic-blocked-handoff",
-                    output_root=output_root,
-                    wait=True,
-                ),
-                client=FakeClient(),
-                root=ROOT,
-            )
-            run_dir = ROOT / stage1["run_dir"]
-            manifest_path = run_dir / "run_manifest.json"
-            run_manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-            proposal_stage_dir = _stage_dir(run_manifest, "proposal")
-            run_manifest["stages"][0]["status"] = "blocked"
-            manifest_path.write_text(json.dumps(run_manifest, indent=2) + "\n", encoding="utf-8")
-
-            notes = run_dir / "stage1.review.md"
-            notes.write_text("# approved\n", encoding="utf-8")
-            bundle = run_dir / "stage1.review_bundle.json"
-            create_review_bundle(
-                root=ROOT,
-                output_path=bundle.relative_to(ROOT),
-                workflow_id="synthetic_reviewed_three_stage",
-                source_stage_id="proposal",
-                source_run_id=run_manifest["run_id"],
-                primary_artifact_markdown=(proposal_stage_dir / "artifact.md").relative_to(ROOT),
-                response_artifact_json=(proposal_stage_dir / "response.final.json").relative_to(ROOT),
-                reviewer_notes=notes.relative_to(ROOT),
-            )
-
-            with self.assertRaises(SystemExit):
-                run_workflow(
-                    workflow_file="automation/examples/responses_runner_v2_synthetic/workflows/reviewed_three_stage.workflow.json",
-                    runtime=RuntimeOptions(
-                        run_dir=run_dir.relative_to(ROOT),
-                        output_root=output_root,
-                        stage_id="revision",
-                        review_bundles=[bundle.relative_to(ROOT).as_posix()],
-                        wait=True,
-                    ),
-                    client=FakeClient(),
-                    root=ROOT,
-                )
-
-    def test_review_bundle_must_match_recorded_source_artifacts(self) -> None:
-        with tempfile.TemporaryDirectory(dir=ROOT) as tmp:
-            output_root = Path(tmp).relative_to(ROOT)
-            stage1 = run_workflow(
-                workflow_file="automation/examples/responses_runner_v2_synthetic/workflows/reviewed_three_stage.workflow.json",
-                runtime=RuntimeOptions(
-                    run_name="synthetic-bundle-provenance",
-                    output_root=output_root,
-                    wait=True,
-                ),
-                client=FakeClient(),
-                root=ROOT,
-            )
-            run_dir = ROOT / stage1["run_dir"]
-            run_manifest = json.loads((run_dir / "run_manifest.json").read_text(encoding="utf-8"))
-
-            unrelated_md = run_dir / "unrelated.md"
-            unrelated_json = run_dir / "unrelated.json"
-            unrelated_md.write_text("# unrelated\n", encoding="utf-8")
-            unrelated_json.write_text('{"id":"wrong"}\n', encoding="utf-8")
-            notes = run_dir / "stage1.review.md"
-            notes.write_text("# approved\n", encoding="utf-8")
-            bundle = run_dir / "stage1.review_bundle.json"
-            create_review_bundle(
-                root=ROOT,
-                output_path=bundle.relative_to(ROOT),
-                workflow_id="synthetic_reviewed_three_stage",
-                source_stage_id="proposal",
-                source_run_id=run_manifest["run_id"],
-                primary_artifact_markdown=unrelated_md.relative_to(ROOT),
-                response_artifact_json=unrelated_json.relative_to(ROOT),
-                reviewer_notes=notes.relative_to(ROOT),
-            )
-
-            with self.assertRaises(SystemExit):
-                run_workflow(
-                    workflow_file="automation/examples/responses_runner_v2_synthetic/workflows/reviewed_three_stage.workflow.json",
-                    runtime=RuntimeOptions(
-                        run_dir=run_dir.relative_to(ROOT),
-                        output_root=output_root,
-                        stage_id="revision",
-                        review_bundles=[bundle.relative_to(ROOT).as_posix()],
-                        wait=True,
-                    ),
-                    client=FakeClient(),
-                    root=ROOT,
-                )
-
 
 if __name__ == "__main__":
     unittest.main()

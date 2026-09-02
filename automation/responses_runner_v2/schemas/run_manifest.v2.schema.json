@@ -73,25 +73,7 @@
         "checkpoint_sha256": {"$ref": "#/$defs/hash"},
         "response_id": {"type": ["string", "null"]},
         "remote_status": {"type": ["string", "null"]},
-        "request_wall_ms": {"type": "integer", "minimum": 0},
-        "rerun_authorization": {"$ref": "#/$defs/rerunAuthorization"},
         "revision_of_attempt_id": {"type": "string", "pattern": "^attempt_[0-9]{3,}$"}
-      }
-    },
-    "rerunAuthorization": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "archive_manifest_path", "archive_sha256", "request_hash",
-        "scaffold_hash", "prior_attempt_id", "authorized_at"
-      ],
-      "properties": {
-        "archive_manifest_path": {"$ref": "#/$defs/path"},
-        "archive_sha256": {"$ref": "#/$defs/hash"},
-        "request_hash": {"type": "string", "minLength": 1},
-        "scaffold_hash": {"type": "string"},
-        "prior_attempt_id": {"type": "string", "pattern": "^attempt_[0-9]{3,}$"},
-        "authorized_at": {"type": "string", "format": "date-time"}
       }
     },
     "stage": {
@@ -116,20 +98,13 @@
         "input_manifest_json_path": {"$ref": "#/$defs/path"},
         "artifact_markdown_path": {"$ref": "#/$defs/path"},
         "artifact_markdown_sha256": {"$ref": "#/$defs/hash"},
-        "response_markdown_path": {"$ref": "#/$defs/path"},
-        "response_markdown_sha256": {"$ref": "#/$defs/hash"},
         "response_json_path": {"$ref": "#/$defs/path"},
         "response_json_sha256": {"$ref": "#/$defs/hash"},
         "structured_output_path": {"$ref": "#/$defs/path"},
         "structured_output_sha256": {"$ref": "#/$defs/hash"},
-        "sidecar_response_json_path": {"$ref": "#/$defs/path"},
-        "sidecar_response_json_sha256": {"$ref": "#/$defs/hash"},
-        "sidecar_response_markdown_path": {"$ref": "#/$defs/path"},
-        "sidecar_response_markdown_sha256": {"$ref": "#/$defs/hash"},
         "token_preflight_path": {"$ref": "#/$defs/path"},
         "validator_report_path": {"$ref": "#/$defs/path"},
         "validators_passed": {"type": "boolean"},
-        "review_bundle_path": {"$ref": "#/$defs/path"},
         "review_status": {
           "enum": ["approved", "revision_requested", "blocked", "human_approved", "not_required"]
         },

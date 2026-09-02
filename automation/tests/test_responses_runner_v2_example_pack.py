@@ -6,7 +6,6 @@ import unittest
 from pathlib import Path
 
 from automation.responses_runner_v2.contracts import RuntimeOptions
-from automation.responses_runner_v2.review_bundle import create_review_bundle
 from automation.responses_runner_v2.workflow import run_workflow
 
 from automation.tests.test_responses_runner_v2_workflow import (
@@ -63,9 +62,11 @@ class ResponsesRunnerV2ExamplePackTests(unittest.TestCase):
             run_manifest = json.loads((ROOT / result["run_manifest_path"]).read_text(encoding="utf-8"))
             stage_dir = _stage_dir(run_manifest)
             self.assertEqual(run_manifest["status"], "completed")
-            self.assertTrue((stage_dir / "output.structured.json").exists())
+            self.assertTrue((stage_dir / "artifact.md").exists())
+            self.assertTrue((stage_dir / "response.final.json").exists())
 
     def test_reviewed_three_stage_proof_path(self) -> None:
+        workflow_file = "automation/examples/responses_runner_v2_synthetic/workflows/reviewed_three_stage.workflow.json"
         with tempfile.TemporaryDirectory(dir=ROOT) as tmp:
             output_root = Path(tmp).relative_to(ROOT)
             client = SequenceClient(
@@ -77,41 +78,22 @@ class ResponsesRunnerV2ExamplePackTests(unittest.TestCase):
             )
 
             stage1 = run_workflow(
-                workflow_file="automation/examples/responses_runner_v2_synthetic/workflows/reviewed_three_stage.workflow.json",
-                runtime=RuntimeOptions(
-                    run_name="synthetic-reviewed-proof",
-                    output_root=output_root,
-                    wait=True,
-                ),
+                workflow_file=workflow_file,
+                runtime=RuntimeOptions(run_name="synthetic-reviewed-proof", output_root=output_root, wait=True),
                 client=client,
                 root=ROOT,
             )
             self.assertEqual(stage1["status"], "waiting_for_review")
             run_dir = ROOT / stage1["run_dir"]
-            run_manifest = json.loads((run_dir / "run_manifest.json").read_text(encoding="utf-8"))
-            run_id = run_manifest["run_id"]
-            proposal_stage_dir = _stage_dir(run_manifest, "proposal")
 
-            notes1 = run_dir / "stage1.review.md"
-            notes1.write_text("# approved\n", encoding="utf-8")
-            bundle1 = run_dir / "stage1.review_bundle.json"
-            create_review_bundle(
-                root=ROOT,
-                output_path=bundle1.relative_to(ROOT),
-                workflow_id="synthetic_reviewed_three_stage",
-                source_stage_id="proposal",
-                source_run_id=run_id,
-                primary_artifact_markdown=(proposal_stage_dir / "artifact.md").relative_to(ROOT),
-                response_artifact_json=(proposal_stage_dir / "response.final.json").relative_to(ROOT),
-                reviewer_notes=notes1.relative_to(ROOT),
-            )
-
+            note1 = run_dir / "stage1.handoff.md"
+            note1.write_text("# approved\n\nProposal accepted as written.\n", encoding="utf-8")
             stage2 = run_workflow(
-                workflow_file="automation/examples/responses_runner_v2_synthetic/workflows/reviewed_three_stage.workflow.json",
+                workflow_file=workflow_file,
                 runtime=RuntimeOptions(
                     run_dir=run_dir.relative_to(ROOT),
                     output_root=output_root,
-                    review_bundles=[bundle1.relative_to(ROOT).as_posix()],
+                    handoff_note=note1.relative_to(ROOT).as_posix(),
                     wait=True,
                 ),
                 client=client,
@@ -119,38 +101,34 @@ class ResponsesRunnerV2ExamplePackTests(unittest.TestCase):
             )
             self.assertEqual(stage2["status"], "waiting_for_review")
             run_manifest = json.loads((run_dir / "run_manifest.json").read_text(encoding="utf-8"))
-            revision_stage_dir = _stage_dir(run_manifest, "revision")
-
-            notes2 = run_dir / "stage2.review.md"
-            notes2.write_text("# approved\n", encoding="utf-8")
-            bundle2 = run_dir / "stage2.review_bundle.json"
-            create_review_bundle(
-                root=ROOT,
-                output_path=bundle2.relative_to(ROOT),
-                workflow_id="synthetic_reviewed_three_stage",
-                source_stage_id="revision",
-                source_run_id=run_id,
-                primary_artifact_markdown=(revision_stage_dir / "artifact.md").relative_to(ROOT),
-                response_artifact_json=(revision_stage_dir / "response.final.json").relative_to(ROOT),
-                reviewer_notes=notes2.relative_to(ROOT),
+            revision_manifest = json.loads(
+                (_stage_dir(run_manifest, "revision") / "input_manifest.json").read_text(encoding="utf-8")
             )
+            handoff_paths = [
+                expanded["path"]
+                for entry in revision_manifest["reviewed_handoff_inputs"]
+                for expanded in entry["resolved"]["expanded_paths"]
+            ]
+            self.assertEqual(handoff_paths[0], note1.relative_to(ROOT).as_posix())
+            self.assertTrue(handoff_paths[1].endswith("01_proposal/attempt_001/artifact.md"))
 
+            note2 = run_dir / "stage2.handoff.md"
+            note2.write_text("# approved\n", encoding="utf-8")
             final_result = run_workflow(
-                workflow_file="automation/examples/responses_runner_v2_synthetic/workflows/reviewed_three_stage.workflow.json",
+                workflow_file=workflow_file,
                 runtime=RuntimeOptions(
                     run_dir=run_dir.relative_to(ROOT),
                     output_root=output_root,
-                    review_bundles=[bundle2.relative_to(ROOT).as_posix()],
+                    handoff_note=note2.relative_to(ROOT).as_posix(),
                     wait=True,
                 ),
                 client=client,
                 root=ROOT,
             )
-
             final_manifest = json.loads((ROOT / final_result["run_manifest_path"]).read_text(encoding="utf-8"))
             final_stage_dir = _stage_dir(final_manifest, index=-1)
             self.assertEqual(final_manifest["status"], "completed")
-            self.assertTrue((final_stage_dir / "output.structured.json").exists())
+            self.assertTrue((final_stage_dir / "artifact.md").exists())
 
     def test_static_input_manifests_only_reference_tracked_pack_assets(self) -> None:
         manifest_paths = sorted((PACK_ROOT / "inputs").glob("*.input_manifest.json"))

@@ -98,13 +98,9 @@ def build_stage_paths(
         "uploads_json": stage_dir / "uploads.json",
         "response_latest_json": stage_dir / "response.latest.json",
         "response_final_json": stage_dir / "response.final.json",
-        "response_final_md": stage_dir / "response.final.md",
         "artifact_md": stage_dir / "artifact.md",
         "validator_report": stage_dir / "validator_report.json",
-        "usage_attempt": stage_dir / "usage_attempt.json",
         "structured_output": stage_dir / "output.structured.json",
-        "sidecar_response_json": stage_dir / "sidecar.response.json",
-        "sidecar_response_md": stage_dir / "sidecar.response.md",
         "stage_checkpoint": stage_dir / "stage_checkpoint.json",
         "review_dir": stage_dir / "review",
         "review_verdict": stage_dir / "review" / "verdict.json",
@@ -481,10 +477,6 @@ def load_stage_state_transition(path: Path) -> dict[str, Any]:
     return payload
 
 
-def _render_json_block(value: object) -> str:
-    return "```json\n" + json.dumps(value, indent=2, ensure_ascii=False) + "\n```"
-
-
 def extract_output_text(response_json: dict[str, Any]) -> str:
     texts: list[str] = []
     output = response_json.get("output")
@@ -506,81 +498,6 @@ def extract_output_text(response_json: dict[str, Any]) -> str:
             elif part.get("type") == "refusal" and isinstance(part.get("refusal"), str):
                 texts.append(part["refusal"])
     return "\n\n".join(text.strip() for text in texts if text and text.strip()).strip()
-
-
-def extract_response_sources(response_json: dict[str, Any]) -> list[dict[str, str]]:
-    sources: list[dict[str, str]] = []
-    seen: set[tuple[str, str, str]] = set()
-    output = response_json.get("output")
-    if not isinstance(output, list):
-        return sources
-    for item in output:
-        if not isinstance(item, dict):
-            continue
-        if item.get("type") == "web_search_call":
-            action = item.get("action")
-            if isinstance(action, dict) and isinstance(action.get("sources"), list):
-                for source in action["sources"]:
-                    if not isinstance(source, dict):
-                        continue
-                    url = source.get("url")
-                    if not isinstance(url, str) or not url:
-                        continue
-                    title = source.get("title") if isinstance(source.get("title"), str) else url
-                    key = ("web_search_call", title, url)
-                    if key in seen:
-                        continue
-                    seen.add(key)
-                    sources.append({"origin": "web_search_call", "title": title, "url": url})
-        if item.get("type") != "message":
-            continue
-        content = item.get("content")
-        if not isinstance(content, list):
-            continue
-        for part in content:
-            if not isinstance(part, dict):
-                continue
-            if part.get("type") != "output_text":
-                continue
-            annotations = part.get("annotations")
-            if not isinstance(annotations, list):
-                continue
-            for annotation in annotations:
-                if not isinstance(annotation, dict):
-                    continue
-                url = annotation.get("url")
-                if not isinstance(url, str) or not url:
-                    continue
-                title = annotation.get("title") if isinstance(annotation.get("title"), str) else url
-                key = ("message_citation", title, url)
-                if key in seen:
-                    continue
-                seen.add(key)
-                sources.append({"origin": "message_citation", "title": title, "url": url})
-    return sources
-
-
-def extract_tool_call_summaries(response_json: dict[str, Any]) -> list[str]:
-    summaries: list[str] = []
-    output = response_json.get("output")
-    if not isinstance(output, list):
-        return summaries
-    for item in output:
-        if not isinstance(item, dict):
-            continue
-        item_type = item.get("type")
-        if not isinstance(item_type, str) or not item_type.endswith("_call"):
-            continue
-        parts = [f"type={item_type}"]
-        if isinstance(item.get("id"), str):
-            parts.append(f"id={item['id']}")
-        if isinstance(item.get("status"), str):
-            parts.append(f"status={item['status']}")
-        action = item.get("action")
-        if isinstance(action, dict) and isinstance(action.get("query"), str):
-            parts.append(f'query="{action["query"]}"')
-        summaries.append("- " + ", ".join(parts))
-    return summaries
 
 
 def extract_structured_output(response_json: dict[str, Any], requested_text_format: str) -> Any | None:
@@ -609,39 +526,6 @@ def extract_structured_output(response_json: dict[str, Any], requested_text_form
             except json.JSONDecodeError:
                 continue
     return None
-
-
-def normalize_response_usage(response_json: dict[str, Any]) -> dict[str, int | None]:
-    usage = response_json.get("usage")
-    if not isinstance(usage, dict):
-        usage = {}
-    legacy_input_details = usage.get("prompt_tokens_details")
-    if not isinstance(legacy_input_details, dict):
-        legacy_input_details = {}
-    response_input_details = usage.get("input_tokens_details")
-    if not isinstance(response_input_details, dict):
-        response_input_details = {}
-    input_details = {**legacy_input_details, **response_input_details}
-
-    legacy_output_details = usage.get("completion_tokens_details")
-    if not isinstance(legacy_output_details, dict):
-        legacy_output_details = {}
-    response_output_details = usage.get("output_tokens_details")
-    if not isinstance(response_output_details, dict):
-        response_output_details = {}
-    output_details = {**legacy_output_details, **response_output_details}
-
-    def integer_or_none(value: object) -> int | None:
-        return value if isinstance(value, int) and not isinstance(value, bool) else None
-
-    return {
-        "input_tokens": integer_or_none(usage.get("input_tokens")),
-        "output_tokens": integer_or_none(usage.get("output_tokens")),
-        "total_tokens": integer_or_none(usage.get("total_tokens")),
-        "cached_tokens": integer_or_none(input_details.get("cached_tokens")),
-        "cache_write_tokens": integer_or_none(input_details.get("cache_write_tokens")),
-        "reasoning_tokens": integer_or_none(output_details.get("reasoning_tokens")),
-    }
 
 
 def _write_immutable_text(path: Path, body: str) -> Path:
@@ -675,70 +559,15 @@ def write_clean_artifact(path: Path, response_json: dict[str, Any]) -> Path:
     return _write_immutable_text(path, body)
 
 
-def write_response_pair(
+def write_response_final(
     *,
-    root: Path,
-    markdown_path: Path,
     json_path: Path,
-    title: str,
-    workflow_id: str,
-    run_id: str,
-    stage_id: str,
-    stage_number: int,
     response_json: dict[str, Any],
-    requested_text_format: str,
-    structured_output: Any | None = None,
-    uploads_payload: dict[str, Any] | None = None,
     artifact_path: Path | None = None,
-) -> tuple[Path, Path]:
+) -> Path:
+    """Persist the raw terminal response and, when text exists, the clean artifact."""
+
     write_json(json_path, response_json)
-    output_text = extract_output_text(response_json)
-    usage = response_json.get("usage") if isinstance(response_json.get("usage"), dict) else {}
-    normalized_usage = normalize_response_usage(response_json)
-    lines = [
-        f"# {title}",
-        "",
-        f"- generated_at: {runner_now().isoformat()}",
-        f"- workflow_id: {workflow_id}",
-        f"- run_id: {run_id}",
-        f"- stage_id: {stage_id}",
-        f"- stage_number: {stage_number}",
-        f"- response_id: {response_json.get('id')}",
-        f"- status: {response_json.get('status')}",
-        f"- model: {response_json.get('model')}",
-        f"- input_tokens: {normalized_usage['input_tokens']}",
-        f"- output_tokens: {normalized_usage['output_tokens']}",
-        f"- total_tokens: {normalized_usage['total_tokens']}",
-        f"- cached_tokens: {normalized_usage['cached_tokens']}",
-        f"- cache_write_tokens: {normalized_usage['cache_write_tokens']}",
-        f"- reasoning_tokens: {normalized_usage['reasoning_tokens']}",
-        "",
-    ]
-    body = output_text or "No assistant text was returned."
-    sections = [body]
-    if isinstance(usage, dict) and usage:
-        sections.append("## Usage Summary\n\n" + _render_json_block(usage))
-    if response_json.get("incomplete_details") is not None:
-        sections.append(
-            "## Incomplete Details\n\n"
-            + _render_json_block(response_json.get("incomplete_details"))
-        )
-    sources = extract_response_sources(response_json)
-    if sources:
-        sections.append(
-            "## Source Summary\n\n"
-            + "\n".join(
-                f"- [{source['origin']}] {source['title']} — {source['url']}" for source in sources
-            )
-        )
-    tool_summaries = extract_tool_call_summaries(response_json)
-    if tool_summaries:
-        sections.append("## Tool Call Summary\n\n" + "\n".join(tool_summaries))
-    if uploads_payload:
-        sections.append("## Uploaded File Lifecycle\n\n" + _render_json_block(uploads_payload))
-    if structured_output is not None:
-        sections.append("## Structured Output\n\n" + _render_json_block(structured_output))
-    write_text(markdown_path, "\n".join(lines) + "\n\n".join(sections).rstrip() + "\n")
     if artifact_path is not None:
         write_clean_artifact(artifact_path, response_json)
-    return markdown_path, json_path
+    return json_path

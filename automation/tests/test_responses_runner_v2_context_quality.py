@@ -8,7 +8,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from automation.responses_runner_v2 import attachments, request_plan, telemetry, validators
+from automation.responses_runner_v2 import attachments, request_plan, validators
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -302,90 +302,6 @@ class AttachmentSafetyTests(unittest.TestCase):
 
 
 class TelemetryAndPlanningTests(unittest.TestCase):
-    def test_responses_and_legacy_usage_normalize_and_aggregate(self) -> None:
-        current = telemetry.normalize_response_usage(
-            {
-                "usage": {
-                    "input_tokens": 100,
-                    "output_tokens": 20,
-                    "total_tokens": 120,
-                    "input_tokens_details": {"cached_tokens": 40, "cache_write_tokens": 10},
-                    "output_tokens_details": {"reasoning_tokens": 8},
-                }
-            }
-        )
-        legacy = telemetry.normalize_response_usage(
-            {
-                "prompt_tokens": 7,
-                "completion_tokens": 3,
-                "prompt_tokens_details": {"cached_tokens": 2},
-                "completion_tokens_details": {"reasoning_tokens": 1},
-            }
-        )
-        self.assertEqual(current["cached_input_tokens"], 40)
-        self.assertEqual(current["cache_write_input_tokens"], 10)
-        self.assertEqual(legacy["total_tokens"], 10)
-        totals = telemetry.aggregate_usage([current, legacy])
-        self.assertEqual(totals["total_tokens"], 130)
-        self.assertEqual(totals["reasoning_output_tokens"], 9)
-
-    def test_usage_report_separates_lanes_and_matches_schema(self) -> None:
-        report = telemetry.build_usage_report(
-            [
-                {"attempt_id": "p1", "lane": "primary", "usage": {"input_tokens": 4}},
-                {"attempt_id": "s1", "lane": "sidecar", "usage": {"output_tokens": 2}},
-            ]
-        )
-        self.assertEqual(report["totals"]["attempt_count"], 2)
-        self.assertEqual(set(report["by_lane"]), {"primary", "sidecar"})
-        self.assertIsNone(report["attempts"][0]["model"])
-        self.assertIsNone(report["attempts"][0]["request_wall_ms"])
-        self.assertIsNone(report["attempts"][0]["poll_wall_ms"])
-        self.assertIsNone(report["attempts"][0]["uploaded_files"])
-        self.assertIsNone(report["attempts"][0]["uploaded_bytes"])
-        self.assertNotIn("reviewer", report["by_lane"])
-        self._validate_schema("usage_report.schema.json", report)
-
-    def test_usage_report_keeps_unavailable_reviewer_tokens_nullable(self) -> None:
-        report = telemetry.build_usage_report(
-            [
-                {
-                    "attempt_id": "reviewer-1",
-                    "lane": "reviewer",
-                    "model": "gpt-5.6-sol",
-                    "status": "succeeded",
-                    "duration_ms": 12,
-                    "retry_count": 0,
-                    "upload_count": 0,
-                    "uploaded_bytes": 0,
-                    "usage": None,
-                }
-            ]
-        )
-        attempt = report["attempts"][0]
-        self.assertTrue(
-            all(attempt["usage"][field] is None for field in telemetry.USAGE_COUNTER_FIELDS)
-        )
-        self.assertEqual(report["by_lane"]["reviewer"]["attempt_count"], 1)
-        self.assertIsNone(report["by_lane"]["reviewer"]["total_tokens"])
-        self.assertIsNone(report["totals"]["total_tokens"])
-        self._validate_schema("usage_report.schema.json", report)
-
-    def test_empty_usage_objects_remain_unknown_in_attempts_and_totals(self) -> None:
-        report = telemetry.build_usage_report(
-            [
-                {"attempt_id": "primary-1", "lane": "primary", "usage": {}},
-                {"attempt_id": "sidecar-1", "lane": "sidecar", "usage": {}},
-            ]
-        )
-        for attempt in report["attempts"]:
-            self.assertTrue(
-                all(attempt["usage"][field] is None for field in telemetry.USAGE_COUNTER_FIELDS)
-            )
-        for totals in [*report["by_lane"].values(), report["totals"]]:
-            self.assertTrue(all(totals[field] is None for field in telemetry.USAGE_COUNTER_FIELDS))
-        self._validate_schema("usage_report.schema.json", report)
-
     def test_request_plan_uses_hash_handles_duplicates_and_conservative_budget(self) -> None:
         digest = hashlib.sha256(b"same").hexdigest()
         symbolic_id = request_plan.symbolic_file_handle(digest)

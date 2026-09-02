@@ -3,7 +3,7 @@
   "workflow_id": "synthetic_reviewed_three_stage",
   "workflow_name": "Synthetic Reviewed Three Stage",
   "workflow_mode": "reviewed_three_stage",
-  "description": "Reviewed three-stage synthetic workflow that exercises review bundles and sidecar output.",
+  "description": "Reviewed three-stage synthetic workflow that exercises human gates.",
   "assurance_profile": "critical",
   "shared_instructions_file": "../shared_instructions.md",
   "operator_requirements": {
@@ -66,7 +66,7 @@
       "model_role": "primary_generation",
       "max_input_tokens": 700000,
       "max_output_tokens": 3000,
-      "gate": "review_required",
+      "gate": "human",
       "output": {
         "primary_format": "text"
       }
@@ -81,12 +81,12 @@
       "model_role": "primary_generation",
       "max_input_tokens": 700000,
       "max_output_tokens": 3000,
-      "gate": "review_required",
+      "gate": "human",
       "carry_forward": {
         "reference_context_from_stage_ids": [
           "proposal"
         ],
-        "review_bundle_from_stage_id": "proposal"
+        "handoff_from_stage_id": "proposal"
       },
       "output": {
         "primary_format": "text"
@@ -108,14 +108,10 @@
           "proposal",
           "revision"
         ],
-        "review_bundle_from_stage_id": "revision"
+        "handoff_from_stage_id": "revision"
       },
       "output": {
-        "primary_format": "text",
-        "sidecar": {
-          "schema_file": "../schemas/synthetic_summary.schema.json",
-          "schema_name": "synthetic_summary"
-        }
+        "primary_format": "text"
       }
     }
   ]

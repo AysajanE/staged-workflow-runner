@@ -70,83 +70,8 @@ class ResponsesRunnerV2ContractsTests(unittest.TestCase):
         )
         self.assertEqual(workflow.workflow_mode, "reviewed_three_stage")
         self.assertEqual(len(workflow.stages), 3)
-        self.assertEqual(workflow.stages[1].carry_forward.review_bundle_from_stage_id, "proposal")
-        self.assertFalse(workflow.stages[1].carry_forward.review_bundle_include_response_artifact_json)
-
-    def test_load_workflow_definition_can_disable_raw_review_bundle_json_for_stage(self) -> None:
-        with tempfile.TemporaryDirectory(dir=ROOT) as tmp:
-            workflow_path = Path(tmp) / "workflow.json"
-            payload = {
-                "schema_version": "responses_runner_v2.workflow_manifest.v1",
-                "workflow_id": "synthetic_custom_review_handoff",
-                "workflow_mode": "two_pass",
-                "description": "Synthetic workflow for review handoff parsing.",
-                "shared_instructions_file": self.SYNTHETIC_SHARED_INSTRUCTIONS,
-                "defaults": {
-                    "model_roles": {
-                        "primary_generation": {
-                            "model": "gpt-5.5-pro",
-                            "reasoning_effort": "xhigh",
-                            "verbosity": "high",
-                            "prompt_cache_retention": "24h"
-                        },
-                        "structural_processing": {
-                            "model": "gpt-5.5",
-                            "reasoning_effort": "medium",
-                            "verbosity": "medium",
-                            "prompt_cache_retention": "24h"
-                        }
-                    },
-                    "request": {
-                        "background": True,
-                        "store": True,
-                        "parallel_tool_calls": True,
-                        "max_tool_calls": 8,
-                        "token_preflight": {
-                            "enabled": True,
-                            "max_retries": 1,
-                            "retryable_http_status_codes": [429, 500, 502, 503, 504],
-                            "on_retryable_service_failure": "continue_without_token_count"
-                        },
-                        "file_uploads": {
-                            "purpose": "user_data",
-                            "delete_on_completion": False
-                        }
-                    }
-                },
-                "stages": [
-                    {
-                        "stage_id": "draft",
-                        "stage_number": 1,
-                        "title": "Draft",
-                        "task_file": self.SYNTHETIC_ONE_PASS_PROMPT,
-                        "input_manifest_file": self.SYNTHETIC_ONE_PASS_INPUT,
-                        "model_role": "primary_generation",
-                        "gate": "review_required",
-                        "output": {"primary_format": "text"}
-                    },
-                    {
-                        "stage_id": "finalize",
-                        "stage_number": 2,
-                        "title": "Finalize",
-                        "task_file": self.SYNTHETIC_ONE_PASS_PROMPT,
-                        "input_manifest_file": self.SYNTHETIC_ONE_PASS_INPUT,
-                        "model_role": "primary_generation",
-                        "gate": "terminal",
-                        "carry_forward": {
-                            "review_bundle_from_stage_id": "draft",
-                            "review_bundle_include_response_artifact_json": False
-                        },
-                        "output": {"primary_format": "text"}
-                    }
-                ]
-            }
-            workflow_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
-            workflow = load_workflow_definition(workflow_path.relative_to(ROOT).as_posix(), root=ROOT)
-
-        self.assertFalse(
-            workflow.stages[1].carry_forward.review_bundle_include_response_artifact_json
-        )
+        self.assertEqual(workflow.stages[1].carry_forward.handoff_from_stage_id, "proposal")
+        self.assertEqual(workflow.stages[0].gate.value, "human")
 
     def test_load_input_manifest(self) -> None:
         manifest = load_input_manifest(

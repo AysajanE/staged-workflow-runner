@@ -222,20 +222,6 @@ class LoaderGateTests(unittest.TestCase):
             with self.assertRaisesRegex(SystemExit, "reviewed.*or.*human"):
                 load_workflow_definition(path.relative_to(ROOT), root=ROOT)
         with tempfile.TemporaryDirectory(dir=ROOT) as tmp:
-            path = _make_pack(
-                Path(tmp),
-                stage_overrides={
-                    "revision": {
-                        "carry_forward": {
-                            "handoff_from_stage_id": "proposal",
-                            "review_bundle_from_stage_id": "proposal",
-                        }
-                    }
-                },
-            )
-            with self.assertRaisesRegex(SystemExit, "not both"):
-                load_workflow_definition(path.relative_to(ROOT), root=ROOT)
-        with tempfile.TemporaryDirectory(dir=ROOT) as tmp:
             path = _make_pack(Path(tmp), review={"reviewer": "gemini"})
             with self.assertRaisesRegex(SystemExit, "review.reviewer"):
                 load_workflow_definition(path.relative_to(ROOT), root=ROOT)

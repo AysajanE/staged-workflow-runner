@@ -31,9 +31,30 @@ The five stages are:
 4. `gate_and_contract_review` - harden gates, path safety, prerequisites, and contract compliance.
 5. `final_markdown_playbook` - emit only the final `markdown_playbook_v1` document.
 
-Stages 1 through 4 require review bundles. Stage 5 is terminal.
+Stages 1 through 4 use `reviewed` gates: when each completes, one reviewer CLI (`codex` by default, per `defaults.review`; override with `--reviewer claude` or `--reviewer none`) reads the artifact and returns approve or revise. A revise triggers one primary-model revision attempt; a second revise blocks the stage. Each stage receives the previous approved artifact plus reviewer notes as `handoff_from_stage_id`. Stage 5 is terminal.
+
+One `run` invocation (waiting is the default) chains through all five stages:
+
+```bash
+python automation/run_responses_v2.py run \
+  --root . \
+  --workflow-file automation/task_packs/gstack_design_to_po_playbook/workflows/gstack_design_to_po_playbook.workflow.json \
+  --primary-job-input docs/gstack/<approved-design-or-brief>.md
+```
+
+If a stage is blocked after its revision (`review_status: blocked`, stage in `waiting_for_review`), read its `artifact.md` and `review/reviewer_notes.md`, write a short markdown note, and continue:
+
+```bash
+python automation/run_responses_v2.py run \
+  --root . \
+  --workflow-file automation/task_packs/gstack_design_to_po_playbook/workflows/gstack_design_to_po_playbook.workflow.json \
+  --run-dir <run-dir> \
+  --handoff-note <note.md>
+```
 
 ## Dry Run
+
+Renders every stage's request under `<run-dir>/dry_runs/` (this is what CI runs):
 
 ```bash
 python automation/run_responses_v2.py run \

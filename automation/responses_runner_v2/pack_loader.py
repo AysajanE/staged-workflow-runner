@@ -14,7 +14,6 @@ from .contracts import (
     ModelRole,
     ModelRoleProfile,
     OutputConfig,
-    OutputSidecarConfig,
     PostOutputValidator,
     RequestDefaults,
     ROLE_TO_FIELD,
@@ -195,31 +194,20 @@ def _parse_output_config(
     schema_file = payload.get("schema_file")
     schema_name = payload.get("schema_name")
     schema_path = _resolve_asset_path(root, base_dir, str(schema_file)) if schema_file else None
-    sidecar = None
     if primary_format == "json_schema" and model_role != ModelRole.STRUCTURAL_PROCESSING:
         raise SystemExit(
             "Direct json_schema stages must use model_role=structural_processing in v2."
         )
-    sidecar_payload = payload.get("sidecar")
-    if sidecar_payload is not None:
-        if not isinstance(sidecar_payload, dict):
-            raise SystemExit("stage.output.sidecar must be an object.")
-        require_keys(sidecar_payload, ["schema_file", "schema_name"], "stage output sidecar")
-        sidecar = OutputSidecarConfig(
-            schema_file=str(sidecar_payload["schema_file"]),
-            schema_name=str(sidecar_payload["schema_name"]),
-            schema_path=_resolve_asset_path(
-                root,
-                base_dir,
-                str(sidecar_payload["schema_file"]),
-            ),
+    if payload.get("sidecar") is not None:
+        raise SystemExit(
+            "stage.output.sidecar is no longer supported; request structured output from the "
+            "primary stage with primary_format=json_schema or post-process artifact.md."
         )
     return OutputConfig(
         primary_format=primary_format,
         schema_file=str(schema_file) if schema_file is not None else None,
         schema_name=str(schema_name) if schema_name is not None else None,
         schema_path=schema_path,
-        sidecar=sidecar,
     )
 
 
@@ -249,35 +237,23 @@ def _parse_stage(
     carry_forward_payload = payload.get("carry_forward") or {}
     if not isinstance(carry_forward_payload, dict):
         raise SystemExit("stage.carry_forward must be an object when present.")
+    handoff_source = carry_forward_payload.get("handoff_from_stage_id")
+    legacy_source = carry_forward_payload.get("review_bundle_from_stage_id")
+    if handoff_source is not None and legacy_source is not None and handoff_source != legacy_source:
+        raise SystemExit(
+            "stage.carry_forward names different handoff_from_stage_id and legacy "
+            "review_bundle_from_stage_id values; keep only handoff_from_stage_id."
+        )
+    if handoff_source is None and legacy_source is not None:
+        # Legacy review bundles are gone; the bundle source stage becomes the handoff source.
+        handoff_source = legacy_source
     carry_forward = CarryForwardConfig(
         reference_context_from_stage_ids=tuple(
             str(item)
             for item in carry_forward_payload.get("reference_context_from_stage_ids", [])
         ),
-        review_bundle_from_stage_id=(
-            str(carry_forward_payload["review_bundle_from_stage_id"])
-            if carry_forward_payload.get("review_bundle_from_stage_id") is not None
-            else None
-        ),
-        review_bundle_include_response_artifact_json=bool(
-            carry_forward_payload.get(
-                "review_bundle_include_response_artifact_json",
-                legacy_v1_defaults,
-            )
-        ),
-        handoff_from_stage_id=(
-            str(carry_forward_payload["handoff_from_stage_id"])
-            if carry_forward_payload.get("handoff_from_stage_id") is not None
-            else None
-        ),
+        handoff_from_stage_id=str(handoff_source) if handoff_source is not None else None,
     )
-    if (
-        carry_forward.handoff_from_stage_id is not None
-        and carry_forward.review_bundle_from_stage_id is not None
-    ):
-        raise SystemExit(
-            "stage.carry_forward may name handoff_from_stage_id or review_bundle_from_stage_id, not both."
-        )
     stage_review = (
         _parse_review_config(payload["review"], base=review_defaults)
         if payload.get("review") is not None
@@ -338,7 +314,8 @@ def _parse_stage(
             if payload.get("max_output_tokens") is not None
             else None
         ),
-        gate=GateType(str(payload["gate"])),
+        # `review_required` was the manual review-bundle gate; it now means "stop for a human".
+        gate=GateType("human" if str(payload["gate"]) == "review_required" else str(payload["gate"])),
         carry_forward=carry_forward,
         output=output,
         post_output_validators=post_output_validators,
@@ -444,18 +421,6 @@ def load_workflow_definition(
                 raise SystemExit(
                     f"stage {stage.stage_id} carry-forward dependency {source_stage_id!r} must point backward."
                 )
-        source_bundle_stage = stage.carry_forward.review_bundle_from_stage_id
-        if source_bundle_stage is not None and source_bundle_stage not in stage_ids:
-            raise SystemExit(
-                f"stage {stage.stage_id} references unknown review-bundle stage {source_bundle_stage!r}"
-            )
-        if (
-            source_bundle_stage is not None
-            and stage_number_by_id[source_bundle_stage] >= stage.stage_number
-        ):
-            raise SystemExit(
-                f"stage {stage.stage_id} review-bundle dependency {source_bundle_stage!r} must point backward."
-            )
         handoff_source = stage.carry_forward.handoff_from_stage_id
         if handoff_source is not None:
             if handoff_source not in stage_ids:

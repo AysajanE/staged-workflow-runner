@@ -88,11 +88,7 @@
         ]
       },
       "output": {
-        "primary_format": "text",
-        "sidecar": {
-          "schema_file": "../schemas/synthetic_summary.schema.json",
-          "schema_name": "synthetic_summary"
-        }
+        "primary_format": "text"
       }
     }
   ]

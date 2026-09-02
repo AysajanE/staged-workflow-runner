@@ -13,7 +13,6 @@ from automation.responses_runner_v2.contracts import (
     runner_now,
     sha256_file,
 )
-from automation.responses_runner_v2.review_bundle import create_review_bundle
 from automation.responses_runner_v2.workflow import run_workflow
 
 
@@ -52,7 +51,7 @@ class ResponsesRunnerV2EvidenceSynthesisExampleTests(unittest.TestCase):
 
         stages = workflow["stages"]
         self.assertEqual([stage["stage_number"] for stage in stages], [1, 2, 3])
-        self.assertEqual([stage["gate"] for stage in stages], ["review_required", "review_required", "terminal"])
+        self.assertEqual([stage["gate"] for stage in stages], ["human", "human", "terminal"])
         for stage in stages:
             self.assertEqual(stage["max_input_tokens"], 700000)
             self.assertNotIn("tool_profile_file", stage)

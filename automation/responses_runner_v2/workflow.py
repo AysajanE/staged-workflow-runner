@@ -10,7 +10,7 @@ from typing import Any
 
 from dataclasses import replace as dataclass_replace
 
-from . import attachments, artifacts, review_bundle, sidecar
+from . import attachments, artifacts
 from . import reviewer as stage_reviewer
 from .request_plan import (
     build_request_plan,
@@ -73,16 +73,11 @@ from .run_contract import (
     verify_effective_runtime,
 )
 from .schema_validation import validate_contract
-from .telemetry import build_usage_report
 from .validators import run_validator
 
-REVIEWABLE_APPROVED_SOURCE_STATUSES = {
-    StageStatus.WAITING_FOR_REVIEW.value,
-    StageStatus.FAILED.value,
-    StageStatus.FAILED_COMPLETE.value,
-}
-
 RUNNABLE_STAGE_STATES = {StageStatus.PREPARED.value, StageStatus.REVISION_REQUESTED.value}
+# States an operator may rerun with an explicit --stage; each rerun is a new attempt directory.
+RERUNNABLE_STAGE_STATES = {StageStatus.FAILED_NO_ARTIFACT.value, StageStatus.BLOCKED_PREFLIGHT.value}
 LIVE_OR_UNCERTAIN_STAGE_STATES = {
     StageStatus.STAGING_INPUTS.value,
     StageStatus.UPLOADING.value,
@@ -113,19 +108,10 @@ def _build_operator_entries(paths: list[str], *, notes: str | None = None) -> li
     return entries
 
 
-def _load_review_bundles(root: Path, review_bundle_paths: list[str]) -> dict[str, dict[str, Any]]:
-    bundles: dict[str, dict[str, Any]] = {}
-    for bundle_path in review_bundle_paths:
-        bundle = review_bundle.load_review_bundle(root=root, bundle_path=bundle_path)
-        bundles[str(bundle["source_stage_id"])] = bundle
-    return bundles
-
-
 def _operator_overrides(runtime: RuntimeOptions) -> dict[str, Any]:
     return {
         "primary_job_inputs": list(runtime.primary_job_inputs),
         "reference_context": list(runtime.reference_context),
-        "review_bundles": list(runtime.review_bundles),
         "input_bindings": [
             {
                 "binding_id": binding.binding_id,
@@ -278,7 +264,7 @@ def _allows_review_gated_stage_output_increase(
     if runtime.stage_id is None or runtime.max_output_tokens is None:
         return False
     stage = workflow.stage(runtime.stage_id)
-    if stage.stage_number <= 1 or not runtime.review_bundles:
+    if stage.stage_number <= 1:
         return False
     summary = artifacts.find_stage_summary(run_manifest, stage.stage_id)
     if summary.get("status") != StageStatus.PREPARED.value:
@@ -290,7 +276,7 @@ def _allows_review_gated_stage_output_increase(
         run_manifest, previous_stage.stage_id
     )
     if (
-        previous_stage.gate != GateType.REVIEW_REQUIRED
+        previous_stage.gate not in {GateType.HUMAN, GateType.REVIEWED}
         or previous_summary.get("status") != StageStatus.WAITING_FOR_REVIEW.value
     ):
         return False
@@ -446,38 +432,21 @@ def _determine_next_stage(
     *,
     workflow,
     run_manifest: dict[str, Any],
-    review_bundles: dict[str, dict[str, Any]],
     explicit_stage_id: str | None,
-    rerun_authorized_stage_id: str | None = None,
 ) -> StageDefinition:
     def approved_review_handoff_exists(previous_stage, previous_summary: dict[str, Any]) -> bool:
         previous_status = str(previous_summary.get("status", ""))
-        if previous_stage.gate in {GateType.HUMAN, GateType.REVIEWED}:
-            return (
-                previous_status == StageStatus.WAITING_FOR_REVIEW.value
-                and bool(previous_summary.get("handoff_note_path"))
-            )
         return (
-            previous_stage.gate == GateType.REVIEW_REQUIRED
-            and previous_status in REVIEWABLE_APPROVED_SOURCE_STATUSES
-            and (
-                previous_stage.stage_id in review_bundles
-                or (
-                    bool(previous_summary.get("review_approved"))
-                    and isinstance(previous_summary.get("review_bundle_path"), str)
-                    and bool(previous_summary.get("review_bundle_path"))
-                )
-            )
+            previous_stage.gate in {GateType.HUMAN, GateType.REVIEWED}
+            and previous_status == StageStatus.WAITING_FOR_REVIEW.value
+            and bool(previous_summary.get("handoff_note_path"))
         )
 
     stage_summaries = _stage_summary_map(run_manifest)
     if explicit_stage_id:
         stage = workflow.stage(explicit_stage_id)
         own_status = str(stage_summaries[stage.stage_id].get("status", ""))
-        if own_status not in RUNNABLE_STAGE_STATES and not (
-            own_status == StageStatus.FAILED_NO_ARTIFACT.value
-            and rerun_authorized_stage_id == stage.stage_id
-        ):
+        if own_status not in RUNNABLE_STAGE_STATES and own_status not in RERUNNABLE_STAGE_STATES:
             action = "resume" if own_status in LIVE_OR_UNCERTAIN_STAGE_STATES else "controlled rerun"
             raise SystemExit(
                 f"Stage {stage.stage_id} is {own_status!r}, not prepared; use {action} instead of run."
@@ -492,10 +461,6 @@ def _determine_next_stage(
             if approved_review_handoff_exists(previous_stage, previous_summary):
                 continue
             if previous_status == StageStatus.WAITING_FOR_REVIEW.value:
-                if previous_stage.gate == GateType.REVIEW_REQUIRED:
-                    raise SystemExit(
-                        f"Stage {stage.stage_id} requires a review bundle from stage {previous_stage.stage_id}."
-                    )
                 raise SystemExit(
                     f"Stage {previous_stage.stage_id} is waiting for a handoff note; "
                     f"supply --handoff-note <path> before stage {stage.stage_id} can run."
@@ -524,75 +489,11 @@ def _determine_next_stage(
         if approved_review_handoff_exists(previous_stage, previous_summary):
             return stage
         if previous_summary["status"] == StageStatus.WAITING_FOR_REVIEW.value:
-            if previous_stage.gate == GateType.REVIEW_REQUIRED:
-                raise SystemExit(
-                    f"Run is waiting for review after stage {previous_stage.stage_id}. Supply --review-bundle."
-                )
             raise SystemExit(
                 f"Run is waiting for a handoff note after stage {previous_stage.stage_id}. "
                 "Supply --handoff-note <path>."
             )
     raise SystemExit("No eligible stage was found for this run.")
-
-
-def _validate_rerun_authorization(
-    *,
-    root: Path,
-    run_dir: Path,
-    run_manifest: dict[str, Any],
-    stage_id: str,
-    archive_manifest: str | None,
-) -> dict[str, Any] | None:
-    """Bind one archived failed attempt to one new immutable attempt."""
-
-    if archive_manifest is None:
-        return None
-    summary = artifacts.find_stage_summary(run_manifest, stage_id)
-    if summary.get("status") != StageStatus.FAILED_NO_ARTIFACT.value:
-        raise SystemExit(
-            "An archive rerun is allowed only for the current failed_no_artifact stage."
-        )
-    archive_path = resolve_under_root(root, archive_manifest, must_exist=True)
-    archive = load_json(archive_path, "supervisor archive")
-    validate_contract(
-        archive,
-        "supervisor_archive.schema.json",
-        label="supervisor rerun archive",
-    )
-    if not archive.get("rerun_as_is_eligible"):
-        raise SystemExit("Supervisor archive is not eligible for an as-is rerun.")
-    source = archive.get("source", {})
-    if source.get("run_dir") != relpath(root, run_dir) or source.get("stage_id") != stage_id:
-        raise SystemExit("Supervisor archive does not bind this run and stage.")
-    if source.get("run_id") not in {None, run_manifest["run_id"]}:
-        raise SystemExit("Supervisor archive run identity does not match this run.")
-    evidence = archive.get("unchanged_input_evidence", {})
-    if (
-        evidence.get("rerun_requires_same_hashes") is not True
-        or evidence.get("request_hash_before") != archive.get("request_hash")
-    ):
-        raise SystemExit("Supervisor archive lacks unchanged request-hash evidence.")
-    for item in archive.get("included_artifacts", []):
-        source_path = resolve_under_root(root, str(item["source_path"]), must_exist=True)
-        archived_path = resolve_under_root(root, str(item["archive_path"]), must_exist=True)
-        expected_hash = str(item["sha256"])
-        if sha256_file(source_path) != expected_hash or sha256_file(archived_path) != expected_hash:
-            raise SystemExit(
-                f"Supervisor archive evidence drifted for {item['source_path']}."
-            )
-    archive_hash = sha256_file(archive_path)
-    for attempt in summary.get("attempts", []):
-        rerun = attempt.get("rerun_authorization")
-        if isinstance(rerun, dict) and rerun.get("archive_sha256") == archive_hash:
-            raise SystemExit("Supervisor archive authorization has already been consumed.")
-    return {
-        "archive_manifest_path": relpath(root, archive_path),
-        "archive_sha256": archive_hash,
-        "request_hash": str(archive["request_hash"]),
-        "scaffold_hash": str(archive.get("scaffold_hash") or ""),
-        "prior_attempt_id": summary.get("current_attempt_id"),
-        "authorized_at": runner_now().isoformat(),
-    }
 
 
 def _effective_model(workflow, stage: StageDefinition, runtime: RuntimeOptions) -> str:
@@ -757,73 +658,6 @@ def _reference_context_from_stage_outputs(
             )
         )
     return entries
-
-
-def _review_handoff_entries(
-    *,
-    root: Path,
-    workflow,
-    run_manifest: dict[str, Any],
-    stage: StageDefinition,
-    review_bundles: dict[str, dict[str, Any]],
-    run_dir: Path | None = None,
-    dry_run: bool = False,
-) -> tuple[list[attachments.AttachmentEntry], str | None]:
-    source_stage_id = stage.carry_forward.review_bundle_from_stage_id
-    if source_stage_id is None:
-        return [], None
-    if source_stage_id not in review_bundles and dry_run and run_dir is not None:
-        return [
-            attachments.AttachmentEntry(
-                path=_dry_run_stub(
-                    root,
-                    run_dir,
-                    source_stage_id,
-                    "reviewer_notes.md",
-                    f"# Dry-run placeholder for reviewer notes from stage {source_stage_id}\n",
-                ),
-                kind="file",
-                notes="dry-run placeholder reviewer notes",
-            ),
-            attachments.AttachmentEntry(
-                path=_dry_run_stub(
-                    root,
-                    run_dir,
-                    source_stage_id,
-                    "artifact.md",
-                    f"# Dry-run placeholder for the artifact of stage {source_stage_id}\n",
-                ),
-                kind="file",
-                notes=f"dry-run placeholder artifact from stage {source_stage_id}",
-            ),
-        ], None
-    if source_stage_id not in review_bundles:
-        raise SystemExit(
-            f"Stage {stage.stage_id} requires a review bundle from stage {source_stage_id}."
-        )
-    source_summary = artifacts.find_stage_summary(run_manifest, source_stage_id)
-    source_status = str(source_summary.get("status", ""))
-    if source_status not in REVIEWABLE_APPROVED_SOURCE_STATUSES:
-        raise SystemExit(
-            f"Stage {stage.stage_id} cannot consume a review bundle from stage {source_stage_id} "
-            f"with status {source_status!r}."
-        )
-    bundle = review_bundles[source_stage_id]
-    review_bundle.validate_review_bundle_for_stage(
-        bundle,
-        workflow_id=workflow.workflow_id,
-        expected_source_stage_id=source_stage_id,
-        expected_source_run_id=run_manifest["run_id"],
-        root=root,
-        source_stage_summary=source_summary,
-    )
-    source_summary["review_approved"] = True
-    source_summary["approved_from_status"] = source_status
-    source_summary["review_bundle_path"] = bundle["bundle_path"]
-    return review_bundle.expand_review_bundle_inputs(
-        bundle,
-        include_response_artifact_json=stage.carry_forward.review_bundle_include_response_artifact_json,
-    ), str(bundle["bundle_path"])
 
 
 def _dry_run_stub(root: Path, run_dir: Path, source_stage_id: str, filename: str, text: str) -> str:
@@ -1062,9 +896,7 @@ def _gate_persist(
         resume_mode=ResumeMode.RESUME_RESPONSE_ID,
         token_preflight={"status": "previously_completed", "attempts": 0},
         response_json=response_json,
-        review_bundle_path=summary.get("review_bundle_path"),
         structured_output_written=stage_paths["structured_output"].exists(),
-        sidecar_written=stage_paths["sidecar_response_json"].exists(),
         uploads_payload_path=(
             stage_paths["uploads_json"] if stage_paths["uploads_json"].exists() else None
         ),
@@ -1179,21 +1011,29 @@ def _apply_handoff_note(
     try:
         with run_lock(run_dir):
             manifest = artifacts.load_run_manifest(root, run_dir)
+            # A human-gated stage keeps `waiting_for_review` after approval, so the
+            # note goes to the latest waiting stage that has not been approved yet.
             waiting = [
                 candidate
                 for candidate in workflow.stages
                 if candidate.gate in {GateType.HUMAN, GateType.REVIEWED}
                 and str(artifacts.find_stage_summary(manifest, candidate.stage_id).get("status", ""))
                 == StageStatus.WAITING_FOR_REVIEW.value
+                and not artifacts.find_stage_summary(manifest, candidate.stage_id).get("handoff_note_path")
             ]
             if not waiting:
+                already = [
+                    candidate.stage_id
+                    for candidate in workflow.stages
+                    if artifacts.find_stage_summary(manifest, candidate.stage_id).get("handoff_note_path") == note_rel
+                ]
+                if already:
+                    run_manifest.clear()
+                    run_manifest.update(manifest)
+                    return
                 raise SystemExit("No stage is waiting for a handoff note.")
-            target = waiting[0]
+            target = waiting[-1]
             summary = artifacts.find_stage_summary(manifest, target.stage_id)
-            if summary.get("handoff_note_path") == note_rel:
-                run_manifest.clear()
-                run_manifest.update(manifest)
-                return
             summary["handoff_note_path"] = note_rel
             summary["review_approved"] = True
             summary["review_status"] = "human_approved"
@@ -1467,7 +1307,7 @@ def _stage_status_from_response(
     if status in TERMINAL_RESPONSE_STATUSES and not finalized:
         return StageStatus.REMOTE_TERMINAL_PENDING_FINALIZATION.value
     if status == "completed":
-        if stage.gate in {GateType.REVIEW_REQUIRED, GateType.HUMAN} and has_next_stage:
+        if stage.gate == GateType.HUMAN and has_next_stage:
             return StageStatus.WAITING_FOR_REVIEW.value
         return StageStatus.COMPLETED.value
     if status == "failed":
@@ -1485,27 +1325,6 @@ def _stage_status_from_response(
     return StageStatus.SUBMITTED.value
 
 
-def _response_supports_sidecar_processing(response_json: dict[str, Any]) -> bool:
-    status = str(response_json.get("status", "unknown"))
-    if status == "completed":
-        return bool(artifacts.extract_output_text(response_json))
-    if status != "failed":
-        return False
-    if not artifacts.extract_output_text(response_json):
-        return False
-    output = response_json.get("output")
-    if not isinstance(output, list):
-        return False
-    for item in output:
-        if not isinstance(item, dict):
-            continue
-        if item.get("type") != "message":
-            continue
-        if str(item.get("status", "")) == "completed":
-            return True
-    return False
-
-
 def _build_checkpoint(
     *,
     root: Path,
@@ -1516,9 +1335,7 @@ def _build_checkpoint(
     resume_mode: ResumeMode,
     token_preflight: dict[str, Any],
     response_json: dict[str, Any] | None,
-    review_bundle_path: str | None,
     structured_output_written: bool,
-    sidecar_written: bool,
     uploads_payload_path: Path | None,
 ) -> dict[str, Any]:
     stage_summary = artifacts.find_stage_summary(run_manifest, stage.stage_id)
@@ -1547,8 +1364,7 @@ def _build_checkpoint(
             StageStatus.FAILED_NO_ARTIFACT.value,
         },
         "resume_mode": resume_mode.value,
-        "review_checkpoint_required": stage.gate
-        in {GateType.REVIEW_REQUIRED, GateType.HUMAN, GateType.REVIEWED},
+        "review_checkpoint_required": stage.gate in {GateType.HUMAN, GateType.REVIEWED},
         "request_payload_path": relpath(root, stage_paths["request_payload"]),
         "input_manifest_json_path": relpath(root, stage_paths["input_manifest_json"]),
         "input_manifest_markdown_path": relpath(root, stage_paths["input_manifest_md"]),
@@ -1570,23 +1386,8 @@ def _build_checkpoint(
                 else {}
             ),
             **(
-                {"response_final_markdown_path": relpath(root, stage_paths["response_final_md"])}
-                if stage_paths["response_final_md"].exists()
-                else {}
-            ),
-            **(
                 {"structured_output_path": relpath(root, stage_paths["structured_output"])}
                 if structured_output_written and stage_paths["structured_output"].exists()
-                else {}
-            ),
-            **(
-                {"sidecar_response_json_path": relpath(root, stage_paths["sidecar_response_json"])}
-                if sidecar_written and stage_paths["sidecar_response_json"].exists()
-                else {}
-            ),
-            **(
-                {"sidecar_response_markdown_path": relpath(root, stage_paths["sidecar_response_md"])}
-                if sidecar_written and stage_paths["sidecar_response_md"].exists()
                 else {}
             ),
             **(
@@ -1612,8 +1413,6 @@ def _build_checkpoint(
             )
         },
     }
-    if review_bundle_path is not None:
-        checkpoint["review_bundle_path"] = review_bundle_path
     if response_json is not None:
         checkpoint["response"] = {
             "id": str(response_json.get("id")),
@@ -1647,7 +1446,6 @@ def _sync_stage_summary(
     stage_paths: dict[str, Path],
     stage_status: str,
     response_json: dict[str, Any] | None,
-    review_bundle_path: str | None,
     token_preflight_path: Path | None,
     checkpoint_sha256: str | None = None,
 ) -> None:
@@ -1663,21 +1461,12 @@ def _sync_stage_summary(
     if stage_paths["artifact_md"].exists():
         summary["artifact_markdown_path"] = relpath(root, stage_paths["artifact_md"])
         summary["artifact_markdown_sha256"] = sha256_file(stage_paths["artifact_md"])
-    if stage_paths["response_final_md"].exists():
-        summary["response_markdown_path"] = relpath(root, stage_paths["response_final_md"])
-        summary["response_markdown_sha256"] = sha256_file(stage_paths["response_final_md"])
     if stage_paths["response_final_json"].exists():
         summary["response_json_path"] = relpath(root, stage_paths["response_final_json"])
         summary["response_json_sha256"] = sha256_file(stage_paths["response_final_json"])
     if stage_paths["structured_output"].exists():
         summary["structured_output_path"] = relpath(root, stage_paths["structured_output"])
         summary["structured_output_sha256"] = sha256_file(stage_paths["structured_output"])
-    if stage_paths["sidecar_response_json"].exists():
-        summary["sidecar_response_json_path"] = relpath(root, stage_paths["sidecar_response_json"])
-        summary["sidecar_response_json_sha256"] = sha256_file(stage_paths["sidecar_response_json"])
-    if stage_paths["sidecar_response_md"].exists():
-        summary["sidecar_response_markdown_path"] = relpath(root, stage_paths["sidecar_response_md"])
-        summary["sidecar_response_markdown_sha256"] = sha256_file(stage_paths["sidecar_response_md"])
     if token_preflight_path is not None and token_preflight_path.exists():
         summary["token_preflight_path"] = relpath(root, token_preflight_path)
     if stage_paths["validator_report"].exists():
@@ -1700,8 +1489,6 @@ def _sync_stage_summary(
             summary["review_status"] = "human_approved"
         elif disposition in {"approved", "revision_requested", "blocked", "not_required"}:
             summary["review_status"] = disposition
-    if review_bundle_path is not None:
-        summary["review_bundle_path"] = review_bundle_path
     if response_json is not None:
         summary["response_id"] = str(response_json.get("id"))
         summary["response_status"] = str(response_json.get("status"))
@@ -1752,18 +1539,8 @@ def _build_stage_runtime_manifest(
     run_manifest: dict[str, Any],
     static_manifest: dict[str, Any],
     runtime: RuntimeOptions,
-    review_bundles: dict[str, dict[str, Any]],
     run_dir: Path | None = None,
-) -> tuple[dict[str, Any], str | None]:
-    reviewed_entries, consumed_review_bundle_path = _review_handoff_entries(
-        root=root,
-        workflow=workflow,
-        run_manifest=run_manifest,
-        stage=stage,
-        review_bundles=review_bundles,
-        run_dir=run_dir,
-        dry_run=runtime.dry_run,
-    )
+) -> dict[str, Any]:
     gate_entries = (
         _gate_handoff_entries(
             root=root,
@@ -1785,10 +1562,7 @@ def _build_stage_runtime_manifest(
         run_dir=run_dir,
         dry_run=runtime.dry_run,
     )
-    duplicate_source = (
-        stage.carry_forward.review_bundle_from_stage_id
-        or stage.carry_forward.handoff_from_stage_id
-    )
+    duplicate_source = stage.carry_forward.handoff_from_stage_id
     if duplicate_source is not None:
         carry_forward_reference_entries = [
             entry
@@ -1821,7 +1595,6 @@ def _build_stage_runtime_manifest(
         ],
         reviewed_handoff_inputs=[
             *static_manifest["reviewed_handoff_inputs"],
-            *reviewed_entries,
             *gate_entries,
             *revision_entries,
         ],
@@ -1833,124 +1606,35 @@ def _build_stage_runtime_manifest(
             *carry_forward_reference_entries,
         ],
     )
-    return resolved_manifest, consumed_review_bundle_path
+    return resolved_manifest
 
 
 def _write_stage_artifacts_for_response(
     *,
-    root: Path,
-    client: OpenAIClient | None,
-    workflow,
-    run_manifest: dict[str, Any],
     stage: StageDefinition,
     stage_paths: dict[str, Path],
-    runtime: RuntimeOptions,
     response_json: dict[str, Any],
-    uploads_payload: dict[str, Any] | None,
-    allow_sidecar_processing: bool = True,
-) -> tuple[bool, bool, dict[str, Any] | None]:
-    main_requested_text_format = stage.output.primary_format
+) -> bool:
+    """Write response.final.json, artifact.md, and structured output; return whether structured output was written."""
+
     structured_output_written = False
-    sidecar_written = False
-    structured_output = None
-    effective_uploads_payload = uploads_payload
-    if main_requested_text_format == "json_schema":
+    if stage.output.primary_format == "json_schema":
         structured_output = artifacts.extract_structured_output(response_json, "json_schema")
         if structured_output is None:
             raise SystemExit(f"Stage {stage.stage_id} did not return structured output.")
         write_json(stage_paths["structured_output"], structured_output)
         structured_output_written = True
-
     output_text = artifacts.extract_output_text(response_json)
-    artifacts.write_response_pair(
-        root=root,
-        markdown_path=stage_paths["response_final_md"],
+    artifacts.write_response_final(
         json_path=stage_paths["response_final_json"],
-        title="Responses Runner V2 Stage Output",
-        workflow_id=workflow.workflow_id,
-        run_id=run_manifest["run_id"],
-        stage_id=stage.stage_id,
-        stage_number=stage.stage_number,
         response_json=response_json,
-        requested_text_format=main_requested_text_format,
-        structured_output=structured_output,
-        uploads_payload=effective_uploads_payload,
         artifact_path=stage_paths["artifact_md"] if output_text else None,
     )
     if str(response_json.get("status")) == "completed" and not output_text:
         raise SystemExit(
             f"Stage {stage.stage_id} completed remotely but returned no assistant artifact text."
         )
-
-    if (
-        allow_sidecar_processing
-        and stage.output.sidecar is not None
-        and _response_supports_sidecar_processing(response_json)
-    ):
-        if client is None:
-            raise SystemExit("A live OpenAI client is required for sidecar processing.")
-        structural_model = runtime.structural_model or workflow.model_roles[
-            ModelRole.STRUCTURAL_PROCESSING.value
-        ].model
-        result = sidecar.run_sidecar_processing(
-            root=root,
-            client=client,
-            workflow_id=workflow.workflow_id,
-            run_id=run_manifest["run_id"],
-            stage_id=stage.stage_id,
-            stage_number=stage.stage_number,
-            structural_model=structural_model,
-            reasoning_effort=workflow.model_roles[
-                ModelRole.STRUCTURAL_PROCESSING.value
-            ].reasoning_effort,
-            prompt_cache_retention=workflow.model_roles[
-                ModelRole.STRUCTURAL_PROCESSING.value
-            ].prompt_cache_retention,
-            reasoning_mode=workflow.model_roles[
-                ModelRole.STRUCTURAL_PROCESSING.value
-            ].reasoning_mode,
-            prompt_cache_mode=workflow.model_roles[
-                ModelRole.STRUCTURAL_PROCESSING.value
-            ].prompt_cache_mode,
-            prompt_cache_ttl=workflow.model_roles[
-                ModelRole.STRUCTURAL_PROCESSING.value
-            ].prompt_cache_ttl,
-            schema_file=stage.output.sidecar.schema_path,
-            schema_name=stage.output.sidecar.schema_name,
-            response_markdown_path=stage_paths["artifact_md"],
-            response_json_path=stage_paths["response_final_json"],
-            sidecar_response_json_path=stage_paths["sidecar_response_json"],
-            sidecar_response_markdown_path=stage_paths["sidecar_response_md"],
-            structured_output_path=stage_paths["structured_output"],
-            service_tier=_effective_service_tier(workflow, runtime),
-            safety_identifier=_effective_safety_identifier(workflow, runtime),
-            file_expiration_policy=_effective_expiration_policy(workflow, runtime),
-            delete_uploaded_files_on_complete=_delete_uploads_on_complete(workflow, runtime),
-            store=workflow.request_defaults.store,
-            file_purpose=workflow.request_defaults.file_uploads.purpose,
-        )
-        effective_uploads_payload = _merge_uploads_payloads(
-            effective_uploads_payload,
-            result.get("uploads_payload"),
-        )
-        if effective_uploads_payload is not None:
-            artifacts.write_response_pair(
-                root=root,
-                markdown_path=stage_paths["response_final_md"],
-                json_path=stage_paths["response_final_json"],
-                title="Responses Runner V2 Stage Output",
-                workflow_id=workflow.workflow_id,
-                run_id=run_manifest["run_id"],
-                stage_id=stage.stage_id,
-                stage_number=stage.stage_number,
-                response_json=response_json,
-                requested_text_format=main_requested_text_format,
-                structured_output=structured_output,
-                uploads_payload=effective_uploads_payload,
-            )
-        structured_output_written = True
-        sidecar_written = True
-    return structured_output_written, sidecar_written, effective_uploads_payload
+    return structured_output_written
 
 
 def _record_attempt_start(
@@ -1960,7 +1644,6 @@ def _record_attempt_start(
     stage: StageDefinition,
     attempt_number: int,
     stage_paths: dict[str, Path],
-    rerun_authorization: dict[str, Any] | None = None,
     revision_of_attempt_id: str | None = None,
 ) -> None:
     summary = artifacts.find_stage_summary(run_manifest, stage.stage_id)
@@ -1984,8 +1667,6 @@ def _record_attempt_start(
         "local_state": StageStatus.STAGING_INPUTS.value,
         "created_at": runner_now().isoformat(),
     }
-    if rerun_authorization is not None:
-        attempt_record["rerun_authorization"] = rerun_authorization
     if revision_of_attempt_id is not None:
         attempt_record["revision_of_attempt_id"] = revision_of_attempt_id
     summary.setdefault("attempts", []).append(attempt_record)
@@ -2140,9 +1821,7 @@ def _persist_stage_state(
     resume_mode: ResumeMode,
     token_preflight: dict[str, Any],
     response_json: dict[str, Any] | None,
-    review_bundle_path: str | None,
     structured_output_written: bool = False,
-    sidecar_written: bool = False,
     uploads_payload_path: Path | None = None,
     lock_already_held: bool = False,
     allow_prepared_preflight_block: bool = False,
@@ -2180,9 +1859,7 @@ def _persist_stage_state(
                 resume_mode=resume_mode,
                 token_preflight=token_preflight,
                 response_json=response_json,
-                review_bundle_path=review_bundle_path,
                 structured_output_written=structured_output_written,
-                sidecar_written=sidecar_written,
                 uploads_payload_path=uploads_payload_path,
             )
             checkpoint_sha256 = artifacts.prepare_stage_checkpoint(checkpoint)
@@ -2194,7 +1871,6 @@ def _persist_stage_state(
                 stage_paths=stage_paths,
                 stage_status=stage_status,
                 response_json=response_json,
-                review_bundle_path=review_bundle_path,
                 token_preflight_path=(
                     stage_paths["token_preflight"]
                     if stage_paths["token_preflight"].exists()
@@ -2334,69 +2010,6 @@ def _run_stage_validators(
     return reports
 
 
-def _primary_retry_count(attempt_id: object) -> int | None:
-    if not isinstance(attempt_id, str) or not attempt_id.startswith("attempt_"):
-        return None
-    try:
-        return max(0, int(attempt_id.removeprefix("attempt_")) - 1)
-    except ValueError:
-        return None
-
-
-def _update_primary_usage_attempt(
-    *,
-    stage_paths: dict[str, Path],
-    attempt_id: object,
-    uploads_payload: dict[str, Any] | None,
-    response_json: dict[str, Any] | None = None,
-    model: object = None,
-    status: object = None,
-    duration_ms: int | None = None,
-    request_wall_ms: int | None = None,
-    poll_wall_ms: int | None = None,
-    error_type: str | None = None,
-    error: str | None = None,
-) -> None:
-    path = stage_paths["usage_attempt"]
-    record = load_json(path, "primary usage attempt") if path.exists() else {}
-    record.update(
-        {
-            "lane": "primary",
-            "attempt_id": attempt_id,
-            "retry_count": _primary_retry_count(attempt_id),
-            "upload_count": len((uploads_payload or {}).get("files", [])),
-            "uploaded_bytes": sum(
-                int(item.get("bytes", 0))
-                for item in (uploads_payload or {}).get("files", [])
-                if isinstance(item, dict)
-            ),
-        }
-    )
-    if response_json is not None:
-        if response_json.get("id") is not None:
-            record["response_id"] = response_json.get("id")
-        model = response_json.get("model", model)
-        status = response_json.get("status", status)
-        if "usage" in response_json or "usage" not in record:
-            record["usage"] = response_json.get("usage")
-    elif "usage" not in record:
-        record["usage"] = None
-    for key, value in {
-        "model": model,
-        "status": status,
-        "duration_ms": duration_ms,
-        "request_wall_ms": request_wall_ms,
-        "poll_wall_ms": poll_wall_ms,
-    }.items():
-        if value is not None or key not in record:
-            record[key] = value
-    if error_type is not None:
-        record["error_type"] = error_type
-    if error is not None:
-        record["error"] = error
-    write_json(path, record)
-
-
 def _finalize_terminal_response(
     *,
     root: Path,
@@ -2409,7 +2022,6 @@ def _finalize_terminal_response(
     client: OpenAIClient,
     response_json: dict[str, Any],
     token_preflight: dict[str, Any],
-    review_bundle_path: str | None,
     uploads_payload: dict[str, Any] | None,
     resume_mode: ResumeMode,
 ) -> tuple[str, dict[str, Any] | None]:
@@ -2424,20 +2036,13 @@ def _finalize_terminal_response(
         resume_mode=resume_mode,
         token_preflight=token_preflight,
         response_json=response_json,
-        review_bundle_path=review_bundle_path,
         uploads_payload_path=uploads_path,
     )
     try:
-        structured_written, sidecar_written, uploads_payload = _write_stage_artifacts_for_response(
-            root=root,
-            client=client,
-            workflow=workflow,
-            run_manifest=run_manifest,
+        structured_written = _write_stage_artifacts_for_response(
             stage=stage,
             stage_paths=stage_paths,
-            runtime=runtime,
             response_json=response_json,
-            uploads_payload=uploads_payload,
         )
         if stage_paths["artifact_md"].exists():
             _run_stage_validators(root=root, stage=stage, stage_paths=stage_paths)
@@ -2464,9 +2069,7 @@ def _finalize_terminal_response(
             resume_mode=resume_mode,
             token_preflight=token_preflight,
             response_json=response_json,
-            review_bundle_path=review_bundle_path,
             structured_output_written=stage_paths["structured_output"].exists(),
-            sidecar_written=stage_paths["sidecar_response_json"].exists(),
             uploads_payload_path=uploads_path,
         )
         raise
@@ -2492,9 +2095,7 @@ def _finalize_terminal_response(
         resume_mode=resume_mode,
         token_preflight=token_preflight,
         response_json=response_json,
-        review_bundle_path=review_bundle_path,
         structured_output_written=structured_written,
-        sidecar_written=sidecar_written,
         uploads_payload_path=uploads_path,
     )
     final_status = _stage_status_from_response(
@@ -2513,18 +2114,8 @@ def _finalize_terminal_response(
         resume_mode=resume_mode,
         token_preflight=token_preflight,
         response_json=response_json,
-        review_bundle_path=review_bundle_path,
         structured_output_written=structured_written,
-        sidecar_written=sidecar_written,
         uploads_payload_path=uploads_path,
-    )
-    _update_primary_usage_attempt(
-        stage_paths=stage_paths,
-        attempt_id=artifacts.find_stage_summary(run_manifest, stage.stage_id).get(
-            "current_attempt_id"
-        ),
-        uploads_payload=uploads_payload,
-        response_json=response_json,
     )
     return final_status, uploads_payload
 
@@ -2552,7 +2143,6 @@ def run_workflow(
         reference_context=runtime.reference_context,
     )
     run_dir, run_manifest = _load_or_create_run_manifest(root=root, workflow=workflow, runtime=runtime)
-    review_bundles = _load_review_bundles(root, runtime.review_bundles)
     current_stage: StageDefinition | None = None
     warnings: list[dict[str, Any]] = []
     stage_results: list[dict[str, Any]] = []
@@ -2606,30 +2196,11 @@ def run_workflow(
         try:
             with run_lock(run_dir):
                 run_manifest = artifacts.load_run_manifest(root, run_dir)
-                rerun_authorization = None
-                if runtime.rerun_archive_manifest is not None:
-                    if current_stage is not None:
-                        raise SystemExit(
-                            "Archive-authorized reruns execute exactly one stage per invocation."
-                        )
-                    if runtime.stage_id is None:
-                        raise SystemExit("Archive-authorized rerun requires an explicit stage_id.")
-                    rerun_authorization = _validate_rerun_authorization(
-                        root=root,
-                        run_dir=run_dir,
-                        run_manifest=run_manifest,
-                        stage_id=runtime.stage_id,
-                        archive_manifest=runtime.rerun_archive_manifest,
-                    )
                 if current_stage is None:
                     current_stage = _determine_next_stage(
                         workflow=workflow,
                         run_manifest=run_manifest,
-                        review_bundles=review_bundles,
                         explicit_stage_id=runtime.stage_id,
-                        rerun_authorized_stage_id=(
-                            runtime.stage_id if rerun_authorization is not None else None
-                        ),
                     )
                 stage = current_stage
                 if runtime.dry_run:
@@ -2641,8 +2212,8 @@ def run_workflow(
                 else:
                     summary = artifacts.find_stage_summary(run_manifest, stage.stage_id)
                     if summary.get("status") not in RUNNABLE_STAGE_STATES and not (
-                        summary.get("status") == StageStatus.FAILED_NO_ARTIFACT.value
-                        and rerun_authorization is not None
+                        runtime.stage_id == stage.stage_id
+                        and summary.get("status") in RERUNNABLE_STAGE_STATES
                     ):
                         raise SystemExit(
                             f"Stage {stage.stage_id} changed state before allocation: "
@@ -2665,21 +2236,19 @@ def run_workflow(
                         stage=stage,
                         attempt_number=attempt_number,
                         stage_paths=stage_paths,
-                        rerun_authorization=rerun_authorization,
                         revision_of_attempt_id=revision_of_attempt_id,
                     )
                     artifacts.write_run_manifest(run_dir, run_manifest)
         except RunLockError as exc:
             raise SystemExit(str(exc)) from exc
         static_manifest = load_input_manifest(stage.input_manifest_path, root=root)
-        resolved_manifest, consumed_review_bundle_path = _build_stage_runtime_manifest(
+        resolved_manifest = _build_stage_runtime_manifest(
             root=root,
             workflow=workflow,
             stage=stage,
             run_manifest=run_manifest,
             static_manifest=static_manifest,
             runtime=runtime,
-            review_bundles=review_bundles,
             run_dir=run_dir,
         )
         # A dry run and its later live execution are two renderings of one
@@ -2820,9 +2389,7 @@ def run_workflow(
                 resume_mode=ResumeMode.FRESH_SUBMIT,
                 token_preflight={"status": "pending"},
                 response_json=None,
-                review_bundle_path=consumed_review_bundle_path,
                 structured_output_written=False,
-                sidecar_written=False,
                 uploads_payload_path=None,
             )
             artifacts.write_stage_checkpoint(stage_paths, checkpoint)
@@ -2833,7 +2400,6 @@ def run_workflow(
                 stage_paths=stage_paths,
                 stage_status=stage_status,
                 response_json=None,
-                review_bundle_path=consumed_review_bundle_path,
                 token_preflight_path=None,
             )
             run_manifest["status"] = RunStatus.CREATED.value
@@ -2888,7 +2454,6 @@ def run_workflow(
                 resume_mode=ResumeMode.FRESH_SUBMIT,
                 token_preflight={"status": "pending", "attempts": 0},
                 response_json=None,
-                review_bundle_path=consumed_review_bundle_path,
             )
             try:
                 _manifest_file_id, _role_to_file_ids, uploads_payload, resolved_manifest = attachments.upload_prepared_attachments(
@@ -2940,7 +2505,6 @@ def run_workflow(
                         "error_message": "attachment upload failed before submission",
                     },
                     response_json=None,
-                    review_bundle_path=consumed_review_bundle_path,
                     uploads_payload_path=(
                         stage_paths["uploads_json"]
                         if stage_paths["uploads_json"].exists()
@@ -3012,7 +2576,6 @@ def run_workflow(
                         ),
                     },
                     response_json=None,
-                    review_bundle_path=consumed_review_bundle_path,
                     uploads_payload_path=uploads_payload_path,
                 )
                 if uploads_payload is not None:
@@ -3040,7 +2603,6 @@ def run_workflow(
                 resume_mode=ResumeMode.FRESH_SUBMIT,
                 token_preflight=token_preflight,
                 response_json=None,
-                review_bundle_path=consumed_review_bundle_path,
                 uploads_payload_path=uploads_payload_path,
             )
 
@@ -3078,15 +2640,7 @@ def run_workflow(
                 resume_mode=ResumeMode.FRESH_SUBMIT,
                 token_preflight=token_preflight,
                 response_json=None,
-                review_bundle_path=consumed_review_bundle_path,
                 uploads_payload_path=uploads_payload_path,
-            )
-            _update_primary_usage_attempt(
-                stage_paths=stage_paths,
-                attempt_id=attempt_id,
-                uploads_payload=uploads_payload,
-                model=request_payload.get("model"),
-                status=StageStatus.SUBMITTING.value,
             )
             request_started = time.monotonic()
             try:
@@ -3109,16 +2663,6 @@ def run_workflow(
                     if exc.outcome_unknown
                     else StageStatus.FAILED_NO_ARTIFACT.value
                 )
-                _update_primary_usage_attempt(
-                    stage_paths=stage_paths,
-                    attempt_id=attempt_id,
-                    uploads_payload=uploads_payload,
-                    model=request_payload.get("model"),
-                    status=failed_state,
-                    request_wall_ms=request_wall_ms,
-                    error_type=type(exc).__name__,
-                    error=str(exc),
-                )
                 _persist_stage_state(
                     root=root,
                     run_dir=run_dir,
@@ -3129,7 +2673,6 @@ def run_workflow(
                     resume_mode=ResumeMode.FRESH_SUBMIT,
                     token_preflight=token_preflight,
                     response_json=None,
-                    review_bundle_path=consumed_review_bundle_path,
                     uploads_payload_path=uploads_payload_path,
                 )
                 if not exc.outcome_unknown and uploads_payload is not None:
@@ -3150,13 +2693,6 @@ def run_workflow(
                 if attempt.get("attempt_id") == attempt_id:
                     attempt["request_wall_ms"] = request_wall_ms
                     attempt["response_id"] = response_json.get("id")
-            _update_primary_usage_attempt(
-                stage_paths=stage_paths,
-                attempt_id=attempt_id,
-                uploads_payload=uploads_payload,
-                response_json=response_json,
-                request_wall_ms=request_wall_ms,
-            )
             artifacts.write_response_latest(stage_paths, response_json)
             has_next_stage = workflow.next_stage(stage.stage_id) is not None
             _persist_stage_state(
@@ -3169,7 +2705,6 @@ def run_workflow(
                 resume_mode=ResumeMode.FRESH_SUBMIT,
                 token_preflight=token_preflight,
                 response_json=response_json,
-                review_bundle_path=consumed_review_bundle_path,
                 uploads_payload_path=uploads_payload_path,
             )
             stage_status = _stage_status_from_response(response_json, stage, has_next_stage)
@@ -3184,7 +2719,6 @@ def run_workflow(
                     resume_mode=ResumeMode.FRESH_SUBMIT,
                     token_preflight=token_preflight,
                     response_json=response_json,
-                    review_bundle_path=consumed_review_bundle_path,
                     uploads_payload_path=uploads_payload_path,
                 )
 
@@ -3212,18 +2746,8 @@ def run_workflow(
                     client=client,
                     response_json=response_json,
                     token_preflight=token_preflight,
-                    review_bundle_path=consumed_review_bundle_path,
                     uploads_payload=uploads_payload,
                     resume_mode=ResumeMode.FRESH_SUBMIT,
-                )
-                _update_primary_usage_attempt(
-                    stage_paths=stage_paths,
-                    attempt_id=attempt_id,
-                    uploads_payload=uploads_payload,
-                    response_json=response_json,
-                    duration_ms=request_wall_ms + poll_wall_ms,
-                    request_wall_ms=request_wall_ms,
-                    poll_wall_ms=poll_wall_ms,
                 )
 
                 if (
@@ -3320,25 +2844,6 @@ def _load_uploads_payload(stage_paths: dict[str, Path]) -> dict[str, Any] | None
     return load_json(stage_paths["uploads_json"], "uploads payload")
 
 
-def _merge_uploads_payloads(
-    base_payload: dict[str, Any] | None,
-    extra_payload: dict[str, Any] | None,
-) -> dict[str, Any] | None:
-    if base_payload is None:
-        return extra_payload
-    if extra_payload is None:
-        return base_payload
-    merged = dict(base_payload)
-    merged["delete_uploaded_files_on_complete"] = bool(
-        base_payload.get("delete_uploaded_files_on_complete")
-        or extra_payload.get("delete_uploaded_files_on_complete")
-    )
-    if merged.get("file_expiration_policy") is None and extra_payload.get("file_expiration_policy") is not None:
-        merged["file_expiration_policy"] = extra_payload.get("file_expiration_policy")
-    merged["files"] = list(base_payload.get("files", [])) + list(extra_payload.get("files", []))
-    return merged
-
-
 def resume_stage(
     *,
     run_dir: str | Path,
@@ -3415,15 +2920,8 @@ def resume_stage(
         )
         artifacts.write_response_latest(stage_paths, response_json)
     uploads_payload = _load_uploads_payload(stage_paths)
-    _update_primary_usage_attempt(
-        stage_paths=stage_paths,
-        attempt_id=stage_summary.get("current_attempt_id"),
-        uploads_payload=uploads_payload,
-        response_json=response_json,
-    )
     has_next_stage = workflow.next_stage(stage.stage_id) is not None
     structured_output_written = stage_paths["structured_output"].exists()
-    sidecar_written = stage_paths["sidecar_response_json"].exists()
     token_preflight = (
         {"status": "skipped_by_operator", "attempts": 0}
         if effective_runtime.skip_token_count
@@ -3459,7 +2957,6 @@ def resume_stage(
             client=client,
             response_json=response_json,
             token_preflight=token_preflight,
-            review_bundle_path=stage_summary.get("review_bundle_path"),
             uploads_payload=uploads_payload,
             resume_mode=ResumeMode.RESUME_RESPONSE_ID,
         )
@@ -3504,9 +3001,7 @@ def resume_stage(
         ),
         token_preflight=token_preflight,
         response_json=response_json,
-        review_bundle_path=stage_summary.get("review_bundle_path"),
         structured_output_written=structured_output_written,
-        sidecar_written=sidecar_written,
         uploads_payload_path=stage_paths["uploads_json"] if stage_paths["uploads_json"].exists() else None,
     )
     return {
@@ -3608,7 +3103,6 @@ def cancel_stage(
                     resume_mode=ResumeMode.RESUME_RESPONSE_ID,
                     token_preflight={"status": "previously_completed", "attempts": 0},
                     response_json=None,
-                    review_bundle_path=summary.get("review_bundle_path"),
                     uploads_payload_path=(
                         stage_paths["uploads_json"]
                         if stage_paths["uploads_json"].exists()
@@ -3692,39 +3186,3 @@ def recover_uploads(
     return {"uploads_path": relpath(root, path), "stage_id": stage_id}
 
 
-def usage_report(*, run_dir: str | Path, root: Path | None = None) -> dict[str, Any]:
-    """Aggregate durable primary and sidecar usage without estimating price."""
-
-    root = root or repo_root()
-    resolved_run_dir = resolve_under_root(root, run_dir, must_exist=True)
-    attempts: list[dict[str, Any]] = []
-    for path in sorted(resolved_run_dir.rglob("usage_attempt.json")):
-        payload = load_json(path, "usage attempt")
-        attempts.append(payload)
-    for path in sorted(resolved_run_dir.rglob("*.attempts.json")):
-        payload = load_json(path, "sidecar attempts")
-        for index, item in enumerate(payload.get("attempts", []), start=1):
-            if not isinstance(item, dict):
-                continue
-            attempts.append(
-                {
-                    "attempt_id": item.get("attempt_id") or f"{path.parent.name}-sidecar-{index}",
-                    "lane": item.get("lane") or "sidecar",
-                    "model": item.get("model"),
-                    "status": item.get("status"),
-                    "duration_ms": item.get("duration_ms"),
-                    "request_wall_ms": item.get("request_wall_ms"),
-                    "poll_wall_ms": item.get("poll_wall_ms"),
-                    "retry_count": item.get("retry_count"),
-                    "upload_count": item.get("upload_count"),
-                    "uploaded_bytes": item.get("uploaded_bytes"),
-                    "usage": item.get("usage"),
-                }
-            )
-    report = build_usage_report(attempts)
-    report_path = resolved_run_dir / "usage_report.json"
-    write_json(report_path, report)
-    return {
-        "usage_report_path": relpath(root, report_path),
-        "attempt_count": len(attempts),
-    }

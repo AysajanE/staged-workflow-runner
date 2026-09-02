@@ -3,7 +3,7 @@
   "workflow_id": "synthetic_one_pass",
   "workflow_name": "Synthetic One Pass",
   "workflow_mode": "one_pass",
-  "description": "Bounded one-pass validation workflow with structured sidecar output.",
+  "description": "Bounded one-pass validation workflow.",
   "assurance_profile": "critical",
   "shared_instructions_file": "../shared_instructions.md",
   "operator_requirements": {
@@ -68,11 +68,7 @@
       "max_output_tokens": 4000,
       "gate": "terminal",
       "output": {
-        "primary_format": "text",
-        "sidecar": {
-          "schema_file": "../schemas/synthetic_summary.schema.json",
-          "schema_name": "synthetic_summary"
-        }
+        "primary_format": "text"
       }
     }
   ]

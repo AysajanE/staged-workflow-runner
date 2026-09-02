@@ -8,7 +8,7 @@ It is intentionally synthetic and small so operators can verify the engine witho
 
 - one-pass execution with sidecar structured output
 - automatic two-pass carry-forward
-- reviewed three-stage progression with approved review bundles
+- three-stage progression through legacy `review_required` gates with hash-bound review bundles
 - dry-run readiness
 - run-artifact writing and proof-pack regression coverage through the bundled tests
 - workflow manifest v2 with `critical` assurance and explicit 700000-token input budgets
@@ -61,9 +61,9 @@ python automation/run_responses_v2.py run \
 
 ## What Success Looks Like
 
-- a dry run writes `request_payload.json` and `stage_checkpoint.json`
+- a dry run renders every stage under `dry_runs/stages/` (`request_payload.json`, `input_manifest.md`, `request_plan.json`, `stage_checkpoint.json`), with placeholder handoffs under `dry_runs/stubs/`
 - a live one-pass run writes `output.structured.json`
-- the reviewed workflow stops at review gates until an approved bundle is supplied
+- the reviewed workflow stops at its legacy `review_required` gates until a bundle is supplied (new packs use `reviewed`/`human` gates and `--handoff-note` instead)
 - the bundled tests pass without relying on any business-specific pack
 
 ## What This Pack Is Not

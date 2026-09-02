@@ -29,13 +29,11 @@ REPO_ROOT_ENV_VAR = "RESPONSES_RUNNER_V2_ROOT"
 
 WORKFLOW_SCHEMA_VERSION = "responses_runner_v2.workflow_manifest.v2"
 INPUT_MANIFEST_SCHEMA_VERSION = "responses_runner_v2.input_manifest.v1"
-REVIEW_BUNDLE_SCHEMA_VERSION = "responses_runner_v2.review_bundle.v1"
 RUN_MANIFEST_SCHEMA_VERSION = "responses_runner_v2.run_manifest.v2"
 STAGE_CHECKPOINT_SCHEMA_VERSION = "responses_runner_v2.stage_checkpoint.v2"
 REVIEW_DECISION_SCHEMA_VERSION = "responses_runner_v2.review_decision.v1"
 STAGE_OUTCOME_SCHEMA_VERSION = "responses_runner_v2.stage_outcome.v1"
 HUMAN_PAUSE_SCHEMA_VERSION = "responses_runner_v2.human_pause.v1"
-SUPERVISOR_ARCHIVE_SCHEMA_VERSION = "responses_runner_v2.supervisor_archive.v1"
 FINAL_IMPLEMENTATION_BUNDLE_SCHEMA_VERSION = "responses_runner_v2.final_implementation_bundle.v2"
 FINAL_DELIVERY_BUNDLE_SCHEMA_VERSION = "responses_runner_v2.final_delivery_bundle.v1"
 
@@ -338,7 +336,6 @@ class GateType(str, Enum):
     """Stage progression gate categories understood by the workflow engine."""
 
     AUTO = "auto"
-    REVIEW_REQUIRED = "review_required"
     REVIEWED = "reviewed"
     HUMAN = "human"
     TERMINAL = "terminal"
@@ -413,12 +410,12 @@ ALLOWED_STAGE_TRANSITIONS: dict[str, frozenset[str]] = {
         {"waiting_for_review", "completed", "failed_complete", "failed_no_artifact", "cancelled", "incomplete"}
     ),
     "submission_outcome_unknown": frozenset(),
-    "blocked_preflight": frozenset(),
+    "blocked_preflight": frozenset({"staging_inputs"}),
     "waiting_for_review": frozenset(),
     "completed": frozenset({"revision_requested", "waiting_for_review"}),
     "revision_requested": frozenset({"staging_inputs"}),
     "failed_complete": frozenset(),
-    "failed_no_artifact": frozenset(),
+    "failed_no_artifact": frozenset({"staging_inputs"}),
     "cancelled": frozenset(),
     "incomplete": frozenset(),
 }
@@ -513,8 +510,6 @@ class CarryForwardConfig:
     """Rules for carrying prior-stage artifacts into a later stage."""
 
     reference_context_from_stage_ids: tuple[str, ...] = ()
-    review_bundle_from_stage_id: str | None = None
-    review_bundle_include_response_artifact_json: bool = False
     handoff_from_stage_id: str | None = None
 
 
@@ -529,23 +524,13 @@ class RuntimeInputBinding:
 
 
 @dataclass(frozen=True)
-class OutputSidecarConfig:
-    """Structured sidecar extraction schema configuration."""
-
-    schema_file: str
-    schema_name: str
-    schema_path: Path
-
-
-@dataclass(frozen=True)
 class OutputConfig:
-    """Primary output format and optional sidecar configuration for a stage."""
+    """Primary output format for a stage."""
 
     primary_format: str
     schema_file: str | None
     schema_name: str | None
     schema_path: Path | None
-    sidecar: OutputSidecarConfig | None = None
 
 
 @dataclass(frozen=True)
@@ -640,7 +625,6 @@ class RuntimeOptions:
     stage_id: str | None = None
     primary_job_inputs: list[str] = field(default_factory=list)
     reference_context: list[str] = field(default_factory=list)
-    review_bundles: list[str] = field(default_factory=list)
     input_bindings: list[RuntimeInputBinding] = field(default_factory=list)
     output_root: Path | None = None
     max_input_tokens: int | None = None
@@ -657,7 +641,6 @@ class RuntimeOptions:
     service_tier: str | None = None
     safety_identifier: str | None = None
     prompt_cache_key_strategy: str = "stable_lane_v1"
-    rerun_archive_manifest: str | None = None
     handoff_note: str | None = None
     reviewer_override: str | None = None
 

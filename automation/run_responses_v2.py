@@ -19,7 +19,6 @@ from automation.responses_runner_v2.contracts import (
     repo_root,
 )
 from automation.responses_runner_v2.openai_client import OpenAIClient
-from automation.responses_runner_v2.data_lifecycle import PURGE_PATTERNS, purge_evidence
 from automation.responses_runner_v2.pack_loader import (
     load_runtime_input_bindings,
     load_workflow_definition,
@@ -30,7 +29,6 @@ from automation.responses_runner_v2.workflow import (
     refresh_stage,
     resume_stage,
     run_workflow,
-    usage_report,
 )
 
 
@@ -67,7 +65,6 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     run_parser.add_argument("--stage")
     run_parser.add_argument("--primary-job-input", action="append", default=[])
     run_parser.add_argument("--reference-context", action="append", default=[])
-    run_parser.add_argument("--review-bundle", action="append", default=[])
     run_parser.add_argument(
         "--input-binding-file",
         type=_path_argument,
@@ -167,27 +164,6 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     recover_parser.add_argument("--stage", required=True)
     recover_parser.add_argument("--attempt", type=int)
 
-    usage_parser = subparsers.add_parser(
-        "usage-report",
-        help="Build normalized primary and sidecar usage totals for a run.",
-    )
-    _add_root_argument(usage_parser)
-    usage_parser.add_argument("--run-dir", required=True, type=_path_argument)
-
-    purge_parser = subparsers.add_parser(
-        "purge",
-        help="Purge explicit raw-evidence classes and leave a hash-bound tombstone.",
-    )
-    _add_root_argument(purge_parser)
-    purge_parser.add_argument("--target-dir", required=True, type=_path_argument)
-    purge_parser.add_argument(
-        "--category",
-        action="append",
-        choices=sorted(PURGE_PATTERNS),
-        default=[],
-    )
-    purge_parser.add_argument("--reason", default="")
-    purge_parser.add_argument("--resume-tombstone", type=_path_argument)
 
     return parser.parse_args(argv)
 
@@ -218,7 +194,6 @@ def main(argv: Sequence[str] | None = None) -> int:
             stage_id=args.stage,
             primary_job_inputs=list(args.primary_job_input),
             reference_context=list(args.reference_context),
-            review_bundles=list(args.review_bundle),
             input_bindings=input_bindings,
             output_root=args.output_root,
             max_input_tokens=args.max_input_tokens,
@@ -254,22 +229,6 @@ def main(argv: Sequence[str] | None = None) -> int:
                 file=sys.stderr,
             )
         print(result["run_manifest_path"])
-        return 0
-
-    if args.command == "usage-report":
-        result = usage_report(run_dir=args.run_dir, root=root)
-        print(result["usage_report_path"])
-        return 0
-
-    if args.command == "purge":
-        result = purge_evidence(
-            root=root,
-            target_dir=args.target_dir,
-            categories=args.category,
-            reason=args.reason,
-            resume_tombstone=args.resume_tombstone,
-        )
-        print(result["tombstone_path"])
         return 0
 
     client = OpenAIClient.from_env(root=root)

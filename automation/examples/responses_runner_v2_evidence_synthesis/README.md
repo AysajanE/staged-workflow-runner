@@ -11,7 +11,8 @@ Static input manifests are deliberately empty, so using the binding file does no
 same content twice.
 
 The workflow declares the `reviewed` assurance profile: it is an important deliverable with
-independent review gates, but it does not claim the three-agent `critical` posture.
+review gates, but it does not claim the `critical` data-handling posture (confidential
+sensitivity, repository-file evidence).
 
 Citation types used by the prompts are:
 
