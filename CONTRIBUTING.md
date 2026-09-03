@@ -23,10 +23,10 @@ scripts/pre-push-secret-scan.sh
 
 ## Architecture Rules
 
-- Keep the runner one-root: workflow assets, review bundles, supervisor sessions, archives, and run outputs must resolve under the active workspace root.
-- Keep task-specific behavior in task packs: prompts, input manifests, tool profiles, schemas, and reviewed handoff bundles.
-- Keep the supervisor additive. Do not move low-level Responses API submission, refresh/resume, artifact finalization, sidecar extraction, or review-bundle validation out of `automation/responses_runner_v2/workflow.py`.
-- Preserve the review topology: operator Codex, read-only Codex reviewer, read-only Claude reviewer, deterministic consolidation, then operator selective acceptance with applied-change evidence.
+- Keep the runner one-root: workflow assets, handoff notes, and run outputs must resolve under the active workspace root.
+- Keep task-specific behavior in task packs: prompts, input manifests, tool profiles, schemas, and review policy (`defaults.review` and per-stage `review`).
+- Keep low-level Responses API submission, refresh/resume, gate handling, artifact finalization, and run-manifest updates in `automation/responses_runner_v2/workflow.py`; keep reviewer CLI invocation in `automation/responses_runner_v2/reviewer.py`.
+- Keep reviewed gates simple: one reviewer CLI (`codex`, `claude`, or `none`) per stage and at most `max_revisions` primary-model revisions. Do not reintroduce multi-agent review loops.
 
 Read `AGENTS.md` before making architectural changes.
 
@@ -35,5 +35,5 @@ Read `AGENTS.md` before making architectural changes.
 - Explain the task and the affected runner contract.
 - Add or update focused tests for behavior changes.
 - Run the baseline test suite and at least one dry-run smoke.
-- Do not commit `.env`, `.local/`, response artifacts, supervisor sessions, caches, or project-specific handoffs.
+- Do not commit `.env`, `.local/`, response artifacts, reviewer output, caches, or project-specific handoff notes.
 - Keep generated run evidence out of the public tree unless it is intentionally part of a small synthetic fixture.

@@ -41,7 +41,7 @@ def _add_root_argument(parser: argparse.ArgumentParser) -> None:
         "--root",
         type=_path_argument,
         help=(
-            "Exact workspace root to resolve workflow, artifact, review-bundle, and output paths "
+            "Exact workspace root to resolve workflow, artifact, handoff-note, and output paths "
             "against. If omitted, RESPONSES_RUNNER_V2_ROOT is used when set; otherwise the current "
             "working directory is used as-is."
         ),

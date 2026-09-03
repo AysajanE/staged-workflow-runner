@@ -1,456 +1,281 @@
 # Responses Runner V2
 
-This runbook covers day-to-day operation of the runner inside the `staged-workflow-runner` repository while the first release preserves the existing `responses_runner_v2` package and CLI names.
+Day-to-day operation of the staged workflow engine. One CLI drives everything:
+`automation/run_responses_v2.py` with the subcommands `run`, `resume`, `refresh`, `cancel`,
+and `recover-uploads`.
 
-It also covers the additive supervisor lane for end-to-end AI-operated execution after an initial clarification gate.
+The separate supervisor lane (sessions, scaffold review cycles, the three-agent review loop,
+consolidation, acceptance, bundles) was removed: on the one real supervised run it spent
+282 reviewer-agent minutes against 32 minutes of primary model time and never changed the
+primary output. Stage review is now a single reviewer CLI call inside the engine.
 
 ## Prerequisites
 
-- Python 3.10 or newer
-- `OPENAI_API_KEY` set in the environment, or a `.env` file in the workspace root used for the run
-- a workflow manifest and all statically referenced assets stored under one workspace root
-- for the supervisor review lane:
-  - Codex CLI available as `codex`
-  - Claude Code CLI available as `claude`
-  - non-interactive execution allowed in the current shell
-
-## Token-preflight default
-
-Keep token preflight enabled. The byte-based pre-upload estimate is advisory when the exact API
-count will run; the exact count enforces both `max_input_tokens` and the model context window
-before submission. If exact counting is disabled, the conservative byte bound is fail-closed.
-For critical workflows, an exact-count service failure blocks submission and triggers upload
-cleanup. `--skip-token-count` is an exceptional operator override, not a runbook default.
+- Python 3.10 or newer, with `jsonschema` installed (`python -m pip install -e .`)
+- `OPENAI_API_KEY` in the environment, or a `.env` file in the workspace root
+- a workflow manifest and every statically referenced asset under one workspace root
+- for `reviewed` gates: the `codex` CLI, or the `claude` CLI already logged in, on `PATH`
 
 ## Workspace Root Contract
 
-The first release uses **one exact workspace root per run and supervisor session**.
+Every invocation operates against one exact workspace root, resolved in this order:
 
-Resolution order:
-
-1. explicit CLI `--root`
+1. explicit `--root`
 2. `RESPONSES_RUNNER_V2_ROOT`
-3. current working directory as-is
+3. the current working directory as-is
 
-Implications:
-
-- `--workflow-file` is resolved under that workspace root
-- `--primary-job-input`, `--review-bundle`, `--run-dir`, and `--output-root` must stay under that same root
-- supervisor sessions are written under `.local/automation/responses_runner_v2/supervisor_sessions/`
-- review bundles and carry-forward artifacts are validated under the same root
-- there is no dual-root mode in this release
+`--workflow-file`, `--primary-job-input`, `--reference-context`, `--handoff-note`,
+`--input-binding-file`, `--run-dir`, and `--output-root` must all stay under that root. Run directories default to `.local/automation/responses_runner_v2/runs/`. There is
+no dual-root mode.
 
 ## Model Defaults
 
-Use:
-
-- primary generation: durable alias `gpt-5.6` with `reasoning.mode=pro`
+- primary generation: durable alias `gpt-5.6` with `reasoning_mode=pro`
 - structural processing: durable alias `gpt-5.6` with standard reasoning mode
-- prompt caching: implicit mode with `ttl=30m`
-- prompt-cache routing: stable compatible-lane keys by default; use `--prompt-cache-key-strategy legacy_stage_v1` only for paired comparison
-- locked high-stakes self-improvement max output: `128000`
+- prompt caching: `prompt_cache_mode=implicit` with `prompt_cache_ttl=30m`
+- prompt-cache keys: `stable_lane_v1` by default; `--prompt-cache-key-strategy legacy_stage_v1`
+  only for paired comparison
+- `gpt-5.6` context window `1_050_000`, max output `128000`
 
-The workflow loader rejects GPT-5.6 profiles that omit the supported 30-minute cache TTL
-or use an unsupported reasoning mode. Stage verbosity and terminal `high` versus `xhigh`
-reasoning remain measurement-gated experiments.
+The workflow loader rejects `gpt-5.6` profiles that omit the 30-minute cache TTL or use an
+unsupported reasoning mode. `--primary-model` and `--structural-model` override per run.
 
-## Assurance And Stage-Scoped Inputs
+## Preflight And Context Budget
 
-Workflow manifest v2 requires an `assurance_profile`. Existing packs remain `critical`, which
-requires an explicit `max_input_tokens` budget on every stage. The broader `reviewed`,
-`standard`, and `fast` profiles are visible in persisted policy but must not be described as
-critical.
+One check runs before submission: the **exact count** (`POST /responses/input_tokens`). The
+create payload is projected onto the fields the count endpoint accepts, and the result is
+written to `token_preflight.json` (or `token_preflight.error.json` when it blocks). It fails
+closed when the count exceeds the stage's `max_input_tokens` (or `--max-input-tokens`) or the
+model context window minus the requested output and a safety margin, leaving the stage
+`blocked_preflight`; fix the input and rerun that stage in place with
+`run --run-dir <run_dir> --stage <stage_id>`. There is no local estimate.
 
-Use `--input-binding-file <bindings.json>` when an operator input should be visible only to
-named stages. A binding declares a stable id, root-confined path, authority, and either workflow
-scope or an explicit stage list. The offline contract example is under
-`automation/examples/responses_runner_v2_evidence_synthesis/`.
-Use the same flag on supervisor `dry-run-scaffold`, `launch`, and `rerun-archived`; an existing
-run rejects any binding drift from its frozen contract.
+`--skip-token-count` disables the exact count. Keep it enabled for real work.
 
-## Generic Runner Smoke Test
+## Dry Run Every Stage
 
-From the repository root:
+`run --dry-run` without `--stage` renders every stage of the workflow, in order, under
+`<run_dir>/dry_runs/stages/NN_<stage_id>/`: `input_manifest.json`, `input_manifest.md`,
+`request_payload.json`, and the `upload_inputs/` staging directory. Handoffs from stages that
+have not run yet are satisfied by placeholder files under `<run_dir>/dry_runs/stubs/<stage_id>/`.
+This is the whole pre-launch check.
 
 ```bash
 python automation/run_responses_v2.py run \
   --root . \
-  --workflow-file automation/examples/responses_runner_v2_synthetic/workflows/one_pass.workflow.json \
+  --workflow-file automation/task_packs/gstack_design_to_po_playbook/workflows/gstack_design_to_po_playbook.workflow.json \
+  --primary-job-input docs/runbooks/first-use-adaptation-example.md \
   --dry-run
 ```
 
-That command should create a run directory under `.local/automation/responses_runner_v2/runs/` and write, at minimum:
-
-- `run_manifest.json`
-- `dry_runs/stages/01_draft_summary/input_manifest.json`
-- `dry_runs/stages/01_draft_summary/request_payload.json`
-- `dry_runs/stages/01_draft_summary/stage_checkpoint.json`
+CI runs exactly this for the gstack pack and the synthetic one-pass workflow. Add `--stage
+<stage_id>` to render one stage only.
 
 ## Live Run
 
-To submit the same synthetic workflow live and wait for completion:
+`run` and `resume` wait in-process by default, polling every 20 seconds (`--poll-interval`,
+`--max-wait-seconds`; the default ceiling is 24 hours). One waiting invocation chains through
+`auto` and `reviewed` gates, including revisions, until it reaches a `human` gate, a blocked
+review, the terminal stage, or an error.
 
 ```bash
 python automation/run_responses_v2.py run \
   --root . \
-  --workflow-file automation/examples/responses_runner_v2_synthetic/workflows/one_pass.workflow.json \
-  --wait
+  --workflow-file automation/task_packs/gstack_design_to_po_playbook/workflows/gstack_design_to_po_playbook.workflow.json \
+  --primary-job-input docs/gstack/<approved-design-or-brief>.md
 ```
 
-## External-Project Invocation
+`--no-wait` returns right after submission; finish the stage later with `resume`. With
+`--no-wait` or `--stage`, the run stops after that one stage.
 
-If the runner checkout is separate from the target project:
+Resume a nonterminal stage (waits by default; `--no-wait` records the current status and returns):
 
 ```bash
-python $KEEL_ROOT/tools/staged-workflow-runner/automation/run_responses_v2.py run \
-  --root /path/to/target-workspace \
-  --workflow-file task_packs/example/workflows/example.workflow.json \
-  --primary-job-input docs/approved_brief.md \
-  --wait
+python automation/run_responses_v2.py resume --root . --run-dir <run_dir> --stage <stage_id>
 ```
 
-Important:
-
-- `--workflow-file` is interpreted under `/path/to/target-workspace`, not relative to the runner checkout
-- the task pack must live under the same target workspace root in first release
-- the target workspace root also becomes the base for `.env` lookup when the CLI creates the OpenAI client
-
-## Review-Required Stages With Generic Runner
-
-When a workflow stage requires review:
-
-1. run the stage
-2. inspect generated artifacts under the run directory
-3. create reviewer notes
-4. create an approved review bundle
-5. rerun the workflow with `--review-bundle`
-
-Bundle creation example:
+Refresh remote status only, never finalizing:
 
 ```bash
-python automation/create_review_bundle_v2.py \
-  --root . \
-  --output review_bundle.json \
-  --workflow-id synthetic_reviewed_three_stage \
-  --source-stage-id proposal \
-  --source-run-id <run_id> \
-  --primary-artifact-markdown <run_dir>/stages/01_proposal/<attempt_NNN>/artifact.md \
-  --response-artifact-json <run_dir>/stages/01_proposal/<attempt_NNN>/response.final.json \
-  --reviewer-notes notes.md
+python automation/run_responses_v2.py refresh --root . --run-dir <run_dir> --stage <stage_id>
 ```
 
-Then continue:
+Cancel a known live response once, then finalize its local evidence:
 
 ```bash
-python automation/run_responses_v2.py run \
-  --root . \
-  --workflow-file automation/examples/responses_runner_v2_synthetic/workflows/reviewed_three_stage.workflow.json \
-  --run-dir <run_dir> \
-  --review-bundle review_bundle.json \
-  --wait
+python automation/run_responses_v2.py cancel --root . --run-dir <run_dir> --stage <stage_id>
 ```
 
-## Resume And Refresh
+To continue a stopped run, pass `--run-dir <run_dir>` to `run` with the same `--workflow-file`
+(its SHA-256 must match the `workflow_manifest_sha256` recorded in `run_manifest.json`).
 
-Resume a nonterminal stage:
+If the runner checkout is separate from the target project, point `--root` at the project;
+`--workflow-file` and every other path are then interpreted under that root, and `.env` is read
+from there too.
 
-```bash
-python automation/run_responses_v2.py resume \
-  --root . \
-  --run-dir <run_dir> \
-  --stage <stage_id> \
-  --wait
-```
+## Stage Gates
 
-Refresh remote status without resubmitting work:
+Each stage declares a `gate` in the workflow manifest:
 
-```bash
-python automation/run_responses_v2.py refresh \
-  --root . \
-  --run-dir <run_dir> \
-  --stage <stage_id>
-```
-
-Use `refresh` when you only want the latest remote status recorded locally. Use `resume` when you want the runner to continue through terminal completion and artifact finalization.
-
-If a remote stage is already terminal but you are missing `artifact.md`, `response.final.md`,
-`output.structured.json`, or `sidecar.response.*`, that is a local finalization gap. Use
-`resume` on the stage to write final artifacts. `refresh` records
-`remote_terminal_pending_finalization`; it never backfills artifacts or reports completion.
-
-The same CLI also provides `cancel` for a known response id, `recover-uploads` for idempotent
-remote-file cleanup, and `usage-report` for normalized primary/sidecar attempt totals. Reviewer
-CLI attempts are recorded separately under the supervisor session. Build their report with:
-
-```bash
-python automation/run_responses_supervisor_v2.py usage-report --root . \
-  --session <supervisor_session_id>
-```
-
-Reviewer token counters remain `null` when the canonical Codex or Claude CLI does not expose
-them; duration, status, model, retries, and zero-upload counts are still recorded per invocation.
-An explicit retention
-action uses a hash-bound tombstone:
-
-```bash
-python automation/run_responses_v2.py purge --root . \
-  --target-dir <run_or_session_dir> \
-  --category raw_request \
-  --reason "retention window elapsed"
-```
-
-If interrupted, repeat with `--resume-tombstone <tombstone_path>`.
-
-## Supervisor Lane Overview
-
-The supervisor lane automates the future normal path after an initial human clarification gate.
-
-Mandatory human participation:
-
-1. human supplies task;
-2. operator asks clarification questions if needed;
-3. human accepts a clarified task brief.
-
-After that, normal execution is AI-operated.
-
-The supervisor review sequence for every scaffold and non-terminal stage is:
-
-1. operator Codex prepares provisional review and bundle;
-2. Codex review agent independently reviews via `codex exec`;
-3. Claude review agent independently reviews via subscription-authenticated `claude -p`;
-4. deterministic consolidation merges findings;
-5. operator Codex accepts only supported recommendations with applied-change evidence;
-6. supervisor creates the approved bundle or blocks progression.
-
-## Supervisor Commands
-
-Initialize a session:
-
-```bash
-python automation/run_responses_supervisor_v2.py init-session \
-  --root . \
-  --clarified-task-brief docs/clarified_task_brief.md \
-  --summary "Accepted task summary"
-```
-
-Stage a scaffold:
-
-```bash
-python automation/run_responses_supervisor_v2.py stage-scaffold \
-  --root . \
-  --session <session_id> \
-  --scaffold-path automation/task_packs/<task_pack>
-```
-
-Dry-run a scaffold:
-
-```bash
-python automation/run_responses_supervisor_v2.py dry-run-scaffold \
-  --root . \
-  --session <session_id> \
-  --workflow-file automation/task_packs/<task_pack>/workflows/<workflow>.json
-```
-
-Invoke operator Codex provisional review:
-
-```bash
-python automation/run_responses_supervisor_v2.py invoke-operator \
-  --root . \
-  --session <session_id> \
-  --review-cycle <cycle_id> \
-  --review-kind scaffold \
-  --job-json <session_dir>/review_cycles/<cycle_id>/operator_job.json
-```
-
-Invoke independent reviewers:
-
-```bash
-python automation/run_responses_supervisor_v2.py invoke-reviewers \
-  --root . \
-  --session <session_id> \
-  --review-cycle <cycle_id> \
-  --review-kind scaffold \
-  --job-json <session_dir>/review_cycles/<cycle_id>/review_job.json
-```
-
-Consolidate:
-
-```bash
-python automation/run_responses_supervisor_v2.py consolidate \
-  --root . \
-  --session <session_id> \
-  --review-cycle <cycle_id> \
-  --codex-review <path/to/codex_review.json> \
-  --claude-review <path/to/claude_review.json> \
-  --operator-review <path/to/operator_provisional.json> \
-  --output <path/to/consolidated_review.json>
-```
-
-Create operator acceptance:
-
-```bash
-python automation/run_responses_supervisor_v2.py accept \
-  --root . \
-  --session <session_id> \
-  --review-cycle <cycle_id> \
-  --consolidated-review <path/to/consolidated_review.json> \
-  --accept-recommendation <recommendation_id> \
-  --applied-change-evidence <path/to/applied_change_evidence.json> \
-  --output <path/to/operator_acceptance.json>
-```
-
-For a registered non-terminal stage, prefer the derived two-command transition:
-
-```bash
-python automation/run_responses_supervisor_v2.py review-cycle \
-  --root . --session <session_id> --review-cycle <cycle_id> \
-  --run-dir <run_dir> --stage <stage_id>
-
-python automation/run_responses_supervisor_v2.py accept \
-  --root . --session <session_id> --review-cycle <cycle_id> \
-  --then-bundle --then-launch
-```
-
-The first command classifies the stage when necessary and derives the review job. The second
-retains deliberate operator acceptance; it creates the hash-bound bundle and launches the next
-stage only after approval. A corrected acceptance may supersede a blocked acceptance. If a
-read-only review process crashed before writing any decision candidate, use
-`release-reservation --review-cycle <cycle_id> --operation <operation> --reason <reason>`.
-
-Classify stage outcome:
-
-```bash
-python automation/run_responses_supervisor_v2.py classify \
-  --root . \
-  --session <session_id> \
-  --run-dir <run_dir> \
-  --stage <stage_id>
-```
-
-Archive a failed no-artifact attempt before rerun:
-
-```bash
-python automation/run_responses_supervisor_v2.py archive-attempt \
-  --root . \
-  --session <session_id> \
-  --run-dir <run_dir> \
-  --stage <stage_id> \
-  --reason failed_no_artifact
-```
-
-Validate a session:
-
-```bash
-python automation/run_responses_supervisor_v2.py validate-session \
-  --root . \
-  --session <session_id>
-```
-
-## Review-Agent Command Contracts
-
-Canonical operator and Codex review command shape:
-
-```bash
-codex exec "<prompt_plus_job_json>"
-```
-
-Canonical Claude review command shape:
-
-```bash
-env -u ANTHROPIC_API_KEY \
-    -u ANTHROPIC_AUTH_TOKEN \
-    -u CLAUDE_CODE_OAUTH_TOKEN \
-    -u CLAUDE_CODE_USE_BEDROCK \
-    -u CLAUDE_CODE_USE_VERTEX \
-    -u CLAUDE_CODE_USE_FOUNDRY \
-  claude -p \
-  --model opus \
-  --effort max \
-  --output-format json \
-  --tools Read \
-  --permission-mode dontAsk \
-  --no-session-persistence \
-  --setting-sources user \
-  --append-system-prompt-file automation/task_packs/responses_runner_v2_supervisor_internal/prompts/claude_review.md \
-  < "<review_job_json>"
-```
-
-Do not use `--bare` for the subscription-authenticated Claude audit lane:
-Claude Code bare mode skips OAuth/keychain reads and requires API-key-style
-credentials. The supervisor removes higher-precedence API and provider
-credential environment variables before invoking Claude so local subscription
-OAuth from `claude` login is selected.
-
-If `--effort max` is unsupported locally, the supervisor retries once with `--effort xhigh` and records `fallback_used=true`.
-
-Agent JSON transport:
-
-- JSON is read from stdout;
-- stdout and stderr are always captured;
-- supervisor writes validated JSON and markdown sidecars;
-- missing, malformed, or schema-invalid JSON is a hard failure.
-
-Read-only review enforcement:
-
-- reviewer commands are not allowed to edit source files;
-- supervisor snapshots workspace source files before and after reviewer commands;
-- unexpected modifications produce `read_only_violation`.
-
-## Failure And Recovery Policy
-
-| case | action |
+| gate | what happens when the stage completes |
 |---|---|
-| `completed_complete_artifact` | Review through normal operator/Codex/Claude/consolidation/acceptance loop. |
-| `failed_complete_artifact` | Treat as reviewable; preserve failed status; review and bundle only after acceptance. |
-| `failed_no_artifact` | No bundle; archive attempt with request/scaffold hashes; rerun as-is only if retry budget and unchanged-input evidence allow. |
-| `incomplete_output_limit` | No auto-progress; create human-pause artifact and recovery plan. |
-| `blocked_token_preflight` | No live submission and no bundle; repair scaffold/input set before relaunch. |
-| `long_running_monitoring_anomaly` | Refresh/resume existing `response_id`; never duplicate-submit while it may complete. |
+| `auto` | the run continues to the next stage |
+| `reviewed` | one reviewer CLI judges `artifact.md`; approve continues, revise triggers one revision, a second revise blocks |
+| `human` | the run stops with the stage `waiting_for_review` until you pass `--handoff-note` |
+| `terminal` | last stage; nothing runs after it; `artifact.md` is the deliverable |
 
-## Human Pause Conditions
+A workflow that still spells a gate `review_required` is loaded as `human`.
 
-Post-clarification human pauses are exception paths only. A pause artifact must state:
+### Review configuration
 
-- trigger;
-- artifact to present;
-- decision required;
-- safe continuation action;
-- whether automation may resume;
-- whether review-bundle creation is blocked.
+`defaults.review` in the workflow, overridable per stage with a stage-level `review` block:
 
-Typical triggers:
+| key | values | default |
+|---|---|---|
+| `reviewer` | `codex`, `claude`, `none` | `codex` |
+| `model` | reviewer model name | `gpt-5.6-sol` for codex, `opus` for claude |
+| `effort` | `low`, `medium`, `high`, `xhigh`, `max` | `high` for codex, `xhigh` for claude |
+| `timeout_seconds` | positive integer | `1800` |
+| `max_revisions` | zero or more | `1` |
 
-- output-limit incomplete requiring scope/model/budget decision;
-- blocked preflight where context reduction changes high-authority scope;
-- repeated monitoring anomaly after configured thresholds;
-- missing required review-agent CLI with no approved fallback;
-- unresolved evidence conflict that the operator cannot resolve.
+`run --reviewer {codex,claude,none}` overrides the reviewer for that invocation. `none`
+records `review_status: not_required` and continues without invoking anything.
+
+### What the reviewer sees and returns
+
+The reviewer reads `artifact.md`, the stage task text, `input_manifest.md`, and the stage's
+reviewed handoff inputs (prompt: `automation/responses_runner_v2/prompts/stage_review.md`). It
+returns one JSON object validated against
+`automation/responses_runner_v2/schemas/stage_review_verdict.schema.json`:
+`{verdict: approve|revise, summary, blocking_findings[], notes[]}`.
+
+### Revise, blocked, and the handoff note
+
+- **approve**: `review_status: approved`; the run continues.
+- **revise** (first time): `review_status: revision_requested`, stage status
+  `revision_requested`. The engine runs one more attempt of the same stage (`attempt_002`,
+  recorded as `attempts[].revision_of_attempt_id`) with the previous draft and the reviewer notes
+  attached under Reviewed Handoff Inputs and `contracts.REVISION_INSTRUCTIONS` prefixed to the
+  task. The reviewer runs again on the revision.
+- **revise** beyond `max_revisions`: `review_status: blocked`, stage status
+  `waiting_for_review`. The run stops. Read the artifact and the reviewer notes, then either
+  approve it yourself with `--handoff-note` or fix the pack and start a new run.
+
+A `human` gate stops the same way. Continue either case with:
+
+```bash
+python automation/run_responses_v2.py run \
+  --root . \
+  --workflow-file <workflow.json> \
+  --run-dir <run_dir> \
+  --handoff-note notes/<stage_id>.md
+```
+
+The note sets `review_status: human_approved` and `handoff_note_path`, and is attached to the
+next stage next to the artifact.
+
+### Carry-forward
+
+A later stage's `carry_forward` block may name:
+
+- `handoff_from_stage_id`: attaches that stage's approved `artifact.md` plus its reviewer
+  notes or human note as Reviewed Handoff Inputs; the source must use a `reviewed` or `human`
+  gate
+- `reference_context_from_stage_ids`: earlier artifacts as Reference Context
+- `review_bundle_from_stage_id`: accepted only as a legacy alias for `handoff_from_stage_id`;
+  naming both with different values is rejected at load time
+
+### Where review evidence lives
+
+Under the attempt directory, `stages/NN_<stage_id>/attempt_NNN/review/`:
+
+- `verdict.json` (normalized verdict plus `disposition`, reviewer, artifact hash)
+- `reviewer_notes.md` (markdown rendering that later stages receive)
+- `prompt_<stamp>.md`, `stdout_<stamp>.txt`, `stderr_<stamp>.txt`
+- `invocation_<stamp>.json` (argv, duration, exit code, cost or token fields when the CLI
+  reports them)
+
+The run manifest stage summary carries `review_status`, `reviewer_notes_path`,
+`review_verdict_path`, `handoff_note_path`, `validators_passed`, and `validator_report_path`.
+Post-output validators are advisory: a failed validator is recorded in `validator_report.json`
+and printed as a warning, and never blocks finalization.
+
+If the reviewer CLI exits non-zero, times out, or cannot be spawned, the stage stays
+`completed` with its review pending and the command exits with an error; the next `run` (or
+`resume`) retries the review. Crashes between completion and review are handled the same way.
+
+## Reviewer Command Shapes
+
+As built by `automation/responses_runner_v2/reviewer.py`. Both run with the workspace root as
+the working directory.
+
+Codex, prompt plus review job on stdin:
+
+```bash
+codex exec --sandbox read-only --ephemeral --ignore-user-config \
+  -c 'model_reasoning_effort="high"' \
+  --output-schema automation/responses_runner_v2/schemas/stage_review_verdict.schema.json \
+  --model gpt-5.6-sol -
+```
+
+Claude, review job JSON on stdin, prompt supplied as the appended system prompt:
+
+```bash
+env -u ANTHROPIC_API_KEY -u ANTHROPIC_AUTH_TOKEN -u CLAUDE_CODE_OAUTH_TOKEN \
+    -u CLAUDE_CODE_USE_BEDROCK -u CLAUDE_CODE_USE_VERTEX -u CLAUDE_CODE_USE_FOUNDRY \
+  claude -p --model opus --effort xhigh --output-format json \
+  --tools Read,Grep,Glob --permission-mode dontAsk --no-session-persistence \
+  --setting-sources user \
+  --append-system-prompt-file <attempt_dir>/review/prompt_<stamp>.md
+```
+
+The API-key and provider variables are stripped so the subscription login from `claude` is
+used. The verdict is read from stdout, unwrapping the CLI JSON envelope when present; output
+without a `verdict` object is a review failure.
+
+## Failure And Recovery
+
+`run_manifest.json` is the single durable record. It is rewritten atomically on every stage
+transition and holds, per stage, the `status`, `current_attempt_id`, and an `attempts[]` list
+whose entries carry each attempt's `local_state` and `response_id`. A `.runner.lock` file in
+the run directory keeps two invocations from touching the same run at once.
+
+Never duplicate-submit a live response. Once a stage holds a `response_id`, use `resume` or
+`refresh` on it; `run` refuses nonterminal stages. A remote `failed`, `cancelled`, or
+`incomplete` response ends the stage as `failed_complete`, `failed_no_artifact`, `cancelled`,
+or `incomplete`, and the chain stops there; an output-limit `incomplete` needs a scope, model,
+or budget decision before a new run. A `failed_no_artifact` (or `blocked_preflight`) stage can
+be rerun in place as a new attempt with `run --run-dir <run_dir> --stage <stage_id>`.
+
+If `POST /responses` fails in a way that does not prove whether the request landed, the stage
+becomes `submission_outcome_unknown` and `submission.error.json` is written in the attempt
+directory. No subcommand leaves that state: `run` refuses the stage as nonterminal, `resume`
+and `refresh` refuse it "without operator reconciliation", and `cancel` refuses it too. Check
+the remote side yourself, then start a new run and keep the directory as evidence. A definite
+POST failure becomes `failed_no_artifact` instead, with its uploads cleaned up.
+
+If a remote response is terminal but `artifact.md`, `response.final.json`, or
+`output.structured.json` is missing, that is a local finalization gap: `resume` the stage to
+write the final artifacts and apply the gate. `refresh` only records
+`remote_terminal_pending_finalization`; it never backfills. A crash while finalizing leaves the
+stage `remote_terminal_pending_finalization` (with `finalization.error.json` when finalization
+itself raised) or `finalized`; `resume` completes either without issuing a new request.
+`recover-uploads --run-dir <run_dir> --stage <stage_id> [--attempt <n>]` idempotently retries
+deletion of one attempt's uploaded files.
 
 ## Validation
 
-Run focused supervisor and migration tests:
-
 ```bash
-python -m pytest \
-  automation/tests/test_responses_runner_v2_model_migration.py \
-  automation/tests/test_responses_runner_v2_supervisor.py
+python -m unittest discover -s automation/tests -p 'test_*.py'
 ```
 
-Run broader runner regression tests:
+Focused checks after touching gates or the reviewer:
 
 ```bash
-python -m pytest \
-  automation/tests/test_responses_runner_v2_contracts.py \
-  automation/tests/test_responses_runner_v2_workflow.py \
-  automation/tests/test_responses_runner_v2_review_bundle.py
+python -m unittest \
+  automation.tests.test_responses_runner_v2_reviewed_gates \
+  automation.tests.test_responses_runner_v2_gstack_pack \
+  automation.tests.test_responses_runner_v2_model_migration
 ```
 
-## Rollout Sequence
-
-1. Apply the drop-in packet.
-2. Run model migration tests.
-3. Run supervisor tests.
-4. Run existing contract/workflow/review-bundle tests.
-5. Dry-run the synthetic one-pass workflow.
-6. Dry-run the supervised end-to-end self-improvement workflow.
-7. Only then launch live supervised execution.
+Then dry-run every stage of the pack you are about to launch (see above).

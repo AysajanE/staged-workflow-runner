@@ -12,16 +12,16 @@ This fact sheet is low-authority synthetic context used by the bounded proof pac
 - one workspace root per invocation
 - synthetic workflows are examples, not production task packs
 
-## Review Bundle Facts
+## Gated Handoff Facts
 
 Reviewed synthetic workflows exercise:
 
-- review-required gates;
-- approved review bundles;
-- carry-forward response markdown;
-- optional approved handoff markdown;
-- optional omission of raw response JSON from downstream reviewed handoff inputs.
+- `human` gates that stop the run in `waiting_for_review`;
+- continuation with `run --run-dir <run-dir> --handoff-note <note.md>`;
+- carry-forward of the approved `artifact.md` via `handoff_from_stage_id`;
+- the human handoff note (or reviewer notes at a `reviewed` gate) travelling with it as Reviewed Handoff Inputs;
+- lower-authority prior-stage context via `reference_context_from_stage_ids`.
 
-## Supervisor Migration Note
+## Migration Notes
 
-This file is included in the model migration because stale model facts here would otherwise defeat the repository's static migration scan and example-pack documentation consistency.
+The separate supervisor lane was removed; a stage is now judged by one reviewer CLI verdict or a human handoff note. This file stays in the model migration scan because stale model facts here would otherwise defeat the repository's static migration check and example-pack documentation consistency.

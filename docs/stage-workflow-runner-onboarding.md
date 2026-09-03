@@ -1,655 +1,382 @@
 # Stage Workflow Runner — Operator Onboarding Guide
 
 > **Who this is for:** a new teammate who will *operate* the Stage Workflow Runner —
-> launch workflows, supervise them, review stage outputs, recover from failures, and
-> assemble final deliverables. You do not need to modify the engine to operate it.
-> You *do* need to understand what every command does, what every artifact means,
-> and which guardrails will stop you (on purpose) when something is off.
->
-> **How to read this:** Sections 1–4 are the mental model — read them once, slowly.
-> Sections 5–10 are the working reference — skim now, return when operating.
-> Sections 11–13 are playbooks — use them at the keyboard.
+> dry-run a task pack, launch it, read what the reviewer said, unblock a stage with a
+> handoff note, recover from a dead terminal, and hand over the final artifact. You do not
+> need to modify the engine to operate it. You *do* need to know what every command does,
+> what every file in a run directory means, and which guardrails stop you on purpose.
+> Sections 1–4 are the mental model; 5–10 the reference; 11–15 are for the keyboard.
 
 ---
 
 ## Table of contents
 
 1. [The one-sentence model](#1-the-one-sentence-model)
-2. [First principles (everything derives from these)](#2-first-principles)
-3. [The two-lane architecture](#3-the-two-lane-architecture)
+2. [First principles](#2-first-principles)
+3. [One engine, gates between stages](#3-one-engine-gates-between-stages)
 4. [Core vocabulary](#4-core-vocabulary)
-5. [The engine lane in depth](#5-the-engine-lane-in-depth)
+5. [The engine in depth](#5-the-engine-in-depth)
 6. [Anatomy of a single stage](#6-anatomy-of-a-single-stage)
-7. [What happens *before* the first stage](#7-what-happens-before-the-first-stage)
-8. [The supervisor lane in depth](#8-the-supervisor-lane-in-depth)
+7. [Before the first live stage: the all-stage dry run](#7-before-the-first-live-stage-the-all-stage-dry-run)
+8. [The reviewed gate](#8-the-reviewed-gate)
 9. [The workflows: modes and packs](#9-the-workflows-modes-and-packs)
-10. [The run output layout (your evidence trail)](#10-the-run-output-layout)
+10. [The run output layout](#10-the-run-output-layout)
 11. [End-to-end walkthroughs](#11-end-to-end-walkthroughs)
 12. [Command reference](#12-command-reference)
 13. [Operator playbooks](#13-operator-playbooks)
 14. [Guardrails you cannot bypass](#14-guardrails-you-cannot-bypass)
 15. [Where to look when something is wrong](#15-where-to-look-when-something-is-wrong)
-16. [Reading order & next steps](#16-reading-order--next-steps)
+16. [Reading order and next steps](#16-reading-order-and-next-steps)
 
 ---
 
 ## 1. The one-sentence model
 
 **The Stage Workflow Runner is a manifest-driven runner for high-stakes, staged OpenAI
-Responses workflows that treats every artifact as evidence — schema-versioned, hashed,
-and confined to a single workspace root — so that a `tar` of that root is a complete,
-replayable audit trail.**
+Responses workflows: one engine runs the stages in order, a gate between each pair of
+stages decides whether the run continues, and every artifact is written as hashed,
+schema-versioned evidence under one workspace root.**
 
-Read that sentence again. Three load-bearing phrases:
-
-- **"high-stakes"** — the entire design assumes an answer could be wrong in a way that
-  costs money or trust. So every claim must trace back to a specific attached file with a
-  known hash. The runner is optimized for *chain-of-custody*, not throughput.
-- **"staged"** — work is broken into ordered **stages**. Between stages there can be
-  **review gates**: a stage's output is not allowed to flow into the next stage until it
-  has been reviewed and packaged into an approved **review bundle**.
-- **"manifest-driven"** — you do *not* write Python to define a workflow. You write JSON
-  **manifests** and Markdown **prompts** in a **task pack**. The engine is generic; the
-  task pack is the workflow.
-
-```
-   A TASK PACK (JSON + Markdown, no code)        THE ENGINE (generic Python)
-   ├── workflows/*.workflow.json   ───────┐
-   ├── inputs/*.input_manifest.json       │
-   ├── prompts/*.md                       ├──►  reads the manifests, talks to OpenAI,
-   ├── tools/*.profile.json                │     writes durable hashed artifacts
-   ├── schemas/*.schema.json              │
-   └── shared_instructions.md     ────────┘
-```
+- **"high-stakes"** — an answer could be wrong in a way that costs money or trust, so
+  every claim must trace back to an attached file with a known hash.
+- **"staged"** — ordered **stages**, each with a **gate**: `auto`, `reviewed`, `human`,
+  or `terminal`. A `reviewed` gate asks one reviewer CLI for a verdict; `human` waits for you.
+- **"manifest-driven"** — you write JSON manifests and Markdown prompts in a **task
+  pack** (`workflows/*.workflow.json`, `inputs/*.input_manifest.json`, `prompts/*.md`,
+  `tools/*.profile.json`, `schemas/*.schema.json`, `shared_instructions.md`), not Python.
+  The engine is generic; the task pack is the workflow.
 
 ---
 
 ## 2. First principles
 
-Everything else in this guide is a consequence of these six ideas. If you internalize
-only one section, make it this one.
-
 ### 2.1 One workspace root, mechanically enforced
 
 Every invocation operates against **one exact workspace root**. Workflow files, task-pack
-assets, uploaded attachments, run outputs, supervisor sessions, archives, and review
-bundles must *all* live under that one root.
-
-Root resolution order (the same everywhere):
+assets, uploaded attachments, run outputs, dry-run renders, review evidence, and handoff
+notes must all live under it. Resolution order, the same everywhere:
 
 1. explicit `--root`
 2. the `RESPONSES_RUNNER_V2_ROOT` environment variable
 3. the current working directory, used as-is
 
-This is not a convention you are trusted to follow — it is **mechanical**. Every path the
-runner touches passes through one function, `resolve_under_root()`. It calls
-`path.resolve()` (which follows symlinks) and then `.relative_to(root)`. If the path lands
-outside the root, the process exits. A symlink trick cannot sneak a file in or out.
-
-> **Why it matters to you:** if you ever see `Path must stay under workspace root: ...`,
-> you pointed something outside the root. The fix is never "force it" — it is to move the
-> asset under the root or correct the `--root` you passed.
+Every path passes through `resolve_under_root()`, which resolves symlinks and requires the
+result to be under the root; otherwise the process exits with `Path must stay under
+workspace root: ...`. Move the asset under the root or correct `--root`; never force it.
 
 ### 2.2 Every artifact is evidence
 
-Every file the runner writes is:
+Every file the runner writes is **schema-versioned**, **hashed** (SHA-256 recorded in the
+run manifest), and **confined** to git-ignored `.local/...` under the root. `input_manifest.md` lists a short SHA-256 for every attached file, so a
+citation can be checked against a real file.
 
-- **schema-versioned** — it carries a string like `responses_runner_v2.run_manifest.v1`.
-  Versions are treated like wire protocols, so a v2 engine can coexist with v1 artifacts
-  without silent corruption.
-- **hashed** — SHA-256 of files and of payloads. The run manifest records the workflow
-  manifest's hash. Review bundles record hashes of every file they reference. Stage
-  summaries record hashes of their response artifacts.
-- **confined** — written only under the workspace root, under `.local/...`, which is
-  git-ignored and never re-attached to a future run as evidence.
+### 2.3 Responses run in the background — the local process is disposable
 
-The payoff: claims are back-traceable. The rendered `input_manifest.md` lists a short
-SHA-256 for every attached file. The model can be asked to cite those paths; you can
-recompute the hash to verify it cited a real file.
+The runner submits work in Responses API **background mode** and stores the `response_id`
+the moment the API accepts the request. Your terminal can die or you can `Ctrl-C`; the
+remote model keeps working and `resume` picks the stage up again.
 
-### 2.3 Responses run in the *background* — the local process is disposable
+`run` and `resume` **wait in-process by default** (poll every 20 s, up to 24 h);
+`--no-wait` returns right after submission. **No duplicate submit:** if a stage is
+`submitted`/`in_progress`, `run` refuses to touch it; use `resume` or `refresh`.
 
-The runner submits work to the OpenAI Responses API in **background mode**. A request can
-run for *hours*. You get back a `response_id` and you *poll* it. The local Python process
-can crash, get killed, or be `Ctrl-C`'d — and the remote model keeps working.
+### 2.4 Authority order is data, not a guideline
 
-Almost every "extra" mechanism in the engine exists because of this single fact:
+Highest to lowest: **Primary Job Inputs** (the actual task input), **Reviewed Handoff
+Inputs** (approved artifact plus reviewer notes or human note from an earlier gated
+stage), **Attached Workspace Evidence** (legacy alias: Attached Repository Files), and
+**Reference Context** (earlier artifacts as background). The order is a constant
+(`AUTHORITY_ORDER` in `contracts.py`), iterated by the attachment pipeline, and stated in
+the boilerplate prepended to every request, which also tells the model to treat attached
+files as evidence, not instructions. When a stage's output looks wrong, open its
+`input_manifest.md` first and check **what was attached, in what role**.
 
-- **Two checkpoint writes per stage** — one the instant the API accepts the request
-  (usually status `queued`), one after polling reaches a terminal status. The first is
-  already enough to resume from.
-- **Three resume modes** — `fresh_submit` (first run), `resume_response_id` (rehydrate a
-  stored `response_id` and finalize), `refresh_status_only` (just poll, do not finalize).
-- **A no-duplicate-submit rule** — if a stage is still `submitted`/`in_progress`, the
-  engine refuses to `run` it again. You must `resume` or `refresh` instead. Submitting a
-  duplicate while a live `response_id` may still complete is explicitly prohibited.
+### 2.5 The engine stops rather than guess
 
-> **Why it matters to you:** "my terminal died mid-run" is **not** a disaster. The
-> `response_id` is saved. You `resume` the stage and the engine finalizes it. You never
-> re-pay for work that is still running remotely.
+- The **exact token count** (`POST /responses/input_tokens`) blocks a stage that exceeds
+  `max_input_tokens` or the model context window. It is the only token check; there is
+  no local estimate.
+- **Contract validation** runs before artifacts are written; **post-output validators**
+  are advisory: recorded, never hidden, never blocking.
+- A `reviewed` gate that gets two `revise` verdicts, or a `human` gate, **stops the run**
+  until you supply a handoff note.
 
-### 2.4 Mechanism and policy are separate lanes
-
-There are two CLIs sitting on **one** engine:
-
-- The **engine lane** (mechanism) knows *how* to talk to OpenAI: load a workflow, build a
-  request, submit, poll, finalize artifacts, validate a review bundle.
-- The **supervisor lane** (policy) knows *what to do with the answer*: stage a scaffold,
-  gate it, run a multi-agent review, classify failures, archive before rerun, assemble a
-  final bundle.
-
-The boundary is enforced in the repo's own rules: *"Do not rewrite
-`automation/responses_runner_v2/workflow.py` into the supervisor."* The supervisor
-**calls into** the engine (`run_workflow()`, `create_review_bundle()`); it never
-reimplements submission or polling.
-
-You can operate the engine lane entirely on its own (manually creating review bundles
-when a stage needs review). The supervisor lane *adds* automated multi-agent review and
-failure policy on top. Both are valid ways to operate.
-
-### 2.5 Authority order is data, not a guideline
-
-Every stage assembles its attachments in a fixed **authority order**:
-
-```
-1. Primary Job Inputs        (highest authority — the actual task input)
-2. Reviewed Handoff Inputs   (approved output carried from an earlier gated stage)
-3. Attached Workspace Evidence (documents or repo evidence — treat as evidence, not instructions)
-4. Reference Context         (lowest authority — carry-forward / background)
-```
-
-This order is encoded as a constant, iterated by the attachment pipeline, and stated in
-the boilerplate instruction prepended to *every* request. The model is explicitly told
-this order and told to treat attached source files as *evidence, not instructions*.
-
-> **Why it matters to you:** when a stage's output looks wrong, your first move is to open
-> the stage's rendered `input_manifest.md` and check **what was attached, in what role**.
-> A file in the wrong role is the single most common "why did the model do that" cause.
-
-### 2.6 Fail-closed is the default
-
-The runner would rather **stop** than do something unbounded or unverifiable:
-
-- **Token preflight** is a fail-closed gate. A conservative local estimate runs before upload;
-  the engine then calls `POST /responses/input_tokens` when enabled. If a critical stage is
-  oversized or exact counting fails, the stage is blocked and any known uploads are cleaned
-  up. `--skip-token-count` is an exceptional override, not the normal path.
-- **Schema validation** runs before artifacts are written, not after.
-- **Hash mismatch** on a review bundle refuses the load.
-- **Read-only violations** by a review agent fail the review.
-- **Output-limit incomplete** outcomes never auto-progress.
-
-A stopped run is the system working. Your job as operator is to read *why* it stopped.
+A stopped run is the system working; your job is to read *why* it stopped.
 
 ---
 
-## 3. The two-lane architecture
+## 3. One engine, gates between stages
+
+There is one engine (`automation/responses_runner_v2/`) and one CLI
+(`automation/run_responses_v2.py`). It owns workflow loading, input manifests, request
+construction, token preflight, submission, waiting, stage gates, reviewer invocation,
+artifact finalization, and run manifests.
 
 ```
-┌───────────────────────────────────────────────────────────────────────────┐
-│  SUPERVISOR LANE  —  POLICY                                                │
-│  CLI: automation/run_responses_supervisor_v2.py                            │
-│  Code: supervisor.py, supervisor_agents.py, supervisor_artifacts.py,       │
-│        supervisor_policies.py                                              │
-│                                                                            │
-│  Owns:  session state · scaffold staging · static examination ·            │
-│         executable dry-run gating · the 3-agent review loop ·              │
-│         deterministic consolidation · operator selective acceptance ·      │
-│         6-way failure classification · archive-before-rerun ·              │
-│         human-pause records · final implementation-bundle assembly         │
-│                                                                            │
-│                    calls into ↓  (run_workflow, create_review_bundle)      │
-├───────────────────────────────────────────────────────────────────────────┤
-│  ENGINE LANE  —  MECHANISM                                                 │
-│  CLI: automation/run_responses_v2.py                                       │
-│  Code: contracts.py, pack_loader.py, workflow.py, attachments.py,          │
-│        artifacts.py, review_bundle.py, sidecar.py, openai_client.py        │
-│                                                                            │
-│  Owns:  workflow loading · input-manifest expansion · file uploads ·       │
-│         request construction · token preflight · Responses API submission ·│
-│         polling / resume / refresh · artifact finalization ·               │
-│         sidecar structured extraction · review-bundle validation           │
-└───────────────────────────────────────────────────────────────────────────┘
+  stage 1 ──gate──► stage 2 ──gate──► stage 3 ──gate──► ... ──► terminal stage
+
+  auto      : continue immediately
+  reviewed  : one reviewer CLI returns approve | revise
+              approve → continue
+              revise  → one revision attempt of the same stage, reviewed again
+              revise again → waiting_for_review (blocked) until --handoff-note
+  human     : stop at waiting_for_review until --handoff-note
+  terminal  : last stage; artifact.md is the deliverable
 ```
 
-**The engine lane** is generic and reusable. Point it at any task pack and it runs.
+One `run` invocation (waiting by default) chains through `auto` and `reviewed` gates,
+including revisions, until a human gate, a blocked review, the terminal stage, or an
+error. There is no separate supervisor process or multi-agent review loop; the earlier
+supervisor lane was removed after the real supervised run spent 282 reviewer-agent minutes
+against 32 minutes of primary model time without ever changing the primary output.
 
-**The supervisor lane** is *additive*. It does not replace the engine — it wraps it with
-the policy you need when failure is messy or review is mandatory. When the supervisor
-needs a stage executed, it calls the engine's `run_workflow()`. When it needs a review
-bundle, it calls the engine's `create_review_bundle()`.
-
-There are **four** CLI entry points (also installed as console scripts via
-`pyproject.toml`):
-
-| Script file | Console script | Purpose |
-|---|---|---|
-| `automation/run_responses_v2.py` | `staged-workflow-run` | Generic engine: run / resume / refresh a stage |
-| `automation/run_responses_supervisor_v2.py` | `staged-workflow-supervisor` | Supervisor: session, scaffold, review loop, classify, finalize |
-| `automation/create_review_bundle_v2.py` | `staged-workflow-create-bundle` | Build an approved review bundle by hand |
-| `automation/run_responses_v2_eval.py` | `staged-workflow-eval` | Score artifacts against an eval dataset; check a freeze gate |
-
-Representative cases bind frozen inputs/gold expectations and offline runner-produced candidates as separate files and hashes. The grader scores the candidate against the frozen contract; it never treats an answer embedded in the input fixture as the candidate.
+Entry points (also console scripts via `pyproject.toml`): `automation/run_responses_v2.py`
+(`run`, `resume`, `refresh`, `cancel`, `recover-uploads`; see `--help`) and
+`automation/run_responses_v2_eval.py` (eval datasets and freeze gates).
 
 ---
 
 ## 4. Core vocabulary
 
-Learn these twelve terms. The rest of the guide uses them constantly.
-
 | Term | What it is |
 |---|---|
-| **Task pack** | A directory of JSON + Markdown that *defines a workflow*: workflow manifest, per-stage input manifests, prompts, tool profiles, output schemas, shared instructions. No Python. |
-| **Workflow manifest** | The `*.workflow.json` file. Declares workflow id, mode, model roles, request defaults, the ordered list of stages, each stage's gate, carry-forward rules, and optional sidecar extraction. |
-| **Stage** | One unit of work = one Responses API call (plus an optional sidecar call). Stages are ordered by `stage_number`. |
-| **Gate** | A stage's progression rule: `auto` (engine may continue to the next stage), `review_required` (stop — output must be reviewed and bundled before the next stage), `terminal` (last stage). |
-| **Input manifest** | The per-stage `*.input_manifest.json`. Declares the *static* attachment set for the stage, grouped into the four authority roles. The engine merges it with operator-supplied inputs and carry-forward artifacts at runtime, then renders a human-readable `input_manifest.md`. |
-| **Review bundle** | The approval contract passed *between* gated stages. A JSON file that references the approved markdown, the raw response JSON, reviewer notes (and optionally an approved handoff markdown + structured JSON) — each with its SHA-256. Loading it re-hashes everything and refuses on mismatch. |
-| **Run manifest** | `run_manifest.json` — the top-level durable state of one run: the workflow id, the workflow manifest's hash, the ordered stage list, and a per-stage summary. |
-| **Stage checkpoint** | `stage_checkpoint.json` — the durable, resumable state of one stage: status, the `response_id`, token-preflight result, and pointers to every artifact. Written twice per stage. |
-| **Sidecar** | An optional *second* Responses call that runs after a stage completes. It re-reads the stage's markdown output and extracts a strict-JSON-schema payload using the structural model. Keeps "creative generation" and "machine-ingestible structure" as separate passes. |
-| **Supervisor session** | The supervisor's single source of truth: a schema-validated `supervisor_session.json` plus a directory of review cycles, scaffolds, archives, monitoring records, and the final bundle. |
-| **Scaffold** | A task pack staged *into* a supervisor session and hashed, so the supervisor can gate it (examine, dry-run, review) before any live stage runs. |
-| **Review cycle** | One pass of the supervisor's review loop on a scaffold, a stage output, a final packet, or a recovery path: operator → 2 independent reviewers → consolidation → operator acceptance. |
+| **Task pack** | A directory of JSON + Markdown that defines a workflow. No Python. |
+| **Workflow manifest** | `*.workflow.json`: workflow id, mode, model roles, request defaults, `defaults.review`, and the ordered stages (one Responses API call each) with gate, carry-forward, optional per-stage `review`, and validators. |
+| **Gate** | `auto`, `reviewed`, `human`, or `terminal`. (`review_required` is a legacy spelling that the loader reads as `human`; do not use it in new packs.) |
+| **Attempt** | One execution of a stage: `attempt_001` first; a reviewer-requested revision is `attempt_002` with `revision_of_attempt_id` set. |
+| **Verdict** | The reviewer's JSON: `{verdict: approve\|revise, summary, blocking_findings[], notes[]}`. |
+| **Handoff note** | Markdown passed with `--handoff-note` to approve a stage waiting at a human gate or a blocked reviewed gate; attached to the next stage as a Reviewed Handoff Input. |
+| **Run manifest** | `run_manifest.json`, the single durable record: run status, `stage_order`, the operator inputs the run was started with, and a per-stage summary whose `attempts[]` carry each attempt's `local_state` and `response_id`. Rewritten atomically on every stage transition. |
 
 ---
 
-## 5. The engine lane in depth
+## 5. The engine in depth
 
-Eight modules. You will rarely edit them, but you must know what each *produces* because
-that is what you read when operating.
-
-```
-contracts.py ──────► the type system + invariants. Schema versions, AUTHORITY_ORDER,
-                     MODEL_CAPS, the enums (GateType, StageStatus, ResumeMode...),
-                     repo_root(), resolve_under_root(), validate_model_options().
-                     Everything imports this.
-
-pack_loader.py ────► turns workflow/input-manifest JSON into validated dataclasses with
-                     resolved, root-confined paths. Catches misconfiguration at LOAD time:
-                     bad model posture, background+no-store, duplicate stage ids,
-                     mis-ordered stages, dangling carry-forward references, mode↔count
-                     mismatch. Also normalizes tool profiles.
-
-workflow.py ───────► THE orchestrator (~1350 lines). run_workflow() / resume_stage() /
-                     refresh_stage(). The stage state machine lives here.
-
-attachments.py ────► resolves files+directories into a concrete attachment list, hashes
-                     each file, wraps unsupported text files as Markdown, enforces the
-                     50MB limits and the 100-file cap, renders input_manifest.md,
-                     uploads everything, builds the role-labeled request content.
-
-artifacts.py ──────► the on-disk run layout. create_run_dir(), build_stage_paths(),
-                     run-manifest + checkpoint writers, and the response.final.md
-                     renderer (token usage, sources, tool calls, uploads).
-
-review_bundle.py ──► the handoff contract. create_review_bundle(), load_review_bundle()
-                     (re-hashes everything), validate_review_bundle_for_stage()
-                     (cross-checks against the source stage's recorded artifacts).
-
-sidecar.py ────────► the framework-owned structured-extraction pass. Uploads the primary
-                     markdown + raw JSON, runs the structural model against a strict
-                     JSON schema, writes output.structured.json + sidecar.response.*.
-                     Has its own retry logic for output-limit and transient errors.
-
-openai_client.py ──► a standard-library HTTP client (urllib, not requests or httpx).
-                     The package uses jsonschema as a core dependency for Draft 2020-12
-                     contract validation.
-```
-
-### The engine's stage state machine
+Modules under `automation/responses_runner_v2/` you will read when operating:
 
 ```
-load_workflow_definition          ← validates schema_version + model caps at load time
-        │
-        ▼
-load or create run_manifest.json  ← one per run directory
-        │
-        ▼
-_determine_next_stage             ← picks the first prepared/blocked stage whose
-        │                            predecessor is completed OR has an approved
-        │                            review handoff. Refuses to run a nonterminal stage.
+contracts.py ────► AUTHORITY_ORDER, MODEL_CAPS, GateType, StageStatus, ReviewConfig,
+                   REVISION_INSTRUCTIONS, resolve_under_root().
+pack_loader.py ──► JSON → validated dataclasses; rejects bad model posture, stage shape,
+                   carry-forward, and review config at load time.
+workflow.py ─────► the orchestrator: run_workflow(), resume_stage(), refresh_stage(),
+                   cancel_stage(), the state machine, and the gate logic.
+reviewer.py ─────► the reviewed gate: build the job, run the CLI once, normalize the verdict,
+                   write review/ evidence.
+attachments.py ──► resolve, hash, wrap, limit, render input_manifest.md, upload, build content.
+artifacts.py ────► run and attempt directories, the run-manifest writer, artifact.md.
+validators.py ───► advisory post-output validators; openai_client.py ► urllib client.
+```
+
+The durability slimming is done: `run_manifest.json` is the single durable record, guarded by
+`locking.py` (`.runner.lock`). Everything else under an attempt directory is evidence, not state.
+
+### The stage loop
+
+```
+load_workflow_definition             ← validates manifest and model caps
+load or create run_manifest.json
+apply --handoff-note (if given)      ← marks the waiting stage human_approved
+apply any pending review             ← a reviewed stage that completed but was never reviewed
+_determine_next_stage                ← first prepared/revision_requested stage whose predecessor
+        │                               is completed or has an approved handoff
         ▼
 ┌───────────────── per-stage loop ──────────────────────────────────────┐
-│ 1. resolve attachments  (static manifest + operator inputs +          │
-│                          review-bundle inputs + carry-forward)        │
-│ 2. render + write input_manifest.{json,md}                            │
-│ 3. write request_plan.json with content-addressed symbolic files      │
-│ 4. --dry-run writes the normalized request payload and returns        │
-│ 5. live: upload every file with an immediate durable journal          │
-│ 6. exact token preflight (fail closed for critical workflows)         │
-│ 7. write submit intent, POST /responses once, persist response id      │
-│ 8. if --wait: poll until terminal, rewriting response.latest.json     │
-│ 9. persist remote_terminal_pending_finalization                       │
-│10. write artifact.md plus raw evidence and optional sidecar output    │
-│11. mark finalized, then publish the final stage/run status            │
-│12. if gate=auto AND --wait AND no pinned --stage AND has next stage:  │
-│       loop to the next stage                                          │
+│ 1. resolve attachments (static + operator inputs + handoff + carry-   │
+│    forward + revision inputs); render input_manifest.{json,md}        │
+│ 2. stage upload copies under upload_inputs/; build the request payload│
+│ 3. --dry-run: write request_payload.json, move to the next stage      │
+│ 4. live: upload files (uploads.json); exact token preflight           │
+│ 5. POST /responses once; persist the response_id immediately          │
+│ 6. wait: poll, rewriting response.latest.json                         │
+│ 7. finalize: artifact.md, response.final.json, validators             │
+│ 8. gate: reviewed → run the reviewer; human → stop; auto → continue   │
+│ 9. revision_requested → rerun the same stage as the next attempt      │
+│10. completed + next stage + (auto|reviewed) + no --stage → next stage │
 └────────────────────────────────────────────────────────────────────────┘
 ```
 
-A few behaviors worth memorizing as an operator:
-
-- **`--dry-run` stops at step 3.** It builds and writes the exact request payload but
-  uploads nothing and calls no API. It is your cheapest validation: it proves the workflow
-  loads, the manifests resolve, and the request is well-formed.
-- **Auto-progression needs *all five*:** the stage completed, there is a next stage, the
-  stage's gate is `auto`, you passed `--wait`, and you did **not** pin a specific
-  `--stage`. Anything else stops the run after one stage.
-- **A `review_required` stage that has a next stage ends in status
-  `waiting_for_review`** — not `completed`. The run status becomes `waiting_for_review`.
-  The next `run` of that workflow will refuse to proceed until you supply
-  `--review-bundle`.
+- **Chaining needs all of:** the stage completed (and, for `reviewed`, was approved), a
+  next stage exists, no `--stage` pin, no `--no-wait`.
+- A `human` gate with a next stage ends in `waiting_for_review`; a `reviewed` gate ends
+  `completed` (`review_status: approved`) or `waiting_for_review` (`review_status: blocked`).
+- The reviewer runs on the **finalization path** (`run` waiting, or `resume`); if a stage
+  completes while you are not waiting, the next `run` or `resume` applies the gate.
 
 ---
 
 ## 6. Anatomy of a single stage
 
-Zoom into one stage. This is what every stage does, generic-engine or supervisor-driven.
-
 ### 6.1 Building the request
 
-The request that goes to OpenAI is assembled from three text pieces plus role-labeled
-file attachments:
+`instructions` = `COMMON_RUNNER_INSTRUCTIONS` + `shared_instructions.md` + optional
+per-stage instructions. The input content is the stage task text (prefixed with
+`REVISION_INSTRUCTIONS` on a revision attempt), then `input_manifest.md` as the model's
+table of contents, then the attached files in authority order, each group preceded by a
+text label naming its role.
 
-```
-instructions  =  COMMON_RUNNER_INSTRUCTIONS      (the authority-order boilerplate)
-              +  shared_instructions.md           (task-pack-wide instructions)
-              +  stage_instructions.md            (optional, per stage)
+### 6.2 What lands in Reviewed Handoff Inputs
 
-input content =  [ stage task prompt text ]
-              +  [ "Attachment role: Stage Input Manifest"      → input_manifest.md ]
-              +  [ "Attachment role: Primary Job Inputs"        → files... ]
-              +  [ "Attachment role: Reviewed Handoff Inputs"   → files... ]
-              +  [ "Attachment role: Attached Workspace Evidence" → files... ]
-              +  [ "Attachment role: Reference Context"         → files... ]
-```
+| Situation | Attached |
+|---|---|
+| `handoff_from_stage_id` names a `reviewed` stage the reviewer approved | its `artifact.md` + `review/reviewer_notes.md` |
+| ...names a `human` stage you approved | its `artifact.md` + your handoff note |
+| ...names a blocked `reviewed` stage you unblocked | `artifact.md` + your note + the reviewer notes |
+| this attempt is a revision | the previous attempt's `artifact.md` + its `reviewer_notes.md` |
 
-The content blocks are emitted in **authority order**, each preceded by a text label that
-tells the model what role the next files play. The `input_manifest.md` is uploaded
-*first* and wired in as the manifest file — it is the model's table of contents.
+`handoff_from_stage_id` must point backward at a `reviewed` or `human` stage.
 
-### 6.2 The attachment pipeline
+### 6.3 The attachment pipeline
 
-For each attachment entry the engine: **resolves** it (walks directories, skipping
-`.git`, `.local`, `node_modules`, `__pycache__`, …; applies `exclude_globs`; hashes every
-file), **wraps** it if needed (a `.go`/`.rs`/`.tsx`/`.sql` file is not a Responses-API
-context type, so if it is UTF-8 text the engine generates a Markdown wrapper with the
-source path in front matter and the body in a fenced block — *this is how the runner can
-attach any text file*), **renders** `input_manifest.md`, **uploads** every file, and
-**builds** the content blocks.
-
-Limits enforced *during resolution* (before any HTTP traffic):
-
-- 50 MB per single file
-- 50 MB combined per request
-- 100 attached files per request — if exceeded, the engine bundles a whole authority role
-  into one deterministic Markdown bundle before giving up.
-
-### 6.3 The two checkpoint writes
-
-```
-POST /responses returns  ──►  checkpoint #1   status: "queued" (background mode)
-                                   │            ↑ already enough to resume from
-        --wait polls...            │
-   terminal status reached  ──►  checkpoint #2   status: "completed" / "failed" / ...
-```
+Each entry is resolved (directories walked, skipping `.git`, `.local`, `node_modules`,
+`__pycache__`; `exclude_globs` applied; every file hashed), wrapped if needed (UTF-8 text
+that is not a Responses context type, such as `.go` or `.sql`, gets a Markdown wrapper
+with the source path in front matter), rendered, uploaded, and turned into content blocks.
+Limits, enforced before any HTTP traffic: 50 MB per file, 50 MB combined, 100 files per
+request (a whole role is bundled into one Markdown file before giving up).
 
 ### 6.4 Stage status vs. response status
 
-The OpenAI **response** has statuses: `queued`, `in_progress`, `completed`, `failed`,
-`cancelled`, `incomplete`. The engine maps those to a **stage** status:
+| Response status | Stage status |
+|---|---|
+| `completed`, gate `human`, has next | `waiting_for_review` |
+| `completed`, gate `reviewed` | `completed`, then the gate decides: `approved`, `revision_requested`, `blocked` |
+| `completed`, otherwise | `completed` |
+| `failed` with / without output text | `failed_complete` / `failed_no_artifact` |
+| `cancelled` / `incomplete` | `cancelled` / `incomplete` — never auto-progresses |
+| `queued` / `in_progress` | `in_progress` — use `resume`/`refresh`, never re-`run` |
 
-| Response status | Stage status | Note |
+### 6.5 Validators and structured output
+
+`post_output_validators` run against `artifact.md` after finalization and write
+`validator_report.json`; the run manifest records `validators_passed` and
+`validator_report_path`. A failure prints `WARNING [validator_failed] ...` and nothing
+else. A stage whose `output.primary_format` is `json_schema` (structural model role) also
+writes `output.structured.json`.
+
+---
+
+## 7. Before the first live stage: the all-stage dry run
+
+The whole pre-launch check is one command. `run --dry-run` without `--stage` renders
+**every** stage's request without uploading anything or calling the API:
+
+```bash
+python automation/run_responses_v2.py run --root . \
+  --workflow-file automation/task_packs/gstack_design_to_po_playbook/workflows/gstack_design_to_po_playbook.workflow.json \
+  --primary-job-input docs/runbooks/first-use-adaptation-example.md \
+  --dry-run
+```
+
+It proves the workflow loads, every input manifest resolves under the root, every
+carry-forward points at a real earlier stage, and every request payload is well-formed:
+
+```
+<run_dir>/
+├── run_manifest.json                     status "created"
+└── dry_runs/
+    ├── stages/NN_<stage_id>/             one per stage
+    │   ├── input_manifest.json / .md
+    │   ├── request_payload.json          the exact body that would be sent
+    │   └── upload_inputs/                staged copies of the files prepared for upload
+    └── stubs/<stage_id>/                 placeholders for handoffs from stages not yet run
+        ├── artifact.md
+        └── handoff_notes.md
+```
+
+Later stages reference the stubs so their requests render before earlier stages exist.
+Read each `dry_runs/stages/*/input_manifest.md` and confirm the attachments and roles.
+The exact token count runs live only; a dry run never calls the API. Pin `--stage <id>`
+to dry-run one stage. CI runs this on every push.
+
+---
+
+## 8. The reviewed gate
+
+### 8.1 One reviewer, one verdict
+
+When a `reviewed` stage completes, the engine invokes **one** reviewer CLI, once, with a
+bounded job: the stage task text, `artifact.md`, `input_manifest.md`, the handoff inputs,
+and (on a revision) the id of the attempt being revised. The prompt,
+`automation/responses_runner_v2/prompts/stage_review.md`, tells the reviewer to read only
+those files, edit nothing, and judge objective, grounding, consistency, and fitness for
+the next stage. The verdict is validated against
+`automation/responses_runner_v2/schemas/stage_review_verdict.schema.json`:
+
+```json
+{
+  "verdict": "approve | revise",
+  "summary": "two to five sentences",
+  "blocking_findings": [{"id": "...", "description": "...", "evidence": "...", "required_change": "..."}],
+  "notes": ["non-blocking observations for the next stage"]
+}
+```
+
+Configuration: workflow `defaults.review`, overridden per stage by `review`.
+
+| Field | Values | Default |
 |---|---|---|
-| `completed` (gate `review_required`, has next) | `waiting_for_review` | Output must be bundled before the next stage |
-| `completed` (otherwise) | `completed` | |
-| `failed` | `failed` | May still have a substantive artifact — see §8.4 |
-| `cancelled` | `cancelled` | |
-| `incomplete` | `incomplete` | Never auto-progresses |
-| `queued` / `in_progress` | `in_progress` | Use `resume`/`refresh`, never re-`run` |
+| `reviewer` | `codex`, `claude`, `none` | `codex` |
+| `model` | any | `gpt-5.6-sol` for codex, `opus` for claude |
+| `effort` | `low`, `medium`, `high`, `xhigh`, `max` | `high` for codex, `xhigh` for claude |
+| `timeout_seconds` | positive int | `1800` |
+| `max_revisions` | 0 or more | `1` |
 
-### 6.5 The sidecar pass
+`run --reviewer {codex,claude,none}` overrides the reviewer for that invocation. `none`
+writes an approve verdict with `disposition: not_required` and continues.
 
-If a stage configures `output.sidecar`, then *after* the primary response is terminal the
-engine runs a second Responses call: it uploads the primary's clean `artifact.md`, asks
-the **structural model** (`gpt-5.6`, standard reasoning mode) to produce a payload that
-strictly conforms to the sidecar JSON schema, and writes `output.structured.json` plus
-`sidecar.response.{json,md}`. Creative generation (primary) and machine-ingestible
-structure (sidecar) are deliberately kept as separate passes so the primary model never
-has to fight schema constraints while reasoning.
+Both CLIs run read-only from the workspace root: `codex exec --sandbox read-only
+--ephemeral --ignore-user-config -c model_reasoning_effort=... --output-schema <verdict
+schema> [--model ...] -` with the prompt on stdin; `claude -p --model opus --effort xhigh
+--output-format json --tools Read,Grep,Glob --permission-mode dontAsk
+--no-session-persistence --setting-sources user --append-system-prompt-file <prompt>`
+with the job JSON on stdin and `ANTHROPIC_API_KEY` and related variables stripped so the
+subscription login is used.
 
-> **Operator note:** sidecar artifacts are only written on the *terminal-artifact path* —
-> `run --wait` or `resume --wait`. If `run_manifest.json` shows a stage `completed` but
-> `output.structured.json` / `sidecar.response.*` are missing, the stage was *refreshed*
-> but not *finalized*. Run `resume` on that stage to backfill them.
-
----
-
-## 7. What happens *before* the first stage
-
-This is the part most newcomers miss: in the supervisor lane, **a great deal happens
-before Stage 1 ever runs, and none of it touches OpenAI.** The pre-stage sequence exists
-to make sure the workflow you are about to run live has been clarified, staged, statically
-examined, dry-run, and reviewed.
+### 8.2 The three outcomes
 
 ```
-                  ┌─────────────────────────────────────────────────┐
-   STEP 0         │  HUMAN CLARIFICATION GATE                       │
-   (human)        │  The ONLY mandatory human step.                 │
-                  │  1. human supplies a task                       │
-                  │  2. operator asks clarifying questions if needed│
-                  │  3. human accepts a clarified_task_brief.md     │
-                  └───────────────────────┬─────────────────────────┘
-                                          │  clarified_task_brief.md (accepted)
-                                          ▼
-   STEP 1         init-session            Creates the supervisor session JSON.
-   (supervisor)                           status: "clarified"  phase: "scaffold"
-                                          Records the brief's path + SHA-256.
-                                          ▼
-   STEP 2         stage-scaffold          Copies the task pack INTO the session
-   (supervisor)                           (scaffolds/scaffold_001/source/) and
-                                          writes a hash_manifest.json of every file.
-                                          status: "scaffold_staged"
-                                          ▼
-   STEP 3         examine-scaffold        STATIC pre-launch gate. Validates WITHOUT
-   (supervisor)                           constructing a Stage 1 request:
-                                            • workflow manifest schema
-                                            • model posture matches the locked defaults
-                                            • exactly one terminal stage, and it is last
-                                            • every non-terminal stage is review-gated
-                                            • sidecar/output schemas use no unsupported
-                                              keywords (if/then/oneOf/allOf/not/...)
-                                            • tool profiles + attachment inventory
-                                            • each stage prompt is substantive
-                                          Emits scaffold_examination.{json,md}.
-                                          Blocking issues → session "blocked".
-                                          ▼
-   STEP 4         dry-run-scaffold        EXECUTABLE gate. Calls the engine's
-   (supervisor)                           run_workflow(dry_run=True): the engine
-                                          resolves inputs and WRITES a request payload,
-                                          but never calls the API. Proves the request
-                                          can actually be constructed.
-                                          ▼
-   STEP 5         SCAFFOLD REVIEW CYCLE   The full 3-agent loop, applied to the scaffold
-   (supervisor)                           itself (review_kind = "scaffold"):
-                                            invoke-operator → invoke-reviewers →
-                                            consolidate → accept
-                                          ▼
-                  assert_scaffold_launch_allowed  ── passes ONLY when the latest scaffold
-                                                     version is "accepted" AND an accepted
-                                                     scaffold review cycle exists.
-                                          ▼
-   ════════════════ NOW, AND ONLY NOW, STAGE 1 MAY RUN LIVE ════════════════
+approve ──► review_status "approved"; the run continues.
+revise  ──► first time (revisions < max_revisions): stage becomes revision_requested and
+            reruns as the next attempt with REVISION_INSTRUCTIONS ahead of the task and the
+            previous artifact.md + reviewer_notes.md under Reviewed Handoff Inputs; the
+            reviewer runs again on the revision.
+revise  ──► again (revisions == max_revisions): stage becomes waiting_for_review with
+            review_status "blocked". The run stops for a human.
 ```
 
-So "between stages, prior to the first stage" the sequence is:
-**clarification → init-session → stage-scaffold → examine-scaffold → dry-run-scaffold →
-scaffold review cycle → launch-allowed.** Two of those steps are *gates* you can fail
-(`examine-scaffold`, `dry-run-scaffold`) and one is a full review loop. The first thing
-that ever reaches OpenAI is Stage 1's request — and by then the workflow has been
-validated four different ways.
+### 8.3 Unblocking with a handoff note
 
-> **If you only operate the generic engine lane** (no supervisor), the pre-stage sequence
-> collapses to: *make sure the task pack is under the root, then `run --dry-run`.* The
-> dry-run is your single pre-flight check. Everything else above is supervisor policy.
+Write a Markdown note under the root stating your decision and anything the next stage
+must know, then continue the same run:
 
----
-
-## 8. The supervisor lane in depth
-
-### 8.1 The supervisor session
-
-A session lives at
-`.local/automation/responses_runner_v2/supervisor_sessions/{session_id}/`:
-
-```
-supervisor_session.json   ← THE single source of truth, schema-validated on every write
-commands/                 ← captured stdout/stderr from agent CLI invocations
-review_cycles/{id}/        ← per-cycle operator + reviewer + consolidation + acceptance
-scaffolds/{version}/       ← staged scaffold copies + hash_manifest.json
-examinations/              ← scaffold_examination.{json,md}
-dry_runs/                  ← scaffold dry-run validations
-archives/{id}/             ← archived failed-no-artifact attempts (+ hashes)
-monitoring/                ← polling state + monitoring-anomaly human pauses
-human_pauses/              ← anomaly records that need a human decision
-final_bundle/              ← the final implementation bundle
+```bash
+python automation/run_responses_v2.py run --root . \
+  --workflow-file <wf> --run-dir <run_dir> --handoff-note notes/<stage>_handoff.md
 ```
 
-Every write to `supervisor_session.json` goes through one function that **validates the
-payload against the session JSON schema, then atomically renames a temp file over it**.
-The session is never half-written and never schema-invalid on disk.
+The engine marks the first waiting `human` or `reviewed` stage `human_approved`, records
+`handoff_note_path`, and attaches the note (plus the reviewer notes, for a blocked reviewed
+stage) with the artifact to the next stage. The same command continues a `human` gate.
 
-### 8.2 The 3-agent review loop
+### 8.4 When the reviewer CLI fails
 
-For every scaffold and every non-terminal stage, three independent agents review the same
-materials:
+If the reviewer exits non-zero, times out, or cannot be spawned, the engine exits with the
+stderr path and the stage stays `completed` with no `review_status`. The next `run` on the
+same run directory (or `resume` of that stage) retries the review first; or supply
+`--handoff-note` to approve it yourself.
 
-| Role | CLI invoked | Read-only? | Accountable? |
-|---|---|---|---|
-| **operator_codex** | `codex exec "<prompt + job JSON>"` | No — may apply changes | **Yes** — the accountable lane |
-| **codex_review_agent** | `codex exec "<prompt + job JSON>"` | **Yes** — snapshot-enforced | No — advisory |
-| **claude_review_agent** | `claude -p --model opus --effort max --output-format json --tools Read ...` | **Yes** — snapshot-enforced | No — advisory |
-
-The loop, in order:
+### 8.5 The review evidence directory
 
 ```
-1. invoke-operator       The accountable operator Codex runs first and writes a
-                         PROVISIONAL review decision. (For scaffold/stage_output/
-                         final_packet/recovery cycles, this provisional record is
-                         REQUIRED before reviewers may run.)
-
-2. invoke-reviewers      The Codex reviewer and the Claude reviewer run INDEPENDENTLY
-                         and READ-ONLY. The supervisor snapshots every workspace source
-                         file (hashes) before and after each reviewer. Any change to a
-                         file other than the agent's own output sidecars is a
-                         "read_only_violation" and fails that review.
-
-3. consolidate           Deterministic merge of operator + 2 reviewer findings.
-                         De-duplicates recommendations by (text + affected artifacts).
-                         ADVISORY ONLY — its next_action is "proceed_to_operator_
-                         acceptance". It does not accept anything.
-
-4. accept                The operator selects which recommendation IDs to accept and
-                         supplies an applied-change-evidence JSON file. The supervisor
-                         REWRITES any "accepted" recommendation to "rejected" unless its
-                         evidence supplies concrete changes_applied[], validation_
-                         evidence[], and operator_rationale. The supervisor does NOT
-                         synthesize evidence.
-
-5. create-bundle         An approved review bundle is created ONLY if the acceptance
-                         record's approval_decision == "approve".
-```
-
-Two things to burn in:
-
-- **The inter-agent protocol is one schema: `review_decision.v1`.** Every agent
-  (operator, both reviewers, *and* the consolidation pass) emits the *same* JSON shape;
-  `actor_role` distinguishes them. That uniformity is what makes the outputs comparable.
-- **Read-only enforcement is mechanical.** It is a before/after hash snapshot of the
-  whole workspace (excluding `.local` and the usual skip dirs). A reviewer that prompts
-  itself into editing a file is caught automatically.
-
-The Claude lane deliberately does **not** use `--bare`: bare mode skips OAuth/keychain
-credentials. The supervisor strips `ANTHROPIC_API_KEY` and related provider env vars
-before invoking `claude` so the local subscription OAuth login is used. If `--effort max`
-is unsupported locally, it retries once with `--effort xhigh` and records
-`fallback_used=true`.
-
-### 8.3 Consolidation is advisory; acceptance is the real decision
-
-This separation is the heart of the supervisor's integrity model:
-
-```
-consolidation  ──►  "here is every distinct recommendation, de-duplicated, with
-                     provenance. I am NOT approving anything."
-
-operator        ──►  "I accept rec_003 and rec_007. Here is the evidence file showing
-acceptance           what I changed, how I validated it, and why."
-
-supervisor      ──►  re-checks the evidence. rec_003's evidence is concrete → stays
-(mechanical)         accepted. rec_007's evidence is missing changes_applied → REWRITTEN
-                     to rejected. A rejected BLOCKING recommendation becomes a blocking
-                     issue → approval_decision becomes "do_not_approve".
-```
-
-The operator cannot rubber-stamp. An accepted recommendation without
-`changes_applied[]` + `validation_evidence[]` + `operator_rationale` is auto-rejected by
-the supervisor itself.
-
-### 8.4 The 6-way failure classification
-
-When a stage reaches a terminal state, the supervisor's `classify` command inspects the
-checkpoint + response markdown and assigns exactly one of six classifications. Each maps
-to a distinct recovery path:
-
-| Classification | Reviewable | Bundle-able | Rerun | Recovery action |
-|---|:--:|:--:|:--:|---|
-| `completed_complete_artifact` | ✓ | ✓ | — | `review` — the normal happy path |
-| `failed_complete_artifact` | ✓ | ✓ | — | `review_failed_artifact` — model reported failure but produced substantive text; still reviewable |
-| `failed_no_artifact` | ✗ | ✗ | ✓ | `archive_before_rerun` — must archive (with hashes) before any rerun |
-| `incomplete_output_limit` | ✗ | ✗ | ✗ | `block_and_recover` — human pause; never auto-progresses |
-| `blocked_token_preflight` | ✗ | ✗ | ✗ | `human_pause` — repair the scaffold/input set before relaunch |
-| `long_running_monitoring_anomaly` | ✗ | ✗ | ✗ | `monitor_without_duplicate_submit` — refresh/resume the existing `response_id`, never re-submit |
-
-The dividing line between the two `failed_*` outcomes is **"substantive markdown"**: the
-response markdown must be at least 40 characters and not literally
-`"No assistant text was returned."` A failed response *with* substantive text is still
-reviewable; *without* it, you must archive before rerun.
-
-### 8.5 Archive-before-rerun (the anti-"quietly changed the inputs" guard)
-
-A `failed_no_artifact` stage may be rerun **only after archiving the attempt**. The
-archive captures the full request payload, input manifests, checkpoint, the workflow
-manifest's hash, the scaffold's hash-manifest digest, a deterministic `request_hash`, and
-an `unchanged_input_evidence` block.
-
-Before the rerun is allowed, the supervisor checks the *current* request and scaffold
-hashes against the archive's `_before` hashes. **If you changed the prompt and tried to
-claim a "fresh failure," the hashes will not match and the rerun is blocked.** This
-eliminates an entire class of "I quietly re-experimented and pretended it was the same
-attempt" scenarios. Rerunning is also subject to a retry budget (`failed_no_artifact: 1`
-by default).
-
-### 8.6 Human pauses
-
-After the clarification gate, human pauses are *exception paths only*. A human-pause
-artifact must state: the **trigger**, the **artifact to present**, the **decision
-required**, the **safe continuation action**, whether automation may resume, and whether
-review-bundle creation is blocked. Typical triggers: output-limit incomplete, blocked
-preflight, a repeated monitoring anomaly, a missing review-agent CLI, or an evidence
-conflict the operator cannot resolve.
-
-### 8.7 The final implementation bundle
-
-The supervisor's terminal artifact. `finalize-bundle` validates a packet against the
-final-bundle schema. The schema requires, among other things, that **`file_inventory[]`
-and `emitted_files[]` are the identical set of paths** (`sorted(...) == sorted(...)`) —
-this is the "no half-finished implementations, no hidden files" guarantee. It also
-requires all three agent reviews, an approving `operator_acceptance` record, validation
-evidence, a model-migration summary, a failure-policy summary, a human-pause summary,
-rollout instructions, and residual risks. On success the session status becomes
-`completed`.
+attempt_NNN/review/
+├── verdict.json               normalized verdict + disposition, reviewer, artifact_sha256
+├── reviewer_notes.md          human-readable rendering; attached to the next stage / revision
+├── prompt_<stamp>.md          the exact prompt + job JSON the reviewer saw
+├── stdout_<stamp>.txt
+├── stderr_<stamp>.txt
+└── invocation_<stamp>.json    argv, cwd, duration_ms, exit_code, cost/token fields when reported
+```                            (a retried review adds another stamped set)
 
 ---
 
@@ -657,311 +384,170 @@ rollout instructions, and residual risks. On success the session status becomes
 
 ### 9.1 Workflow modes
 
-A workflow manifest declares a `workflow_mode`. The loader enforces the stage count:
-
 | Mode | Stages | Typical gate pattern |
 |---|---|---|
 | `one_pass` | exactly 1 | `terminal` |
 | `two_pass` | exactly 2 | `auto` → `terminal` |
-| `reviewed_three_stage` | exactly 3 | `review_required` → `review_required` → `terminal` |
+| `reviewed_three_stage` | exactly 3 | gated → gated → `terminal` |
 | `custom_ordered` | any number | any combination |
 
 ### 9.2 The bundled packs
 
-**`automation/examples/responses_runner_v2_synthetic/`** — the **synthetic proof pack**.
-Small, bounded, business-agnostic. It exists so you can verify the *engine* without
-adopting a real workflow. It ships three workflows that together exercise one-pass +
-sidecar, automatic two-pass carry-forward, and reviewed three-stage gating:
+- `automation/examples/responses_runner_v2_synthetic/` — the synthetic proof pack: a
+  one-pass, a two-pass, and a three-stage gated workflow for verifying the engine.
+- `automation/examples/responses_runner_v2_evidence_synthesis/` — an offline
+  document-evidence example with citation validators.
+- `automation/task_packs/gstack_design_to_po_playbook/` — the real high-stakes pack: five
+  `custom_ordered` stages, `defaults.review = {reviewer: codex, max_revisions: 1}`:
 
 ```
-one_pass.workflow.json            1 stage  (terminal, sidecar)
-two_pass.workflow.json            stage 1 auto  →  stage 2 terminal+sidecar
-reviewed_three_stage.workflow.json  proposal (review_required)
-                                  → revision (review_required, carries proposal's bundle)
-                                  → final_delivery (terminal+sidecar, carries revision's bundle)
+1 source_authority_map      reviewed
+2 repo_grounding            reviewed   handoff_from_stage_id: source_authority_map
+3 execution_row_draft       reviewed   handoff_from_stage_id: repo_grounding
+4 gate_and_contract_review  reviewed   handoff_from_stage_id: execution_row_draft
+5 final_markdown_playbook   terminal   handoff_from_stage_id: gate_and_contract_review
 ```
 
-**`automation/task_packs/responses_runner_v2_supervised_end_to_end/`** — the current
-**four-stage self-improvement pack** (`custom_ordered`). It asks the runner to improve
-*itself* by designing the supervisor lane around the existing engine:
+Each stage also carries earlier artifacts as `reference_context_from_stage_ids`.
 
-```
-Stage 1  architecture_and_supervision_protocol      gate: review_required
-Stage 2  agent_review_protocol_and_package_contract gate: review_required
-                                                    (carries Stage 1's review bundle)
-Stage 3  draft_drop_in_packet                       gate: review_required
-                                                    (carries Stage 2's review bundle)
-Stage 4  final_drop_in_packet                       gate: terminal + sidecar
-                                                    (carries Stage 3's review bundle)
-```
+### 9.3 Carry-forward
 
-**`automation/task_packs/responses_runner_v2_supervisory_lane/`** — a legacy three-stage
-pack kept as historical regression coverage. Do not run it for new work.
+- **`handoff_from_stage_id`** — the approved artifact plus reviewer notes or human note
+  of an earlier `reviewed`/`human` stage, under Reviewed Handoff Inputs. The gated path.
+- **`reference_context_from_stage_ids`** — earlier `artifact.md` files under Reference
+  Context. Cheap, no gate involved.
+- `review_bundle_from_stage_id` is a legacy alias; write `handoff_from_stage_id` instead.
 
-**`automation/task_packs/responses_runner_v2_supervisor_internal/`** — *not* a normal
-workflow pack. It is the supervisor's own prompt + command-template library: the prompts
-for operator Codex, the Codex reviewer, and the Claude reviewer, and the `*.command.json`
-templates that define exactly how each agent CLI is invoked. The supervisor CLI depends
-on these files existing.
-
-### 9.3 Carry-forward: how a stage sees the previous stage
-
-A stage's `carry_forward` block can pull from earlier stages two ways:
-
-- **`reference_context_from_stage_ids`** — attaches the prior stage's clean `artifact.md`
-  under the lowest-authority *Reference Context* role. Cheap, no review required.
-- **`review_bundle_from_stage_id`** — requires you to supply that stage's *approved
-  review bundle* with `--review-bundle`. The bundle's contents (approved markdown,
-  reviewer notes, optionally an approved handoff markdown and structured JSON) are laid
-  out under the *Reviewed Handoff Inputs* role. This is the gated path.
-
-Carry-forward is deliberately cheap — it attaches the *actual approved text*, not a
-summary. No prompt-stuffing, no lossy compression.
+Carry-forward attaches the actual approved text, never a summary.
 
 ### 9.4 The locked model posture
 
-New runners, supervisors, examples, workflows, and tests use a **locked** model posture.
-The loader rejects anything else *at load time*:
-
-- primary generation: durable alias `gpt-5.6` with `reasoning.mode=pro`
-- structural processing: durable alias `gpt-5.6` with standard reasoning mode
-- prompt caching: implicit mode with `ttl=30m` (the loader refuses an unsupported GPT-5.6
-  cache TTL)
-- high-stakes primary reasoning effort: `xhigh`; structural: `high` or `medium`
-- locked max output tokens for high-stakes self-improvement stages: `128000`
-
-Keep existing verbosity and terminal-stage reasoning overrides until an A/B measurement
-supports changing them.
-
-Do not introduce legacy 5.4-family identifiers as runtime defaults.
+The loader rejects anything else: primary generation `gpt-5.6` with `reasoning_mode=pro`,
+effort `xhigh`, verbosity `high`; structural processing `gpt-5.6`, standard mode, effort
+`high` or `medium`; prompt cache implicit with `ttl=30m`; max output tokens `128000`. Keep
+existing verbosity and terminal-stage effort settings until an A/B measurement supports
+changing them. Do not introduce legacy 5.4-family identifiers.
 
 ---
 
 ## 10. The run output layout
 
-Everything lands under `.local/` — git-ignored, never committed, never re-attached as
-evidence to a future run.
+Everything lands under `.local/` — git-ignored, never committed, never re-attached.
 
 ```
-.local/automation/responses_runner_v2/
-├── runs/{timestamp}_{run_name}_{workflow_id}/
-│   ├── run_manifest.json                  ← top-level run state + per-stage summary
-│   └── stages/{NN_stage_id}/
-│       └── attempt_NNN/
-│           ├── input_manifest.json        ← resolved attachments (machine)
-│           ├── input_manifest.md          ← resolved attachments (human + model TOC)
-│           ├── request_plan.json          ← deterministic symbolic request plan
-│           ├── request_payload.json       ← the EXACT body sent to /responses
-│           ├── token_preflight.json       ← or token_preflight.error.json
-│           ├── uploads.json               ← file_id ↔ source_path mapping + lifecycle
-│           ├── response.latest.json       ← rewritten on every poll
-│           ├── response.final.json        ← finalized raw response for recovery
-│           ├── response.final.md          ← diagnostic response render
-│           ├── artifact.md                ← clean deliverable used downstream
-│           ├── output.structured.json     ← if json_schema OR sidecar configured
-│           ├── sidecar.response.json/.md  ← if sidecar configured
-│           └── stage_checkpoint.json      ← durable, resumable stage state
-└── supervisor_sessions/{session_id}/
-    ├── supervisor_session.json            ← schema-validated single source of truth
-    ├── scaffolds/{version}/source/ + hash_manifest.json
-    ├── examinations/  dry_runs/  review_cycles/  archives/
-    ├── monitoring/  human_pauses/  commands/
-    └── final_bundle/final_implementation_bundle.json
+.local/automation/responses_runner_v2/runs/{timestamp}_{run_name}_{workflow_id}/
+├── run_manifest.json                    run state + per-stage summary
+├── dry_runs/                            see section 7
+│   ├── stages/NN_<stage_id>/...
+│   └── stubs/<stage_id>/...
+└── stages/NN_<stage_id>/
+    ├── attempt_001/
+    │   ├── input_manifest.json / .md    resolved attachments (machine / human + model TOC)
+    │   ├── upload_inputs/               staged copies of the files prepared for upload
+    │   ├── request_payload.json         the EXACT body sent to /responses
+    │   ├── token_preflight.json         or token_preflight.error.json
+    │   ├── uploads.json                 file_id ↔ source path + lifecycle
+    │   ├── response.latest.json         rewritten on every poll
+    │   ├── response.final.json          raw retained terminal response
+    │   ├── artifact.md                  the clean deliverable used downstream
+    │   ├── validator_report.json        if validators configured
+    │   ├── output.structured.json       if primary_format is json_schema
+    │   ├── submission.error.json        only if POST /responses failed
+    │   ├── finalization.error.json      only if finalization raised
+    │   └── review/                      reviewed-gate evidence (section 8.5)
+    └── attempt_002/                     a revision; same layout, revision_of_attempt_id set
 ```
 
-### The evidence / hash chain
-
-This is what makes a `tar` of the root a complete audit trail:
-
-```
-workflow_manifest.sha256
-        │  recorded in
-        ▼
-run_manifest.json ──► stage summary records response.final.{md,json} by SHA-256
-        │
-        ▼
-stage_checkpoint.json ──► points at every artifact + the response_id
-        │
-        ▼
-review_bundle.json ──► artifact_hashes{} for every referenced file;
-        │              load() re-hashes and refuses on mismatch
-        ▼
-next stage's input_manifest.json ──► references the bundle under Reviewed Handoff Inputs
-```
-
-Every link is a hash. Break any link and the runner refuses to proceed.
+Run-manifest stage summary fields you will read: `status`, `review_status`
+(`approved` | `revision_requested` | `blocked` | `human_approved` | `not_required`),
+`reviewer_notes_path`, `review_verdict_path`, `handoff_note_path`, `validators_passed`,
+`validator_report_path`, `artifact_markdown_path` (+ sha256), `response_id`,
+`current_attempt_id`, and `attempts[]` with `attempt_dir`, `local_state`, `response_id`, and
+`revision_of_attempt_id`. There is no per-attempt state file: the run manifest is the only
+durable record, rewritten atomically on every stage transition.
 
 ---
 
 ## 11. End-to-end walkthroughs
 
-### Path A — generic engine, one-pass (the fastest way to see it work)
+### Path A — one-pass synthetic workflow (fastest way to see it work)
 
 ```bash
-# 1. Dry-run: build the request, touch no API. Your cheapest validation.
-python automation/run_responses_v2.py run \
-  --root . \
-  --workflow-file automation/examples/responses_runner_v2_synthetic/workflows/one_pass.workflow.json \
-  --dry-run
-#    → writes run_manifest.json + dry_runs/stages/01_draft_summary/{input_manifest.*,request_payload.json,stage_checkpoint.json}
+# 1. Dry-run: build the request, touch no API.
+python automation/run_responses_v2.py run --root . \
+  --workflow-file automation/examples/responses_runner_v2_synthetic/workflows/one_pass.workflow.json --dry-run
 
-# 2. Live run, wait for completion.
-python automation/run_responses_v2.py run \
-  --root . \
-  --workflow-file automation/examples/responses_runner_v2_synthetic/workflows/one_pass.workflow.json \
-  --wait
-#    → uploads files, POSTs /responses, polls to terminal, writes response.final.* ,
-#      runs the sidecar, writes output.structured.json, prints the run_manifest path
+# 2. Live run (waits by default): uploads, submits, polls, writes artifact.md, prints the manifest path.
+python automation/run_responses_v2.py run --root . \
+  --workflow-file automation/examples/responses_runner_v2_synthetic/workflows/one_pass.workflow.json
 ```
 
-What happened internally: CLI resolved the root → built `RuntimeOptions` →
-`OpenAIClient.from_env(root)` → `run_workflow()` loaded + validated the workflow → created
-the run dir → `_determine_next_stage()` found stage 1 → resolved + uploaded attachments →
-pre-upload estimate → exact token preflight → submit intent → `POST /responses` → polled to
-terminal → wrote `artifact.md` and raw evidence → ran the sidecar → finalized → returned.
-
-### Path A′ — generic engine, a `review_required` workflow (manual review)
+### Path B — the gstack pack with reviewed gates
 
 ```bash
-# Stage 1 runs and ends in status "waiting_for_review".
-python automation/run_responses_v2.py run --root . \
-  --workflow-file .../reviewed_three_stage.workflow.json --wait
+WF=automation/task_packs/gstack_design_to_po_playbook/workflows/gstack_design_to_po_playbook.workflow.json
 
-# You inspect stages/01_proposal/<attempt_NNN>/artifact.md, then write reviewer notes,
-# then build an approved bundle by hand:
-python automation/create_review_bundle_v2.py --root . \
-  --output review_bundle_stage1.json \
-  --workflow-id synthetic_reviewed_three_stage \
-  --source-stage-id proposal \
-  --source-run-id <run_id> \
-  --primary-artifact-markdown <run_dir>/stages/01_proposal/<attempt_NNN>/artifact.md \
-  --response-artifact-json   <run_dir>/stages/01_proposal/<attempt_NNN>/response.final.json \
-  --reviewer-notes notes.md
+# 1. All-stage dry run. Read every dry_runs/stages/*/input_manifest.md.
+python automation/run_responses_v2.py run --root . --workflow-file $WF \
+  --primary-job-input docs/gstack/<approved-design>.md --dry-run
 
-# Continue the SAME run, supplying the bundle. Stage 2 now sees it as Reviewed Handoff Input.
-python automation/run_responses_v2.py run --root . \
-  --workflow-file .../reviewed_three_stage.workflow.json \
-  --run-dir <run_dir> --review-bundle review_bundle_stage1.json --wait
-```
+# 2. Launch. One invocation runs stage 1, reviews it, revises once if asked, then stages
+#    2-4 the same way, then terminal stage 5. stderr shows lines such as
+#      REVIEW [repo_grounding/attempt_001] revise -> revision_requested (...)
+python automation/run_responses_v2.py run --root . --workflow-file $WF \
+  --primary-job-input docs/gstack/<approved-design>.md
 
-### Path B — supervisor lane, full loop (the four-stage self-improvement pack)
-
-```bash
-# STEP 0  (human)  accept a clarified_task_brief.md
-
-# STEP 1  init the session
-python automation/run_responses_supervisor_v2.py init-session --root . \
-  --clarified-task-brief docs/clarified_task_brief.md \
-  --summary "One-sentence accepted task summary"
-
-# STEP 2  stage the task pack into the session (copies + hashes it)
-python automation/run_responses_supervisor_v2.py stage-scaffold --root . \
-  --session <session_id> \
-  --scaffold-path automation/task_packs/responses_runner_v2_supervised_end_to_end
-
-# STEP 3  STATIC examination gate
-python automation/run_responses_supervisor_v2.py examine-scaffold --root . \
-  --session <session_id> \
-  --workflow-file automation/task_packs/responses_runner_v2_supervised_end_to_end/workflows/four_stage.workflow.json
-
-# STEP 4  EXECUTABLE dry-run gate
-python automation/run_responses_supervisor_v2.py dry-run-scaffold --root . \
-  --session <session_id> \
-  --workflow-file automation/task_packs/responses_runner_v2_supervised_end_to_end/workflows/four_stage.workflow.json
-
-# STEP 5  scaffold review cycle: operator → reviewers → consolidate → accept
-python automation/run_responses_supervisor_v2.py invoke-operator   --root . --session <id> --review-cycle scaffold_001 --review-kind scaffold --job-json <op_job.json>
-python automation/run_responses_supervisor_v2.py invoke-reviewers  --root . --session <id> --review-cycle scaffold_001 --review-kind scaffold --job-json <review_job.json>
-python automation/run_responses_supervisor_v2.py consolidate       --root . --session <id> --review-cycle scaffold_001 --codex-review <...> --claude-review <...> --operator-review <...> --output <consolidated.json>
-python automation/run_responses_supervisor_v2.py accept            --root . --session <id> --review-cycle scaffold_001 --consolidated-review <consolidated.json> --accept-recommendation rec_001 --applied-change-evidence <evidence.json> --output <acceptance.json>
-
-# --- scaffold is now "accepted"; launch is allowed ---
-
-# STEP 6  launch Stage 1 LIVE via the engine
-python automation/run_responses_v2.py run --root . \
-  --workflow-file automation/task_packs/responses_runner_v2_supervised_end_to_end/workflows/four_stage.workflow.json \
-  --wait
-
-# STEP 7  classify + review Stage 1 from registered run evidence
-python automation/run_responses_supervisor_v2.py review-cycle --root . \
-  --session <session_id> --review-cycle stage1_001 --run-dir <run_dir> \
-  --stage architecture_and_supervision_protocol
-
-# STEP 8  deliberate acceptance, then derive the bundle and launch Stage 2
-python automation/run_responses_supervisor_v2.py accept --root . \
-  --session <session_id> --review-cycle stage1_001 \
-  --then-bundle --then-launch
-
-# Repeat Steps 7-8 for each remaining non-terminal stage.
-
-# STEP 10  finalize
-python automation/run_responses_supervisor_v2.py finalize-bundle --root . \
-  --session <session_id> --packet-json <final_packet.json> --output final_implementation_bundle.json
-#    → schema-validates; file_inventory must equal emitted_files; session status → "completed"
+# 3a. Finished: the deliverable is stages/05_final_markdown_playbook/attempt_001/artifact.md.
+# 3b. Stopped "waiting for a handoff note after stage <id>" (two revise verdicts, or a
+#     human gate): read that stage's artifact.md and review/reviewer_notes.md, write your
+#     decision, and continue the same run.
+python automation/run_responses_v2.py run --root . --workflow-file $WF \
+  --run-dir <run_dir> --handoff-note notes/<stage>_handoff.md
 ```
 
 ---
 
 ## 12. Command reference
 
-### `run_responses_v2.py` — the generic engine CLI
+All subcommands accept `--root`. `run`/`resume` print the `run_manifest.json` path on
+success; warnings go to stderr as `WARNING [<code>] ...`. Run
+`python automation/run_responses_v2.py --help` for the full current subcommand list.
 
-| Subcommand | What it does | Key flags |
-|---|---|---|
-| `run` | Launch the next eligible stage (or continue a run). | `--workflow-file` (req), `--root`, `--run-name`, `--run-dir`, `--stage`, `--primary-job-input` (repeatable), `--reference-context` (repeatable), `--review-bundle` (repeatable), `--dry-run`, `--wait`, `--skip-token-count`, `--max-input-tokens`, `--max-output-tokens`, `--primary-model`, `--structural-model`, `--poll-interval`, `--max-wait-seconds`, `--service-tier`, `--file-expires-after`, `--delete-uploaded-files-on-complete` |
-| `resume` | Rehydrate a stored `response_id`, poll to terminal, finalize artifacts. | `--run-dir` (req), `--stage` (req), `--wait`, `--poll-interval`, `--max-wait-seconds` |
-| `refresh` | Poll remote status only — does **not** finalize or clean up. | `--run-dir` (req), `--stage` (req) |
+### `run` — launch the next eligible stage or continue a run
 
-`run` vs `resume` vs `refresh`: use **`run`** to start a fresh stage; **`resume`** when a
-stage was already submitted and you want the engine to finalize it (write
-`response.final.*`, structured output, sidecar); **`refresh`** when you only want the
-latest remote status recorded locally. `refresh` will *not* backfill final artifacts.
-
-### `run_responses_supervisor_v2.py` — the supervisor CLI
-
-| Subcommand | What it does |
+| Flag | Meaning |
 |---|---|
-| `init-session` | Create a session from an accepted `--clarified-task-brief` + `--summary`. |
-| `stage-scaffold` | Copy and hash a scaffold; an identical latest scaffold is reused without invalidating review. |
-| `examine-scaffold` | Static pre-launch gate over a `--workflow-file` (no Stage 1 request built). |
-| `dry-run-scaffold` | Executable gate — runs the engine in `dry_run=True` mode. |
-| `invoke-operator` | Run the accountable operator Codex job for a `--review-cycle` / `--review-kind`. |
-| `invoke-reviewers` | Run the independent read-only Codex + Claude reviewers. |
-| `consolidate` | Deterministically merge `--operator-review` + `--codex-review` + `--claude-review`. |
-| `review-cycle` | With `--run-dir --stage`, classify and derive the stage job, then run operator, reviewers, and consolidation. |
-| `accept` | Operator selective acceptance; `--then-bundle --then-launch` performs the approved transition. |
-| `create-bundle` | With `--review-cycle`, derive all approved bundle inputs from the accepted cycle. |
-| `classify` | Classify a stage outcome (`--run-dir` + `--stage`) into one of the 6 classes. |
-| `monitor` | Record monitoring state; emit a human-pause if a stage is stale. |
-| `archive-attempt` | Archive a `failed_no_artifact` attempt (with hashes) before a rerun. |
-| `release-reservation` | Release a read-only review reservation only when it produced zero decision candidates. |
-| `finalize-bundle` | Validate + record the final implementation bundle from `--packet-json`. |
-| `usage-report` | Aggregate session reviewer-attempt counts and available usage fields without changing any run's primary/sidecar report. |
-| `validate-session` | Validate `supervisor_session.json` against its schema. |
+| `--workflow-file <path>` | required; interpreted under the root |
+| `--run-name <slug>` / `--run-dir <path>` | name a new run (defaults to the workflow id) / continue an existing run |
+| `--stage <id>` | pin one stage; disables chaining |
+| `--primary-job-input`, `--reference-context` (repeatable), `--input-binding-file` | operator inputs; bindings are stage-scoped |
+| `--handoff-note <path>` | approve the stage waiting at a human gate or blocked reviewed gate |
+| `--reviewer {codex,claude,none}` | override the reviewer for reviewed gates in this invocation |
+| `--dry-run` | render every stage (or the pinned stage) under `dry_runs/`; no uploads, no API |
+| `--wait` / `--no-wait`, `--poll-interval <s>`, `--max-wait-seconds <s>` | wait in-process (default; poll 20 s, cap 86400 s) or return after submission |
+| `--skip-token-count`, `--max-input-tokens <n>`, `--max-output-tokens <n>` | disable the exact count / override stage limits |
+| `--primary-model` / `--structural-model` | model overrides (must satisfy model caps) |
+| `--output-root <path>` | default `.local/automation/responses_runner_v2/runs` |
+| `--file-expires-after`, `--delete-uploaded-files-on-complete`, `--service-tier`, `--safety-identifier`, `--prompt-cache-key-strategy` | upload lifecycle and request options |
 
-Each operator, Codex reviewer, and Claude reviewer invocation writes a separate reviewer usage
-attempt. Canonical CLI transports do not guarantee token counters, so unavailable input, output,
-cache, and reasoning-token values remain `null` rather than being reported as zero.
+### The others
 
-### `create_review_bundle_v2.py` — build a bundle by hand
+| Subcommand | Flags | What it does |
+|---|---|---|
+| `resume` | `--run-dir`, `--stage`, `--wait`/`--no-wait`, `--poll-interval`, `--max-wait-seconds` | Finish a submitted stage from its stored `response_id`: finalize artifacts, validators, and the reviewed gate. Refuses `submission_outcome_unknown`. |
+| `refresh` | `--run-dir`, `--stage` | Record the latest remote status only. No finalization, no review. |
+| `cancel` | `--run-dir`, `--stage` | Idempotently cancel a live response and finalize local evidence. |
+| `recover-uploads` | `--run-dir`, `--stage`, `--attempt <n>` | Resume cleanup of one attempt's uploads. |
 
-`--output`, `--workflow-id`, `--source-stage-id`, `--source-run-id`,
-`--primary-artifact-markdown`, `--response-artifact-json`, `--reviewer-notes` are
-required; `--approved-handoff-markdown`, `--structured-artifact-json`,
-`--locked-decision`, `--open-dependency`, `--note` are optional.
-
-### `run_responses_v2_eval.py` — the eval / freeze-gate helper
-
-`--dataset-file` + `--list-cases`; or `--dataset-file --case-id --artifact
-[--structured-artifact]` to grade one case; or `--freeze-gate-file` to check a freeze
-gate. Supported checks: required JSON keys, JSON array minimum length, JSON path equals,
-structured-output required keys, required text substrings.
+`run_responses_v2_eval.py`: `--dataset-file --list-cases`; or `--dataset-file --case-id
+--artifact [--structured-artifact]` to grade one case; or `--freeze-gate-file`.
 
 ---
 
 ## 13. Operator playbooks
 
-### "I want to prove the runner works at all"
+**"I want to prove the runner works at all."** The tests plus the dry runs are the gate CI
+runs on Python 3.10/3.11/3.12.
 
 ```bash
 python -m unittest discover -s automation/tests -p 'test_*.py'
@@ -969,143 +555,102 @@ python automation/run_responses_v2.py run --root . \
   --workflow-file automation/examples/responses_runner_v2_synthetic/workflows/one_pass.workflow.json --dry-run
 ```
 
-The unittest suite (8 modules) plus a clean dry-run is the same gate CI runs on Python
-3.10/3.11/3.12.
-
-### "My terminal died / I `Ctrl-C`'d during `--wait`"
-
-Not a disaster — the `response_id` is in `stage_checkpoint.json`. Run:
+**"My terminal died / I `Ctrl-C`'d during a run."** `resume` polls to terminal,
+finalizes, and runs the reviewed gate if there is one; then `run --run-dir <run_dir>`
+continues the chain. The same fix applies when a stage shows `completed` but
+`artifact.md` is missing: it was `refresh`ed, not finalized.
 
 ```bash
-python automation/run_responses_v2.py resume --root . --run-dir <run_dir> --stage <stage_id> --wait
+python automation/run_responses_v2.py resume --root . --run-dir <run_dir> --stage <stage_id>
 ```
 
-The engine retrieves the response, polls to terminal, and finalizes artifacts.
+**"The reviewer CLI failed."** The stage is `completed` with no `review_status`. Read
+`attempt_NNN/review/stderr_*.txt`, fix the CLI (login, PATH, timeout), and
+`run --run-dir <run_dir>` again; the review retries first. Alternatives: `--reviewer
+claude`, `--reviewer none`, or approve it yourself with `--handoff-note`.
 
-### "The stage shows `completed` but `output.structured.json` is missing"
+**"The run stopped: waiting for a handoff note."** A `human` gate, or a `reviewed` gate
+with `review_status: blocked` after two `revise` verdicts. Read the latest attempt's
+`artifact.md` and `review/reviewer_notes.md`, write a note with your decision and any
+corrections, and continue with `run --run-dir <run_dir> --handoff-note <note.md>`.
 
-It was *refreshed*, not *finalized*. `resume` it (`resume` finalizes; `refresh` does not).
+**"Token preflight blocked the stage."** The exact count exceeded `max_input_tokens` or
+the context window (minus output budget and margin), or the count service failed closed.
+Read `token_preflight.error.json`; reduce the input manifest scope or raise the stage
+limit deliberately. The stage is left `blocked_preflight`; rerun it in place as a new
+attempt with `run --run-dir <run_dir> --stage <stage_id>`.
 
-### "Token preflight blocked the stage"
+**"A stage failed."** `failed_complete`: the model reported failure but wrote an artifact;
+read it first. `failed_no_artifact`: nothing usable came back; rerun that stage in place as
+a new attempt with `run --run-dir <run_dir> --stage <stage_id>`, or start a new run (omit
+`--run-dir`). Keep the failed directory as evidence.
 
-The exact input count exceeded `max_input_tokens` or the model context window, exact counting
-failed closed, or the conservative byte bound failed while exact counting was disabled. The byte
-bound is advisory when exact preflight will run. Do **not** retry blindly. Reduce the input
-manifest scope, repair the count service, or raise the reviewed limit deliberately. In the
-supervisor lane this surfaces as `blocked_token_preflight` → a human pause.
+**"A stage is `submission_outcome_unknown`."** The `POST /responses` failed in a way that
+does not prove whether the request landed; `attempt_NNN/submission.error.json` has the
+error. No subcommand leaves this state: `run` refuses the stage as nonterminal, `resume`
+and `refresh` refuse it without operator reconciliation, and `cancel` refuses it too. Check
+the remote side yourself, then start a new run and keep the directory as evidence.
 
-### "A stage failed"
+**"A stage has been `in_progress` for hours."** Do not re-`run` it. `refresh` records the
+status; `resume` keeps polling; `cancel` cancels the remote response and finalizes what exists.
 
-Run `classify`. If `failed_complete_artifact`, it is still reviewable — proceed through
-the review loop. If `failed_no_artifact`, you must `archive-attempt` first, and the rerun
-is only allowed if the request and scaffold hashes are unchanged and retry budget remains.
-If `incomplete_output_limit`, it will not auto-progress — you get a human pause and must
-decide on scope/model/budget.
-
-### "A stage has been `in_progress` for hours"
-
-Do **not** re-`run` it (no-duplicate-submit). Use `refresh` to record the latest status,
-or `resume --wait` to keep polling. In the supervisor lane, `monitor` will detect a stale
-stage and emit a `long_running_monitoring_anomaly` human pause; the safe action is always
-refresh/resume the existing `response_id`.
-
-### "I'm using this checkout against a different project"
-
-Keep the runner checkout wherever you like; put the task pack + all referenced assets
-under the *target* workspace root; invoke with `--root /path/to/target-workspace`. The
-`--workflow-file` is interpreted under that root, and the target root is also where `.env`
-is looked up. There is no dual-root mode in this release.
+**"I'm using this checkout against a different project."** Put the task pack and every
+referenced asset under the *target* workspace root and invoke with `--root /path/to/target`;
+`--workflow-file` and `.env` are resolved under that root. There is no dual-root mode.
 
 ---
 
 ## 14. Guardrails you cannot bypass
 
-These are mechanical. They are not warnings — they stop the process. Knowing them turns
-"why did it fail" into a five-second diagnosis.
-
 | Guardrail | Trips when | Where |
 |---|---|---|
 | **One-root** | any path resolves outside the workspace root | `resolve_under_root()` |
-| **Model caps** | `max_output_tokens` over the model cap, wrong cache retention, structured output on an unsupported model | `validate_model_options()` |
-| **GPT-5.6 cache posture** | a GPT-5.6 role omits implicit cache mode with `prompt_cache_ttl="30m"` | `pack_loader` |
-| **background + store** | a workflow sets `background=true` with `store=false` | `pack_loader` |
-| **Stage shape** | duplicate stage ids, mis-ordered stage numbers, mode↔count mismatch, dangling carry-forward reference | `pack_loader` |
-| **No-duplicate-submit** | you `run` a stage that is still `submitted`/`in_progress` | `_determine_next_stage` |
-| **Review gate** | you try to run past a `review_required` stage without `--review-bundle` | `_determine_next_stage` |
-| **Token preflight** | input tokens exceed `max_input_tokens` (fail-closed, terminal) | `workflow.py` token preflight |
-| **Bundle hash** | any file a review bundle references has a different hash than recorded | `load_review_bundle()` |
-| **Bundle ↔ source match** | a bundle's artifact path/hash does not match the source stage's recorded summary | `validate_review_bundle_for_stage()` |
-| **Schema validation** | any supervisor artifact fails its JSON schema | `supervisor_artifacts` (validates before atomic write) |
-| **Read-only review** | a read-only reviewer modifies any workspace source file | `supervisor_agents` snapshot diff |
-| **Operator-provisional-first** | reviewers are invoked before the operator provisional record exists | `invoke_reviewers` |
-| **Evidence-or-reject** | an accepted recommendation lacks `changes_applied`/`validation_evidence`/`operator_rationale` | `accept_consolidated_review` |
-| **Scaffold launch** | Stage 1 launch attempted before the scaffold is `accepted` with an accepted review cycle | `assert_scaffold_launch_allowed` |
-| **Archive-before-rerun** | a `failed_no_artifact` rerun without a matching archive (same hashes) | `can_rerun_failed_no_artifact()` |
-| **Final-bundle completeness** | `file_inventory` ≠ `emitted_files`, or a missing agent review | `finalize-bundle` |
+| **Model caps** | `max_output_tokens` over the cap, wrong cache TTL, structured output on an unsupported model | `validate_model_options()` |
+| **GPT-5.6 cache posture** | a role omits implicit cache mode with `ttl=30m` | `pack_loader` |
+| **background + store** | `background=true` with `store=false` | `pack_loader` |
+| **Stage shape / review config** | duplicate ids, mis-ordered numbers, mode/count mismatch, dangling carry-forward, handoff source not `reviewed`/`human`, unknown `reviewer`/`effort`, negative `max_revisions` | `pack_loader` |
+| **No-duplicate-submit** | `run` on a stage that is submitted or in progress | `_determine_next_stage` |
+| **Gate order** | running past a waiting `human` or blocked `reviewed` stage without `--handoff-note` | `_determine_next_stage` |
+| **Exact token preflight** | input tokens exceed the stage or context limit | `_token_preflight_state` |
+| **Verdict contract** | reviewer output has no `approve`/`revise` verdict or fails the schema | `reviewer.normalize_verdict` |
+| **Run lock / state transitions** | two processes touch one run directory; an illegal stage transition | `.runner.lock`, `assert_stage_transition` |
 
 ---
 
 ## 15. Where to look when something is wrong
 
 ```
-Question                              First file to open
-──────────────────────────────────────────────────────────────────────────
-"Why did the model produce that?"  →  stages/NN_stage/attempt_NNN/input_manifest.md
-                                      (check WHAT was attached, in WHICH role)
-
-"What exactly did we send?"        →  stages/NN_stage/attempt_NNN/request_payload.json
-
-"What is the current stage state?" →  stages/NN_stage/attempt_NNN/stage_checkpoint.json
-                                      (status, response_id, terminal?, resume_mode)
-
-"What is the overall run state?"   →  run_manifest.json
-                                      (per-stage summary, statuses, artifact hashes)
-
-"Did token preflight pass?"        →  stages/NN_stage/attempt_NNN/token_preflight.json
-                                      or token_preflight.error.json
-
-"What is the clean deliverable?"   →  stages/NN_stage/attempt_NNN/artifact.md
-
-"What raw response was retained?"  →  stages/NN_stage/attempt_NNN/response.final.json
-
-"What does the supervisor think?"  →  supervisor_sessions/<id>/supervisor_session.json
-                                      (status, current_phase, errors[], human_pauses[])
-
-"Why did a review fail?"           →  review_cycles/<id>/agents/*.readonly.diff.md
-                                      and the *.stderr.txt next to it
-
-"Why was a rerun blocked?"         →  archives/<id>/supervisor_archive.json
-                                      (compare request_hash / scaffold_hash)
+Question                                First file to open
+────────────────────────────────────────────────────────────────────────────
+"Why did the model produce that?"    →  attempt_NNN/input_manifest.md (what was attached, in which role)
+"What exactly did we send?"          →  attempt_NNN/request_payload.json
+"What did the reviewer object to?"   →  attempt_NNN/review/reviewer_notes.md
+"Why did the review fail to run?"    →  attempt_NNN/review/stderr_*.txt and invocation_*.json
+"What is the current stage state?"   →  run_manifest.json stages[] (status, current_attempt_id, attempts[].response_id)
+"What is the overall run state?"     →  run_manifest.json (status, current_stage_id, review_status)
+"Did token preflight pass?"          →  attempt_NNN/token_preflight.json or token_preflight.error.json
+"Did a validator complain?"          →  attempt_NNN/validator_report.json
+"What is the clean deliverable?"     →  attempt_NNN/artifact.md
+"What raw response was retained?"    →  attempt_NNN/response.final.json
+"Would this pack even build?"        →  dry_runs/stages/*/request_payload.json
 ```
 
-A `SystemExit` message from any CLI is *designed* to tell you exactly which guardrail
-tripped. Read it literally before changing anything.
+A `SystemExit` message from the CLI names the guardrail that tripped; read it literally.
 
 ---
 
-## 16. Reading order & next steps
+## 16. Reading order and next steps
 
-Once this guide makes sense, read the source in this order — it is the same order the
-repo's own `DEVELOPING.md` recommends, and each file builds on the previous:
+1. `AGENTS.md` and `DEVELOPING.md` — the repo-level rules and the developer mental model.
+2. `docs/runbooks/responses-runner-v2.md` — the day-to-day operator runbook.
+3. `automation/responses_runner_v2/contracts.py` (`GateType`, `StageStatus`,
+   `ReviewConfig`, `REVISION_INSTRUCTIONS`) and `workflow.py` (`_apply_stage_gate`,
+   `_gate_handoff_entries`, `_apply_handoff_note` are the gate logic).
+4. `automation/responses_runner_v2/reviewer.py` and `prompts/stage_review.md` — what the
+   reviewer sees and how its answer is normalized.
+5. `automation/tests/test_responses_runner_v2_reviewed_gates.py` — the executable spec —
+   and `automation/task_packs/gstack_design_to_po_playbook/README.md` — the real pack.
 
-1. `AGENTS.md` — the repo-level rules every automation agent (and you) must follow.
-2. `DEVELOPING.md` — the developer mental model and the "do not reopen casually" list.
-3. `docs/runbooks/responses-runner-v2.md` — the day-to-day operator runbook.
-4. `automation/responses_runner_v2/contracts.py` — the type system; read it slowly.
-5. `automation/responses_runner_v2/pack_loader.py` — what makes a workflow *valid*.
-6. `automation/responses_runner_v2/workflow.py` — the orchestrator; the one file that
-   shows the whole engine flow end to end.
-7. `automation/responses_runner_v2/attachments.py` — how the model actually sees inputs.
-8. `automation/responses_runner_v2/review_bundle.py` and `sidecar.py` — the handoff
-   contract and the structured-extraction pass.
-9. `automation/examples/responses_runner_v2_synthetic/README.md` — then dry-run all three
-   synthetic workflows.
-10. `automation/tests/test_responses_runner_v2_workflow.py` — the executable spec.
-
-Then, for the supervisor lane: `docs/design/supervised-self-improvement-pack.md`,
-`automation/responses_runner_v2/supervisor.py`, and the
-`automation/task_packs/responses_runner_v2_supervisor_internal/` prompt + command library.
-
-**The single fastest way to build intuition:** dry-run the synthetic one-pass workflow,
-then open every file it wrote under `.local/automation/responses_runner_v2/runs/`. The
-engine's whole contract is visible in those artifacts.
+**The single fastest way to build intuition:** dry-run the gstack pack and open every file
+under `<run_dir>/dry_runs/`; then run the synthetic one-pass workflow live and open every
+file under its `attempt_001/`. The engine's whole contract is visible there.

@@ -59,7 +59,7 @@ Replace the values below when copying this file into a real project workspace:
 3. Dry-run from the target workspace.
 4. Inspect the generated request and attachment manifests.
 5. Launch the live run from the target workspace with token preflight enabled and `--wait`.
-6. If the workflow has review gates, create an approved review bundle and continue.
+6. If a stage stops at a `human` gate (or a `reviewed` gate is blocked), read `artifact.md`, write a handoff note, and continue with `--handoff-note`.
 
 ## Minimum Task-Pack Shape
 
@@ -137,21 +137,7 @@ python "<runner-checkout>/automation/run_responses_v2.py" refresh \
   --stage <stage-id>
 ```
 
-If the workflow uses reviewed gates, create a review bundle:
-
-```bash
-python "<runner-checkout>/automation/create_review_bundle_v2.py" \
-  --root "<target-workspace>" \
-  --output review_bundle.json \
-  --workflow-id <workflow-id> \
-  --source-stage-id <stage-id> \
-  --source-run-id <run-id> \
-  --primary-artifact-markdown <run-dir>/stages/<stage-dir>/<attempt_NNN>/artifact.md \
-  --response-artifact-json <run-dir>/stages/<stage-dir>/<attempt_NNN>/response.final.json \
-  --reviewer-notes notes.md
-```
-
-Continue after review:
+`reviewed` gates run in-process (one reviewer CLI, `codex` by default; override with `--reviewer codex|claude|none`). A `human` gate, or a reviewed stage blocked after its one revision, stops the run in `waiting_for_review`. Read `artifact.md`, write a markdown note, and continue:
 
 ```bash
 cd "<target-workspace>"
@@ -160,9 +146,10 @@ python "<runner-checkout>/automation/run_responses_v2.py" run \
   --root . \
   --workflow-file <workflow-file> \
   --run-dir <run-dir> \
-  --review-bundle review_bundle.json \
-  --wait
+  --handoff-note <note.md>
 ```
+
+A workflow that still declares `review_required` is loaded as a `human` gate and follows the same `--handoff-note` path.
 
 ## What To Inspect
 
@@ -172,14 +159,16 @@ After a dry run:
 - `<run-dir>/dry_runs/stages/<stage-dir>/input_manifest.json`
 - `<run-dir>/dry_runs/stages/<stage-dir>/input_manifest.md`
 - `<run-dir>/dry_runs/stages/<stage-dir>/request_payload.json`
-- `<run-dir>/dry_runs/stages/<stage-dir>/stage_checkpoint.json`
+- `<run-dir>/dry_runs/stages/<stage-dir>/upload_inputs/`
 
 After a live run:
 
 - `<run-dir>/stages/<stage-dir>/<attempt_NNN>/artifact.md`
 - `<run-dir>/stages/<stage-dir>/<attempt_NNN>/response.final.json`
 - `<run-dir>/stages/<stage-dir>/<attempt_NNN>/uploads.json`
-- `<run-dir>/stages/<stage-dir>/<attempt_NNN>/output.structured.json` if sidecar extraction is enabled
+- `<run-dir>/stages/<stage-dir>/<attempt_NNN>/output.structured.json` when the stage declares `output.primary_format: "json_schema"`
+- `<run-dir>/stages/<stage-dir>/<attempt_NNN>/validator_report.json` (advisory) when the stage configures `post_output_validators`
+- `<run-dir>/stages/<stage-dir>/<attempt_NNN>/review/verdict.json` and `review/reviewer_notes.md` for `reviewed` stages
 
 ## Operating Rules
 

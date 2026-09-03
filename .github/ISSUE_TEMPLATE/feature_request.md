@@ -14,4 +14,4 @@ assignees: ""
 
 ## Compatibility Notes
 
-Does this affect the one-root policy, task-pack contract, review-bundle contract, or supervisor boundary?
+Does this affect the one-root policy, task-pack contract, or reviewed-gate contract?

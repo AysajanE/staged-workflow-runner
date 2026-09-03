@@ -6,9 +6,9 @@ It is intentionally synthetic and small so operators can verify the engine witho
 
 ## What It Exercises
 
-- one-pass execution with sidecar structured output
+- one-pass execution with a single terminal stage
 - automatic two-pass carry-forward
-- three-stage progression through legacy `review_required` gates with hash-bound review bundles
+- three-stage progression through `human` gates, carrying the approved artifact and handoff note forward via `handoff_from_stage_id`
 - dry-run readiness
 - run-artifact writing and proof-pack regression coverage through the bundled tests
 - workflow manifest v2 with `critical` assurance and explicit 700000-token input budgets
@@ -61,9 +61,9 @@ python automation/run_responses_v2.py run \
 
 ## What Success Looks Like
 
-- a dry run renders every stage under `dry_runs/stages/` (`request_payload.json`, `input_manifest.md`, `request_plan.json`, `stage_checkpoint.json`), with placeholder handoffs under `dry_runs/stubs/`
-- a live one-pass run writes `output.structured.json`
-- the reviewed workflow stops at its legacy `review_required` gates until a bundle is supplied (new packs use `reviewed`/`human` gates and `--handoff-note` instead)
+- a dry run renders every stage under `dry_runs/stages/` (`input_manifest.json`, `input_manifest.md`, `request_payload.json`, `upload_inputs/`), with placeholder handoffs under `dry_runs/stubs/`
+- a live one-pass run writes `artifact.md` and `response.final.json` under `stages/01_draft_summary/attempt_001/` and leaves `run_manifest.json` at status `completed`
+- the reviewed workflow stops at each `human` gate in `waiting_for_review` until `run --run-dir <run-dir> --handoff-note <note.md>` continues it (`reviewed` gates are satisfied in-process by a reviewer verdict)
 - the bundled tests pass without relying on any business-specific pack
 
 ## What This Pack Is Not

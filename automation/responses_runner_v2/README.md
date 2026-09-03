@@ -1,299 +1,158 @@
 # Responses Runner V2
 
-`responses_runner_v2` is the core engine package used by the `staged-workflow-runner` repository.
+`responses_runner_v2` is the engine package behind `staged-workflow-runner`. It loads a task
+pack, builds one Responses API request per stage, submits it in background mode, waits, writes
+`artifact.md`, applies the stage gate, and records everything in a single `run_manifest.json`.
 
-The first release intentionally keeps the current `automation/...` layout, `responses_runner_v2` package path, CLI filenames, and schema identifiers so the tested engine can transfer with minimal code churn. The public repository identity changes; the runtime architecture does not.
+## Entry Points
 
-## Main Entry Points
-
-- Generic CLI: `automation/run_responses_v2.py`
-- Review-bundle CLI: `automation/create_review_bundle_v2.py`
+- Runner CLI: `automation/run_responses_v2.py` (`run`, `resume`, `refresh`, `cancel`,
+  `recover-uploads`)
 - Eval CLI: `automation/run_responses_v2_eval.py`
 - Operator runbook: `docs/runbooks/responses-runner-v2.md`
 
-## First-Release Operating Model
+## Operating Model
 
-- The runner ships as a standalone tool repository.
-- Each invocation operates against **one exact workspace root**.
-- Resolution order is:
-  1. explicit CLI `--root`
-  2. `RESPONSES_RUNNER_V2_ROOT`
-  3. current working directory as-is
+- Each invocation operates against **one exact workspace root**, resolved in this order:
+  explicit `--root`, then `RESPONSES_RUNNER_V2_ROOT`, then the current working directory.
 - There is no repo-marker search and no fallback to the runner module location.
-- Workflow manifests, static attachments, review bundles, carry-forward artifacts, and run outputs must all remain under that one workspace root.
-- There is no dual-root support in the first release.
-- Task packs can live anywhere under the workspace root because asset references are already resolved relative to the workflow manifest.
+- Workflow manifests, static attachments, handoff notes, carry-forward artifacts, and run
+  outputs must all stay under that root. Task packs can live anywhere under it because asset
+  references resolve relative to the workflow manifest.
 
-## Core Design
+## What Happens Per Stage
 
-The package separates four concerns:
-
-1. **Engine code**  
-   Loads task packs, validates inputs, builds Responses API payloads, polls responses, persists artifacts, and enforces reviewed handoff rules.
-
-2. **Task-pack configuration**  
-   Workflow manifests, stage input manifests, prompt files, tool profiles, and optional structured-output schemas define a workflow without requiring a new Python wrapper.
-
-3. **Runtime operator input**  
-   The operator supplies primary job inputs, approved review bundles, and optional runtime overrides through the generic CLI.
-
-4. **Durable local artifacts**  
-   Each run writes manifests, request payloads, checkpoints, raw responses, rendered markdown, and optional sidecar JSON under a per-run directory.
-
-Workflow v2 also records an assurance profile and supports a separate runtime input-binding
-file. This lets an operator expose a named input only to the stages that need it instead of
-reattaching every runtime input to every request.
+1. `pack_loader.py` loads and validates the workflow manifest and the stage input manifest.
+2. `attachments.py` resolves files and directories into attachments, wraps unsupported text as
+   markdown, enforces byte limits, uploads files, and renders `input_manifest.md`.
+3. `workflow.py` builds `request_payload.json`, runs the exact token preflight
+   (`POST /responses/input_tokens`; blocks when the count exceeds the stage
+   `max_input_tokens`; `--skip-token-count` disables it), submits the background response, and
+   polls until it reaches a terminal status.
+4. `artifacts.py` writes `response.final.json`, `artifact.md`, and, when the stage declares a
+   structured output schema, `output.structured.json`. `validators.py` runs any configured
+   post-output validators and records the result; validators are advisory and never block.
+5. The stage gate is applied: `auto` continues, `reviewed` calls `reviewer.py`, `human` stops
+   the run until `--handoff-note` is supplied, `terminal` ends the run.
+6. Every transition rewrites `run_manifest.json` atomically under the run lock.
 
 ## Authority Model
 
-Every stage uses the same fixed attachment authority order:
+Every stage uses the same attachment authority order:
 
 1. Primary Job Inputs
 2. Reviewed Handoff Inputs
-3. Attached Workspace Evidence (the v1 manifest field remains `attached_repository_files`)
+3. Attached Workspace Evidence (the manifest field remains `attached_repository_files`)
 4. Reference Context
 
 The stage-local `input_manifest.md` is the human-readable source of truth for what was attached.
 
-## Core Modules
+## Modules
 
-- `contracts.py`  
-  Shared constants, schema versions, authority roles, runtime options, model caps, and common helpers.
-
-- `pack_loader.py`  
-  Loads and validates workflow manifests, input manifests, tool profiles, and schema references.
-
-- `workflow.py`  
-  Main orchestration engine. Selects the next eligible stage, resolves operator inputs and review bundles, builds request payloads, handles token preflight, submits requests, waits, resumes, refreshes, and finalizes stage artifacts.
-
-- `attachments.py`  
-  Resolves files and directories into concrete attachment lists, wraps unsupported text files as markdown when needed, enforces byte limits, uploads files, and renders `input_manifest.md`.
-
-- `openai_client.py`  
-  Thin OpenAI API client for `/responses`, `/responses/input_tokens`, and `/files`.
-
-- `artifacts.py`  
-  Defines the on-disk run layout and writes run manifests, stage checkpoints, request payloads, response artifacts, structured output, and sidecar output.
-
-- `review_bundle.py`  
-  Defines the reviewed-handoff contract used between stages that require human approval.
-
-- `sidecar.py`  
-  Built-in structured extraction pass that can turn a completed markdown artifact into strict JSON using a secondary model.
+- `contracts.py`: constants, schema versions, authority roles, gate and status enums, allowed
+  stage transitions, `ReviewConfig`, `RuntimeOptions`, model caps, assurance profiles.
+- `pack_loader.py`: loads and validates workflow manifests, input manifests, tool profiles, and
+  schema references. Accepts the legacy gate spelling `review_required` as `human` and the
+  legacy `review_bundle_from_stage_id` as an alias for `handoff_from_stage_id`.
+- `workflow.py`: orchestration. Picks the next eligible stage, resolves operator inputs and
+  handoffs, builds and submits requests, waits, resumes, refreshes, cancels, finalizes, and
+  applies gates.
+- `reviewer.py`: builds the review job for a `reviewed` stage, invokes one reviewer CLI
+  (`codex` or `claude`), extracts and normalizes the verdict, and writes the review evidence.
+- `attachments.py`: attachment resolution, wrapping, byte limits, uploads, manifest rendering.
+- `openai_client.py`: thin urllib client for `/responses`, `/responses/input_tokens`, `/files`.
+- `artifacts.py`: on-disk run layout, run-manifest load/save, response and artifact writers.
+- `validators.py`: advisory post-output validators (for example `evidence_references_v1`).
+- `schema_validation.py`: JSON Schema validation for manifests and verdicts.
+- `locking.py`: the per-run `.runner.lock`.
+- `prompts/stage_review.md`: the reviewer prompt.
+- `schemas/`: `workflow_manifest.v2`, `input_manifest`, `runtime_input_bindings`,
+  `run_manifest.v2`, `stage_review_verdict`, `validator_result`.
 
 ## Task-Pack Contract
 
-A specific workflow is defined by a task pack. A pack normally includes:
-
-- one workflow manifest
-- one static input manifest per stage
-- one shared instructions file
-- one task prompt per stage
-- zero or one tool profile per stage
-- optional output schema files
-- optional task-specific runbook and tests
-
-Typical layout:
+A task pack normally includes one workflow manifest, one static input manifest per stage, one
+shared instructions file, one task prompt per stage, zero or one tool profile per stage, and
+optional output schema files:
 
 ```text
-automation/examples/<task_pack>/
+<task_pack>/
   shared_instructions.md
   prompts/
-    pass1_task.md
-    pass2_task.md
+    stage1_task.md
+    stage2_task.md
   inputs/
-    pass1.input_manifest.json
-    pass2.input_manifest.json
+    stage1.input_manifest.json
+    stage2.input_manifest.json
   workflows/
     <workflow>.workflow.json
   tools/
     web_search.profile.json
 ```
 
-A pack may also live anywhere else under the chosen workspace root. Asset references are resolved relative to the workflow manifest, not a fixed engine-level directory.
+The workflow manifest (`schemas/workflow_manifest.v2.schema.json`) declares `workflow_id`,
+`workflow_mode`, `assurance_profile`, `shared_instructions_file`, `operator_requirements`,
+`defaults` (model roles, request defaults, `review`), and the ordered `stages`. Each stage
+declares `stage_id`, `stage_number`, `title`, `task_file`, `input_manifest_file`, `model_role`,
+`max_input_tokens`, `gate`, `output`, and optionally `carry_forward`
+(`handoff_from_stage_id`, `reference_context_from_stage_ids`), `review`, `post_output_validators`,
+`citation_policy`, `tool_profile_file`, `reasoning_effort`, `verbosity`, `max_output_tokens`.
 
-## What The Operator Provides
+Review settings (`defaults.review` and per-stage `review`): `reviewer` (`codex` default,
+`claude`, or `none`), `model` (default `gpt-5.6-sol` for codex, `opus` for claude), `effort`
+(default `high` for codex, `xhigh` for claude), `timeout_seconds` (1800), `max_revisions` (1).
 
-The framework owns the generic mechanics. The operator provides workflow-specific runtime inputs:
+The stage input manifest (`schemas/input_manifest.schema.json`) lists the static attachments per
+authority role. At runtime the engine merges it with operator `--primary-job-input` and
+`--reference-context` paths, `--input-binding-file` bindings scoped to the stage, and
+carry-forward artifacts and notes from earlier stages.
 
-- `--workflow-file`  
-  Which task pack to run.
+## Run Layout
 
-- `--primary-job-input`  
-  External approved inputs that vary per run.
+Default output root: `.local/automation/responses_runner_v2/runs`.
 
-- `--review-bundle`  
-  Approved handoff bundle from a prior review gate.
+```text
+<run_dir>/
+  run_manifest.json          the only durable record for the run
+  .runner.lock
+  stages/<NN_stage_id>/attempt_NNN/
+    input_manifest.json
+    input_manifest.md
+    request_payload.json
+    token_preflight.json | token_preflight.error.json
+    uploads.json
+    response.latest.json
+    response.final.json
+    artifact.md
+    validator_report.json    when validators are configured
+    output.structured.json   when a structured output schema is configured
+    review/                  reviewed gates only
+      verdict.json
+      reviewer_notes.md
+      prompt_<stamp>.md, stdout_<stamp>.txt, stderr_<stamp>.txt, invocation_<stamp>.json
+  dry_runs/                  --dry-run renders
+    stages/<NN_stage_id>/{input_manifest.json,input_manifest.md,request_payload.json,upload_inputs/}
+    stubs/<stage_id>/{artifact.md,handoff_notes.md}
+```
 
-- `--input-binding-file`
-  Named, root-confined runtime inputs with workflow or explicit stage scope.
-  The supervisor exposes the same flag for dry-run, launch, and archive-authorized rerun.
+`run_manifest.json` (`schemas/run_manifest.v2.schema.json`) records run status, stage order,
+the operator overrides the run was started with (so `resume` rebuilds the same runtime
+options), and per stage: status, attempts (with `response_id`, `request_sha256`,
+`request_wall_ms`, and `revision_of_attempt_id` for revisions), artifact paths and hashes, the
+token preflight result, validator outcome, `review_status`, and the paths of the verdict,
+reviewer notes, and human handoff note. A revision attempt of the same stage lands in the next
+`attempt_NNN` directory. Timestamps are ISO 8601 in UTC.
 
-- optional runtime overrides  
-  Examples: `--run-dir`, `--stage`, `--skip-token-count`, `--wait`, `--primary-model`, `--structural-model`.
+`artifact.md` is the clean deliverable; `response.final.json` is raw recovery evidence.
 
-The task pack itself provides the static repo corpus, fixed reference context, prompts, tool settings, and stage definitions.
+## Examples
 
-Keep token preflight enabled for critical work. See
-`docs/design/persisted-format-compatibility.md` before handling historical v1 evidence, and use
-the `purge` command only for explicit hash-tombstoned retention actions.
-
-## Workflow Manifest
-
-The workflow manifest defines:
-
-- workflow id and mode
-- shared instructions file
-- operator input rules
-- default model roles
-- request defaults
-- stage order
-- stage gates
-- carry-forward rules
-- output format and optional sidecar extraction
-
-Supported workflow modes:
-
-- `one_pass`
-- `two_pass`
-- `reviewed_three_stage`
-- `custom_ordered`
-
-Schema:
-
-- `schemas/workflow_manifest.schema.json`
-- `schemas/workflow_manifest.v2.schema.json` for new workflows
-
-The domain-neutral terminal packet contract is
-`schemas/final_delivery_bundle.schema.json`. Coding delivery can use the stricter
-implementation-specific bundle instead.
-
-## Stage Input Manifest
-
-Each stage input manifest defines the static attachment set for that stage:
-
-- `primary_job_inputs`
-- `reviewed_handoff_inputs`
-- `attached_repository_files`
-- `reference_context`
-
-At runtime, the engine merges:
-
-- the static stage input manifest
-- operator-supplied primary job inputs
-- approved review-bundle attachments
-- optional carry-forward stage outputs
-
-Schema:
-
-- `schemas/input_manifest.schema.json`
-
-## Review Bundle
-
-The review bundle is the pass-to-pass approval contract.
-
-It binds:
-
-- workflow id
-- source stage id
-- source run id
-- optional approved downstream handoff markdown
-- approved markdown artifact
-- raw response JSON
-- optional structured JSON artifact
-- reviewer notes
-- locked decisions
-- open dependencies
-- artifact hashes
-
-Schema:
-
-- `schemas/review_bundle.schema.json`
-
-When present, approved downstream handoff markdown is carried into the next reviewed stage ahead of the raw prior-stage artifact so reviewers can provide a concise, authoritative synthesis without discarding the detailed stage output.
-
-## Sidecar Processing
-
-A stage can emit text as its primary artifact and still request structured JSON as a sidecar.
-
-When configured, the engine:
-
-1. completes the primary stage response
-2. uploads the clean `artifact.md` (raw response JSON is recovery-only and not routine context)
-3. runs a structural-processing model against the sidecar schema
-4. writes:
-   - `output.structured.json`
-   - `sidecar.response.json`
-   - `sidecar.response.md`
-
-This keeps structured extraction inside the framework instead of pushing it into custom wrapper scripts.
-
-Sidecar artifacts are finalized only on the terminal-artifact path. In operator terms:
-
-- `run --wait` writes the primary artifacts and the sidecar when the stage reaches terminal status.
-- `resume --wait` does the same for a previously submitted background stage.
-- `refresh` records the latest remote status only.
-
-If a stage shows `response_status=completed` in `run_manifest.json` but is missing `output.structured.json` or `sidecar.response.*`, the stage has been refreshed but not finalized locally yet. Run `resume` on that stage to backfill the final artifacts.
-
-## Artifact Layout
-
-Default output root:
-
-- `.local/automation/responses_runner_v2/runs`
-
-Each run directory contains:
-
-- `run_manifest.json`
-- `run_contract.json`
-- `stages/<NN_stage_id>/<attempt_NNN>/input_manifest.json`
-- `stages/<NN_stage_id>/<attempt_NNN>/input_manifest.md`
-- `stages/<NN_stage_id>/<attempt_NNN>/request_plan.json`
-- `stages/<NN_stage_id>/<attempt_NNN>/request_payload.json`
-- `stages/<NN_stage_id>/<attempt_NNN>/uploads.json`
-- `stages/<NN_stage_id>/<attempt_NNN>/response.latest.json`
-- `stages/<NN_stage_id>/<attempt_NNN>/response.final.json`
-- `stages/<NN_stage_id>/<attempt_NNN>/response.final.md`
-- `stages/<NN_stage_id>/<attempt_NNN>/artifact.md`
-- `stages/<NN_stage_id>/<attempt_NNN>/stage_checkpoint.json`
-- optional `token_preflight.json` or `token_preflight.error.json`
-- optional `output.structured.json`
-- optional `sidecar.response.json`
-- optional `sidecar.response.md`
-
-The run manifest records the current attempt path. `artifact.md` is the clean
-model-facing deliverable; `response.final.*` is retained as raw/recovery evidence.
-Dry-run scaffolds remain under `dry_runs/stages/<NN_stage_id>/` because no live
-attempt has been submitted.
-
-Run manifests and checkpoints record ISO 8601 timestamps in UTC.
-
-## Synthetic Proof Pack
-
-The repository includes `automation/examples/responses_runner_v2_synthetic/` as the bounded proof pack for the engine itself.
-
-It is intentionally small and synthetic so the runner can be verified without depending on a business-specific workflow. It exercises:
-
-- one-pass execution
-- automatic two-pass carry-forward
-- reviewed gating with a review bundle
-- sidecar extraction
-- dry-run behavior
-- resume and refresh behavior
-- token-preflight fallback behavior
-
-Use that pack to validate the engine and to copy the overall task-pack shape.
-
-## External Project Use
-
-When using this repository as a standalone tool checkout against another project:
-
-1. keep the runner checkout wherever convenient
-2. place the task pack and all referenced static assets under the target project root
-3. invoke `automation/run_responses_v2.py` from this repository with `--root <target-project-root>`
-4. keep review bundles and run outputs under that same target project root
-
-Because the first release keeps one-root enforcement, it does **not** support storing the task pack in the runner checkout while pointing attachments at a different project tree.
+- `automation/examples/responses_runner_v2_synthetic/`: bounded proof pack (`one_pass`,
+  `two_pass`, `reviewed_three_stage` with human gates and handoff notes).
+- `automation/examples/responses_runner_v2_evidence_synthesis/`: offline evidence and citation
+  example with human gates and the evidence-reference validator.
+- `automation/task_packs/gstack_design_to_po_playbook/`: the real five-stage lane with
+  `reviewed` gates on stages 1-4 and a `terminal` stage 5.
 
 ## Recommended Reading Order
 
@@ -302,7 +161,6 @@ Because the first release keeps one-root enforcement, it does **not** support st
 3. `automation/responses_runner_v2/contracts.py`
 4. `automation/responses_runner_v2/pack_loader.py`
 5. `automation/responses_runner_v2/workflow.py`
-6. `automation/responses_runner_v2/attachments.py`
-7. `automation/responses_runner_v2/review_bundle.py`
-8. `automation/responses_runner_v2/sidecar.py`
-9. `automation/examples/responses_runner_v2_synthetic/README.md`
+6. `automation/responses_runner_v2/reviewer.py`
+7. `automation/responses_runner_v2/attachments.py`
+8. `automation/tests/test_responses_runner_v2_reviewed_gates.py`

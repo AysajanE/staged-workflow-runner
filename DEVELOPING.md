@@ -15,11 +15,11 @@ The quickest correct mental model is:
 
 - workflow manifests
 - stage input manifests
-- reviewed handoff bundles
+- `auto`, `reviewed`, `human`, and `terminal` stage gates with carry-forward handoffs
 - token preflight
 - upload lifecycle handling
 - dry run, resume, and refresh
-- optional structured sidecar extraction
+- optional structured output (`output.primary_format: json_schema`, written to `output.structured.json`)
 
 The first release deliberately preserves the tested `automation/...` layout and `responses_runner_v2` package path. Do not treat that as accidental leftover structure.
 
@@ -30,7 +30,7 @@ These are the most important operating constraints:
 1. One exact workspace root per run.
    `--root` wins, then `RESPONSES_RUNNER_V2_ROOT`, then the current working directory.
 2. All workflow assets and run artifacts must stay under that one root.
-   That includes workflow manifests, static inputs, review bundles, uploaded attachments, and `.local/automation/...` run output.
+   That includes workflow manifests, static inputs, handoff notes, uploaded attachments, and `.local/automation/...` run output.
 3. The runner checkout and the target workspace can be the same repo or different repos.
    In first release, the task pack still has to live under the chosen workspace root.
 4. The public repo name changed, but the tested engine contract did not.
@@ -45,22 +45,25 @@ For deeper engine work, read the implementation in this order:
 1. `automation/responses_runner_v2/contracts.py`
 2. `automation/responses_runner_v2/pack_loader.py`
 3. `automation/responses_runner_v2/workflow.py`
-4. `automation/responses_runner_v2/attachments.py`
-5. `automation/responses_runner_v2/artifacts.py`
-6. `automation/responses_runner_v2/review_bundle.py`
-7. `automation/responses_runner_v2/sidecar.py`
-8. `automation/responses_runner_v2/openai_client.py`
+4. `automation/responses_runner_v2/reviewer.py`
+5. `automation/responses_runner_v2/attachments.py`
+6. `automation/responses_runner_v2/artifacts.py`
+7. `automation/responses_runner_v2/validators.py`
+8. `automation/responses_runner_v2/locking.py`
+9. `automation/responses_runner_v2/openai_client.py`
 
 ## Core Runtime Objects
 
 - Workflow manifest:
-  Declares stage order, model roles, request defaults, review gates, carry-forward rules, and optional sidecar extraction.
+  Declares stage order, model roles, request defaults, review gates, carry-forward rules, and the per-stage output format (`text` or `json_schema`).
 - Stage input manifest:
   Declares the static attachment set for a stage.
-- Review bundle:
-  The approval contract passed between reviewed stages.
-- Run manifest and stage checkpoints:
-  The durable local execution record for resumes, refreshes, and audits.
+- Stage review verdict:
+  The JSON verdict (`review/verdict.json`, notes in `review/reviewer_notes.md`) that one reviewer CLI returns for a `reviewed` stage; `approve` continues, `revise` triggers one primary-model revision attempt.
+- Handoff note:
+  The operator markdown passed with `--handoff-note` to approve a `human` stage or a blocked reviewed stage; it is attached to the next stage as a reviewed handoff input.
+- Run manifest:
+  `run_manifest.json`, the single durable record per run, rewritten atomically on every stage transition; it drives resumes, refreshes, and audits.
 
 ## Authority Order
 
@@ -92,7 +95,8 @@ Core regression suite:
 python -m unittest \
   automation.tests.test_responses_runner_v2_contracts \
   automation.tests.test_responses_runner_v2_example_pack \
-  automation.tests.test_responses_runner_v2_review_bundle \
+  automation.tests.test_responses_runner_v2_durability \
+  automation.tests.test_responses_runner_v2_reviewed_gates \
   automation.tests.test_responses_runner_v2_workflow \
   automation.tests.test_responses_runner_v2_eval
 ```
@@ -125,7 +129,7 @@ If you change one of those, treat it as an explicit product and compatibility de
 - Keep changes generic at the engine boundary unless you are intentionally authoring a task pack.
 - Prefer updating tests and runbooks with engine changes so the generic contract stays obvious.
 - Do not commit `.local/` run artifacts.
-- Expect reviewed stages and review bundles to be part of the normal workflow, not exceptional machinery.
+- Expect `reviewed` and `human` gates to be part of the normal workflow, not exceptional machinery.
 
 ## If You Need One File To Start
 

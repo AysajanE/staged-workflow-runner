@@ -54,14 +54,14 @@ Before moving on, the operator should be clear on these facts:
 - The runner engine is generic.
 - Task behavior lives in workflow manifests, prompts, input manifests, tool profiles, and optional schemas.
 - The first release uses one exact workspace root per run.
-- All statically referenced workflow assets, review bundles, and run artifacts must stay under that same workspace root.
+- All statically referenced workflow assets, handoff notes, and run artifacts must stay under that same workspace root.
 - Stage progression is sequential and gate-driven.
 - Attachment authority order is fixed:
   1. Primary Job Inputs
   2. Reviewed Handoff Inputs
   3. Attached Workspace Evidence (legacy manifest alias: Attached Repository Files)
   4. Reference Context
-- Dry run, resume, refresh, review bundles, and optional sidecar extraction are built into the runner.
+- Dry run, resume, refresh, cancel, and `auto`/`reviewed`/`human`/`terminal` stage gates are built into the runner.
 - Live `run` commands should keep token preflight enabled; `--skip-token-count` is an explicit
   operator tradeoff, not the default.
 
@@ -94,7 +94,7 @@ What to inspect:
 - `.local/automation/responses_runner_v2/runs/<run-id>/dry_runs/stages/01_draft_summary/input_manifest.json`
 - `.local/automation/responses_runner_v2/runs/<run-id>/dry_runs/stages/01_draft_summary/input_manifest.md`
 - `.local/automation/responses_runner_v2/runs/<run-id>/dry_runs/stages/01_draft_summary/request_payload.json`
-- `.local/automation/responses_runner_v2/runs/<run-id>/dry_runs/stages/01_draft_summary/stage_checkpoint.json`
+- `.local/automation/responses_runner_v2/runs/<run-id>/dry_runs/stages/01_draft_summary/upload_inputs/`
 
 Tier 1 is complete when the operator understands where artifacts go, how a task pack is wired, and what a correct dry run looks like.
 
@@ -166,7 +166,7 @@ This must be the root used for task-pack assets, run artifacts, and `.env` looku
 
 Ask one simple question:
 
-- Does at least one operator on that team already know this runner and understand the single-root model, dry-run flow, and review-bundle flow?
+- Does at least one operator on that team already know this runner and understand the single-root model, dry-run flow, and stage-gate flow (`auto`, `reviewed`, `human`, `terminal`)?
 
 If the answer is no:
 
@@ -359,7 +359,7 @@ After the dry run, inspect:
 - `.local/automation/responses_runner_v2/runs/<run-id>/dry_runs/stages/<stage-dir>/input_manifest.json`
 - `.local/automation/responses_runner_v2/runs/<run-id>/dry_runs/stages/<stage-dir>/input_manifest.md`
 - `.local/automation/responses_runner_v2/runs/<run-id>/dry_runs/stages/<stage-dir>/request_payload.json`
-- `.local/automation/responses_runner_v2/runs/<run-id>/dry_runs/stages/<stage-dir>/stage_checkpoint.json`
+- `.local/automation/responses_runner_v2/runs/<run-id>/dry_runs/stages/<stage-dir>/upload_inputs/`
 
 Verify:
 
@@ -383,7 +383,7 @@ python "<runner-checkout>/automation/run_responses_v2.py" run \
   --wait
 ```
 
-Keep the critical workflow's local and exact token preflight enabled.
+Keep the critical workflow's exact token preflight enabled.
 
 ### Step 16: Inspect The Live Artifacts
 
@@ -393,19 +393,28 @@ After completion, inspect:
 - `.local/automation/responses_runner_v2/runs/<run-id>/stages/<stage-dir>/<attempt_NNN>/response.final.json`
 - `.local/automation/responses_runner_v2/runs/<run-id>/stages/<stage-dir>/<attempt_NNN>/uploads.json`
 
-If the workflow later uses sidecar extraction, also inspect:
+If a stage later declares `output.primary_format: "json_schema"`, also inspect:
 
 - `.local/automation/responses_runner_v2/runs/<run-id>/stages/<stage-dir>/<attempt_NNN>/output.structured.json`
 
-### Step 17: Use Review Bundles If The Workflow Requires Review Gates
+### Step 17: Handle Review Gates If The Workflow Grows Into Reviewed Stages
 
-If the workflow later grows into reviewed stages:
+If the workflow later grows into gated stages:
 
-1. run until the stage stops for review
-2. inspect the stage output
-3. write reviewer notes
-4. create an approved review bundle
-5. continue the workflow with `--review-bundle`
+- `reviewed` gates are handled in-process: one reviewer CLI (`codex` by default, or `claude`) reads the stage artifact and returns approve or revise; a revise triggers one primary-model revision, and one `run` invocation keeps chaining through these gates. Evidence lands under `<attempt_dir>/review/`.
+- `human` gates (or a reviewed stage blocked after its revision) stop the run with the stage in `waiting_for_review`. Read `artifact.md`, write a short markdown note, and continue:
+
+```bash
+cd "<target-workspace>"
+
+python "<runner-checkout>/automation/run_responses_v2.py" run \
+  --root . \
+  --workflow-file task_packs/<task-name>/workflows/<workflow-id>.workflow.json \
+  --run-dir <run-dir> \
+  --handoff-note <note.md>
+```
+
+The note is attached to the next stage together with the approved artifact. A workflow that still declares `review_required` is loaded as a `human` gate and follows this same path.
 
 ### Step 18: Reuse Tier 1, Repeat Tier 2
 
