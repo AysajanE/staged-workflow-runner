@@ -246,6 +246,15 @@ class ReviewerModuleTests(unittest.TestCase):
         with self.assertRaises(reviewer.ReviewError):
             reviewer.extract_verdict("no json here")
 
+    def test_read_guard_ignores_the_echoed_job_and_picks_the_last_verdict(self) -> None:
+        job = {"artifact_path": ".local/runs/r/stages/01_s/attempt_001/artifact.md"}
+        echoed = 'user\n  "artifact_path": ".local/runs/r/stages/01_s/attempt_001/artifact.md",\n  "handoff_paths": [],'
+        self.assertFalse(reviewer.reviewer_read_artifact(job, json.dumps(APPROVE), echoed))
+        opened = echoed + "\nexec bash -lc 'sed -n 1,400p .local/runs/r/stages/01_s/attempt_001/artifact.md'"
+        self.assertTrue(reviewer.reviewer_read_artifact(job, json.dumps(APPROVE), opened))
+        two = json.dumps({**APPROVE, "summary": "plan: I will read the artifact"}) + "\n" + json.dumps(REVISE)
+        self.assertEqual(reviewer.extract_verdict(two)["verdict"], "revise")
+
     def test_normalize_verdict_maps_aliases_and_fills_findings(self) -> None:
         normalized = reviewer.normalize_verdict({"verdict": "Approved", "summary": "ok", "notes": ["a", 3]})
         self.assertEqual(normalized["verdict"], "approve")

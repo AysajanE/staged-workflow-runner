@@ -147,13 +147,25 @@ def retry_guidance(root: Path, review_dir: Path) -> str:
     )
 
 
+ECHOED_JOB_FIELDS = ('"artifact_path"', '"input_manifest_markdown_path"', '"handoff_paths"', '"validator_report_path"')
+
+
 def reviewer_read_artifact(job: dict[str, Any], stdout: str, stderr: str) -> bool:
-    """Whether the reviewer transcript shows the artifact being opened."""
+    """Whether the reviewer transcript shows the artifact being opened.
+
+    Codex echoes the whole prompt (including the review job JSON that names the
+    artifact) into its transcript, so lines that are the echoed job fields do not
+    count; only a command or tool line that names the artifact does.
+    """
 
     artifact = str(job["artifact_path"])
     tail = "/".join(Path(artifact).parts[-2:])
-    transcript = stdout + "\n" + stderr
-    return artifact in transcript or tail in transcript
+    for line in (stdout + "\n" + stderr).splitlines():
+        if any(field in line for field in ECHOED_JOB_FIELDS):
+            continue
+        if artifact in line or tail in line:
+            return True
+    return False
 
 
 def compose_prompt(job: dict[str, Any]) -> str:
@@ -255,9 +267,11 @@ def extract_verdict(stdout: str) -> dict[str, Any]:
             return result
         if isinstance(result, str):
             text = result
-    for candidate in _json_objects(text):
-        if "verdict" in candidate:
-            return candidate
+    # With --output-schema every intermediate message is verdict-shaped; the
+    # reviewer's decision is the last one it emitted.
+    verdicts = [candidate for candidate in _json_objects(text) if "verdict" in candidate]
+    if verdicts:
+        return verdicts[-1]
     raise ReviewError("Reviewer output did not contain a JSON object with a `verdict` field.")
 
 
