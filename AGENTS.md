@@ -46,7 +46,7 @@ Do not reintroduce legacy 5.4-family model identifiers as runtime defaults, exam
 Each stage declares a `gate` (`GateType` in `automation/responses_runner_v2/contracts.py`):
 
 - `auto`: the run continues to the next stage.
-- `reviewed`: one reviewer CLI (`codex` by default, or `claude`, or `none`) reads `artifact.md`, the stage task, the input manifest, and the handoff inputs, and returns a JSON verdict (`approve` or `revise`, schema `schemas/stage_review_verdict.schema.json`, prompt `prompts/stage_review.md`, code `reviewer.py`). `approve` continues. `revise` triggers one revision attempt of the same stage with the reviewer notes and previous draft attached; the reviewer runs again. A second `revise` leaves the stage `waiting_for_review` with `review_status: blocked` until a human passes `--handoff-note`. Review evidence lives under the attempt's `review/` directory. If the reviewer CLI fails, the review stays pending and the next `run` retries it.
+- `reviewed`: one reviewer CLI (`codex` by default, or `claude`, or `none`) reads `artifact.md`, the stage task, the input manifest, and the handoff inputs, and returns a JSON verdict (`approve` or `revise`, schema `schemas/stage_review_verdict.schema.json`, prompt `prompts/stage_review.md`, code `reviewer.py`). `approve` continues. `revise` triggers one revision attempt of the same stage with the reviewer notes and previous draft attached; the reviewer runs again. A second `revise` leaves the stage `waiting_for_review` with `review_status: blocked` until a human passes `--handoff-note`. Review evidence lives under the attempt's `review/` directory. If the reviewer CLI fails, the stage stays `completed` with its review pending; rerun the same command with `--run-dir <run_dir>` to retry the review, add `--handoff-note <note.md>` to approve the artifact yourself, or add `--reviewer none`.
 - `human`: the run stops at `waiting_for_review`. Continue with `run --root . --workflow-file <wf> --run-dir <run_dir> --handoff-note <note.md>`; the note travels to the next stage with the artifact.
 - `terminal`: last stage; `artifact.md` is the deliverable.
 - `review_required` (legacy spelling): loaded as `human`.
@@ -70,6 +70,8 @@ python automation/run_responses_v2.py run --root . \
 ```
 
 `run` and `resume` wait in-process by default (`--no-wait` returns after submission). One `run` chains through auto and reviewed gates until a human gate, a blocked review, the terminal stage, or an error. Validator results are advisory; the exact `/responses/input_tokens` count is the only token check and it blocks when the stage `max_input_tokens` is exceeded. `run_manifest.json` is the single durable record per run, rewritten atomically on every stage transition; do not reintroduce run contracts, checkpoints, transition journals, or review bundles.
+
+`run` prints `RUN_DIR <path>` to stderr as soon as the run directory exists and exits with code 2 when the run or stage ended failed, blocked, cancelled, incomplete, pending finalization, or with an unknown submission outcome; a dead-end or abandoned pre-submission stage reruns as a new attempt only with an explicit `run --run-dir <run_dir> --stage <stage_id>`, a stage with a recorded response continues with `resume`, and `submitting` / `submission_outcome_unknown` must be reconciled against the OpenAI dashboard first. Reviews hold the run lock, so a second `run` on the same run directory during a review is refused.
 
 When making repository claims, cite repository-relative paths actually reviewed. Agents must not:
 

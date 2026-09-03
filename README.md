@@ -108,15 +108,22 @@ Each stage declares a `gate` in the workflow JSON.
 
 - `auto`: the run continues to the next stage.
 - `reviewed`: when the stage completes, one reviewer CLI reads `artifact.md`, the stage task
-  text, the input manifest, and the handoff inputs, and returns a JSON verdict
-  (`approve` or `revise`, with a summary, blocking findings, and notes). On `approve` the run
-  continues. On `revise` the engine runs one revision attempt of the same stage
-  (`attempt_002`) with the reviewer notes and previous draft attached, then reviews again. A
-  second `revise` leaves the stage at `waiting_for_review` with `review_status: blocked` until
-  a human supplies `--handoff-note`. If the reviewer CLI fails, the stage stays completed with
-  its review pending and the next `run` retries it. Review evidence lands in the attempt's
-  `review/` directory (`verdict.json`, `reviewer_notes.md`, prompt, stdout, stderr, and an
-  invocation record with duration, exit code, and any reported cost or token fields).
+  text, the input manifest, the handoff inputs, and the validator report when one exists (it
+  may also open any file listed in `input_manifest.md` to spot-check a claim), and returns a
+  JSON verdict (`approve` or `revise`, with a summary, blocking findings, and notes). On
+  `approve` the run continues. On `revise` the engine runs one revision attempt of the same
+  stage (`attempt_002`) with the reviewer notes and previous draft attached, then reviews
+  again. A second `revise` leaves the stage at `waiting_for_review` with
+  `review_status: blocked` until a human supplies `--handoff-note`. The review runs under the
+  run lock, so a second `run` on the same run directory during a review is refused. If the
+  reviewer CLI fails (non-zero exit, timeout, missing CLI, unparseable output, or a codex
+  transcript that never opened the artifact), the stage stays `completed` with its review
+  pending and the error names the continuation: rerun the same command with
+  `--run-dir <run_dir>` to retry the review, add `--handoff-note <note.md>` to approve the
+  artifact yourself, or add `--reviewer none`. A bare `run` without `--run-dir` starts a new
+  run and resubmits the stage at full cost. Review evidence lands in the attempt's `review/`
+  directory (`verdict.json`, `reviewer_notes.md`, prompt, stdout, stderr, and an invocation
+  record with duration, exit code, and any reported cost or token fields).
 - `human`: the stage completes and the run stops with the stage at `waiting_for_review`. Read
   `artifact.md`, write a note, and continue; the note is attached to the next stage together
   with the artifact:
@@ -149,6 +156,31 @@ blocks when the count exceeds the stage `max_input_tokens`, and `--skip-token-co
 it. Post-output validators such as `evidence_references_v1` are also advisory: results go to
 `validator_report.json` and the manifest fields `validators_passed` and
 `validator_report_path`; a failed validator never blocks finalization.
+
+## Recovery
+
+`run` prints `RUN_DIR <path>` to stderr as soon as the run directory is known. After `run`
+or `resume` it prints `RUN <run_status> stage <stage_id> <stage_status>`; when the run or the
+stage ended failed, blocked, cancelled, incomplete, pending finalization, or with an unknown
+submission outcome it adds a `WARNING` with the rerun command and exits with code 2, and a
+run stopped at `waiting_for_review` prints a `WAITING` hint naming `--handoff-note`. Dry runs
+print no `RUN` line. The next command depends on the stage status in `run_manifest.json`:
+
+- A stage with a recorded response (`submitted`, `in_progress`,
+  `remote_terminal_pending_finalization`, `cancelling`, `finalized`) is continued with
+  `resume --run-dir <run_dir> --stage <stage_id>`; it is never resubmitted.
+- A dead-end stage (`failed_no_artifact`, `blocked_preflight`, `failed_complete`,
+  `cancelled`, `incomplete`) or one abandoned before any request reached the API
+  (`staging_inputs`, `uploading`, `preflight_passed`) reruns as a new attempt with
+  `run --run-dir <run_dir> --stage <stage_id>`. Each attempt records the pid of the runner
+  process that opened it, and a pre-submission rerun is refused while that process is still
+  alive. A `run` without `--stage` never reruns such a stage implicitly; it exits with the
+  exact command to use.
+- `submitting` and `submission_outcome_unknown` are not rerunnable: a request may have reached
+  the API without a recorded response id. Check the OpenAI dashboard for a response with
+  metadata `stage_id=<stage_id>`. If one exists, record its id as the stage's `response_id`
+  with status `submitted` in `run_manifest.json` and use `resume`; if none exists, set the
+  stage status to `failed_no_artifact` there and rerun with `--stage`.
 
 ## Repository Layout
 

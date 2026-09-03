@@ -78,7 +78,9 @@ remote model keeps working and `resume` picks the stage up again.
 
 `run` and `resume` **wait in-process by default** (poll every 20 s, up to 24 h);
 `--no-wait` returns right after submission. **No duplicate submit:** if a stage is
-`submitted`/`in_progress`, `run` refuses to touch it; use `resume` or `refresh`.
+`submitted`/`in_progress`, `run` refuses to touch it; use `resume` or `refresh`. A stage that
+died before any request reached the API, or ended as a dead end, reruns as a new attempt only
+when you name it with `--stage`; `run` never reruns one implicitly.
 
 ### 2.4 Authority order is data, not a guideline
 
@@ -145,7 +147,7 @@ Entry points (also console scripts via `pyproject.toml`): `automation/run_respon
 | **Gate** | `auto`, `reviewed`, `human`, or `terminal`. (`review_required` is a legacy spelling that the loader reads as `human`; do not use it in new packs.) |
 | **Attempt** | One execution of a stage: `attempt_001` first; a reviewer-requested revision is `attempt_002` with `revision_of_attempt_id` set. |
 | **Verdict** | The reviewer's JSON: `{verdict: approve\|revise, summary, blocking_findings[], notes[]}`. |
-| **Handoff note** | Markdown passed with `--handoff-note` to approve a stage waiting at a human gate or a blocked reviewed gate; attached to the next stage as a Reviewed Handoff Input. |
+| **Handoff note** | Markdown passed with `--handoff-note` to approve a stage waiting at a human gate or a blocked reviewed gate, or a completed reviewed stage whose review is still pending after a reviewer failure; attached to the next stage as a Reviewed Handoff Input. |
 | **Run manifest** | `run_manifest.json`, the single durable record: run status, `stage_order`, the operator inputs the run was started with, and a per-stage summary whose `attempts[]` carry each attempt's `local_state` and `response_id`. Rewritten atomically on every stage transition. |
 
 ---
@@ -200,8 +202,10 @@ _determine_next_stage                ← first prepared/revision_requested stage
   next stage exists, no `--stage` pin, no `--no-wait`.
 - A `human` gate with a next stage ends in `waiting_for_review`; a `reviewed` gate ends
   `completed` (`review_status: approved`) or `waiting_for_review` (`review_status: blocked`).
-- The reviewer runs on the **finalization path** (`run` waiting, or `resume`); if a stage
-  completes while you are not waiting, the next `run` or `resume` applies the gate.
+- The reviewer runs on the **finalization path** (`run` waiting, or `resume`), under the
+  run lock. If a stage completes while you are not waiting, `resume` finalizes it and applies
+  the gate; a stage left `completed` with its review pending is reviewed first by the next
+  `run --run-dir <run_dir>`.
 
 ---
 
@@ -242,8 +246,8 @@ request (a whole role is bundled into one Markdown file before giving up).
 | `completed`, gate `human`, has next | `waiting_for_review` |
 | `completed`, gate `reviewed` | `completed`, then the gate decides: `approved`, `revision_requested`, `blocked` |
 | `completed`, otherwise | `completed` |
-| `failed` with / without output text | `failed_complete` / `failed_no_artifact` |
-| `cancelled` / `incomplete` | `cancelled` / `incomplete` — never auto-progresses |
+| `failed` with / without output text | `failed_complete` / `failed_no_artifact` — a dead end; rerun with `--stage` |
+| `cancelled` / `incomplete` | `cancelled` / `incomplete` — never auto-progresses; rerun with `--stage` |
 | `queued` / `in_progress` | `in_progress` — use `resume`/`refresh`, never re-`run` |
 
 ### 6.5 Validators and structured output
@@ -297,10 +301,12 @@ to dry-run one stage. CI runs this on every push.
 
 When a `reviewed` stage completes, the engine invokes **one** reviewer CLI, once, with a
 bounded job: the stage task text, `artifact.md`, `input_manifest.md`, the handoff inputs,
-and (on a revision) the id of the attempt being revised. The prompt,
-`automation/responses_runner_v2/prompts/stage_review.md`, tells the reviewer to read only
-those files, edit nothing, and judge objective, grounding, consistency, and fitness for
-the next stage. The verdict is validated against
+`validator_report_path` when a validator report exists, and (on a revision) the id of the
+attempt being revised. The prompt, `automation/responses_runner_v2/prompts/stage_review.md`,
+tells the reviewer to read those files, to open any file listed in `input_manifest.md` only
+to spot-check a material claim, to treat the validator report's violations as evidence, to
+edit nothing, and to judge objective, grounding, consistency, and fitness for the next
+stage. The verdict is validated against
 `automation/responses_runner_v2/schemas/stage_review_verdict.schema.json`:
 
 ```json
@@ -355,16 +361,23 @@ python automation/run_responses_v2.py run --root . \
   --workflow-file <wf> --run-dir <run_dir> --handoff-note notes/<stage>_handoff.md
 ```
 
-The engine marks the first waiting `human` or `reviewed` stage `human_approved`, records
+The engine marks the latest waiting `human` or `reviewed` stage `human_approved`, records
 `handoff_note_path`, and attaches the note (plus the reviewer notes, for a blocked reviewed
-stage) with the artifact to the next stage. The same command continues a `human` gate.
+stage) with the artifact to the next stage. The same command continues a `human` gate, and
+when no stage is waiting it approves a `completed` reviewed stage whose review is pending
+(section 8.4).
 
 ### 8.4 When the reviewer CLI fails
 
-If the reviewer exits non-zero, times out, or cannot be spawned, the engine exits with the
-stderr path and the stage stays `completed` with no `review_status`. The next `run` on the
-same run directory (or `resume` of that stage) retries the review first; or supply
-`--handoff-note` to approve it yourself.
+If the reviewer exits non-zero, times out, cannot be spawned, or returns output without a
+valid verdict (or, for codex, returns a verdict although its transcript never opened
+`artifact.md`), the engine exits with the stderr path and the stage stays `completed` with no
+`review_status`. The error names the continuation: rerun the same command with
+`--run-dir <run_dir>` to retry the review first; add `--handoff-note <note.md>` to approve the
+artifact yourself (`review_status: human_approved`); or add `--reviewer none`. A `run`
+without `--run-dir` starts a new run and resubmits the stage at full cost. The review holds
+the run lock, so a second `run` on the same run directory during a review is refused rather
+than starting a duplicate reviewer.
 
 ### 8.5 The review evidence directory
 
@@ -503,6 +516,11 @@ python automation/run_responses_v2.py run --root . --workflow-file $WF \
 #     decision, and continue the same run.
 python automation/run_responses_v2.py run --root . --workflow-file $WF \
   --run-dir <run_dir> --handoff-note notes/<stage>_handoff.md
+
+# 3c. Exit code 2 with "WARNING run did not succeed": a stage ended as a dead end. Read its
+#     attempt directory, then rerun that stage as a new attempt in the same run.
+python automation/run_responses_v2.py run --root . --workflow-file $WF \
+  --run-dir <run_dir> --stage <stage_id>
 ```
 
 ---
@@ -510,7 +528,11 @@ python automation/run_responses_v2.py run --root . --workflow-file $WF \
 ## 12. Command reference
 
 All subcommands accept `--root`. `run`/`resume` print the `run_manifest.json` path on
-success; warnings go to stderr as `WARNING [<code>] ...`. Run
+success; warnings go to stderr as `WARNING [<code>] ...`. `run` also prints `RUN_DIR <path>`
+to stderr as soon as the run directory is known, and both print
+`RUN <run_status> stage <stage_id> <stage_status>` when they finish (never on a dry run): a
+failed, blocked, cancelled, incomplete, or unknown-submission outcome adds a `WARNING` with the
+rerun command and exits with code 2, and `waiting_for_review` adds a `WAITING` hint. Run
 `python automation/run_responses_v2.py --help` for the full current subcommand list.
 
 ### `run` — launch the next eligible stage or continue a run
@@ -519,9 +541,9 @@ success; warnings go to stderr as `WARNING [<code>] ...`. Run
 |---|---|
 | `--workflow-file <path>` | required; interpreted under the root |
 | `--run-name <slug>` / `--run-dir <path>` | name a new run (defaults to the workflow id) / continue an existing run |
-| `--stage <id>` | pin one stage; disables chaining |
+| `--stage <id>` | pin one stage; disables chaining; required to rerun a dead-end or abandoned stage as a new attempt |
 | `--primary-job-input`, `--reference-context` (repeatable), `--input-binding-file` | operator inputs; bindings are stage-scoped |
-| `--handoff-note <path>` | approve the stage waiting at a human gate or blocked reviewed gate |
+| `--handoff-note <path>` | approve the stage waiting at a human gate or blocked reviewed gate, or a completed reviewed stage whose review is pending |
 | `--reviewer {codex,claude,none}` | override the reviewer for reviewed gates in this invocation |
 | `--dry-run` | render every stage (or the pinned stage) under `dry_runs/`; no uploads, no API |
 | `--wait` / `--no-wait`, `--poll-interval <s>`, `--max-wait-seconds <s>` | wait in-process (default; poll 20 s, cap 86400 s) or return after submission |
@@ -534,7 +556,7 @@ success; warnings go to stderr as `WARNING [<code>] ...`. Run
 
 | Subcommand | Flags | What it does |
 |---|---|---|
-| `resume` | `--run-dir`, `--stage`, `--wait`/`--no-wait`, `--poll-interval`, `--max-wait-seconds` | Finish a submitted stage from its stored `response_id`: finalize artifacts, validators, and the reviewed gate. Refuses `submission_outcome_unknown`. |
+| `resume` | `--run-dir`, `--stage`, `--wait`/`--no-wait`, `--poll-interval`, `--max-wait-seconds` | Finish a submitted stage from its stored `response_id`: finalize artifacts, validators, and the reviewed gate. Refuses `submission_outcome_unknown` and any stage without a recorded response. |
 | `refresh` | `--run-dir`, `--stage` | Record the latest remote status only. No finalization, no review. |
 | `cancel` | `--run-dir`, `--stage` | Idempotently cancel a live response and finalize local evidence. |
 | `recover-uploads` | `--run-dir`, `--stage`, `--attempt <n>` | Resume cleanup of one attempt's uploads. |
@@ -555,19 +577,31 @@ python automation/run_responses_v2.py run --root . \
   --workflow-file automation/examples/responses_runner_v2_synthetic/workflows/one_pass.workflow.json --dry-run
 ```
 
-**"My terminal died / I `Ctrl-C`'d during a run."** `resume` polls to terminal,
-finalizes, and runs the reviewed gate if there is one; then `run --run-dir <run_dir>`
-continues the chain. The same fix applies when a stage shows `completed` but
-`artifact.md` is missing: it was `refresh`ed, not finalized.
+**"My terminal died / I `Ctrl-C`'d during a run."** The stderr `RUN_DIR` line names the run
+directory; read the stage `status` in its `run_manifest.json`, or just rerun
+`run --run-dir <run_dir>`: it refuses and prints the exact next command. With a recorded
+response (`submitted`, `in_progress`, `remote_terminal_pending_finalization`, `cancelling`,
+`finalized`), `resume` polls to terminal, finalizes, and runs the reviewed gate if there is
+one; then `run --run-dir <run_dir>` continues the chain.
 
 ```bash
 python automation/run_responses_v2.py resume --root . --run-dir <run_dir> --stage <stage_id>
 ```
 
-**"The reviewer CLI failed."** The stage is `completed` with no `review_status`. Read
-`attempt_NNN/review/stderr_*.txt`, fix the CLI (login, PATH, timeout), and
-`run --run-dir <run_dir>` again; the review retries first. Alternatives: `--reviewer
-claude`, `--reviewer none`, or approve it yourself with `--handoff-note`.
+Died before any request reached the API (`staging_inputs`, `uploading`, `preflight_passed`)?
+Nothing is running remotely: rerun the stage as a new attempt with
+`run --run-dir <run_dir> --stage <stage_id>`. The rerun is refused while the attempt's
+recorded `pid` is still alive, and `recover-uploads` deletes files an abandoned upload left
+behind. Died inside the POST (`submitting`)? Reconcile as for `submission_outcome_unknown`
+below.
+
+**"The reviewer CLI failed."** The stage is `completed` with no `review_status`, and the
+error names the continuation. Read `attempt_NNN/review/stderr_*.txt`, fix the CLI (login,
+PATH, timeout), and rerun the same command with `--run-dir <run_dir>`; the review retries
+first. Alternatives on that same command: `--reviewer claude`, `--reviewer none`, or
+`--handoff-note <note.md>` to approve the artifact yourself (`review_status: human_approved`).
+Do not drop `--run-dir`: a bare `run` starts a new run and resubmits the stage at full cost.
+A codex verdict whose transcript never opened `artifact.md` is rejected into the same state.
 
 **"The run stopped: waiting for a handoff note."** A `human` gate, or a `reviewed` gate
 with `review_status: blocked` after two `revise` verdicts. Read the latest attempt's
@@ -580,19 +614,31 @@ Read `token_preflight.error.json`; reduce the input manifest scope or raise the 
 limit deliberately. The stage is left `blocked_preflight`; rerun it in place as a new
 attempt with `run --run-dir <run_dir> --stage <stage_id>`.
 
-**"A stage failed."** `failed_complete`: the model reported failure but wrote an artifact;
-read it first. `failed_no_artifact`: nothing usable came back; rerun that stage in place as
-a new attempt with `run --run-dir <run_dir> --stage <stage_id>`, or start a new run (omit
-`--run-dir`). Keep the failed directory as evidence.
+**"A stage failed, was cancelled, or came back `incomplete`."** `failed_complete`: the
+model reported failure but wrote an artifact; read it first. `failed_no_artifact`: nothing
+usable came back. `incomplete`: the output limit was hit; decide on scope, model, or budget
+before spending again. All of these, plus `cancelled` and `blocked_preflight`, are dead
+ends: the CLI prints a `WARNING` and exits 2, and `run --run-dir <run_dir>` without `--stage`
+refuses and prints the command. Rerun the stage in place as a new attempt with
+`run --run-dir <run_dir> --stage <stage_id>`, or start a new run (omit `--run-dir`). Keep the
+failed directory as evidence. A revision attempt that died this way keeps its
+`revision_of_attempt_id` on rerun and does not spend the revision budget.
 
-**"A stage is `submission_outcome_unknown`."** The `POST /responses` failed in a way that
-does not prove whether the request landed; `attempt_NNN/submission.error.json` has the
-error. No subcommand leaves this state: `run` refuses the stage as nonterminal, `resume`
-and `refresh` refuse it without operator reconciliation, and `cancel` refuses it too. Check
-the remote side yourself, then start a new run and keep the directory as evidence.
+**"A stage is `submission_outcome_unknown` (or `submitting`)."** The `POST /responses`
+failed in a way that does not prove whether the request landed
+(`attempt_NNN/submission.error.json` has the error), or the process died inside the POST. A
+request may have reached the API without a recorded response id, so nothing resubmits it:
+`run` prints the reconciliation guidance, `resume` and `refresh` refuse it without operator
+reconciliation, and `cancel` refuses it too. Check the OpenAI dashboard for a response with
+metadata `stage_id=<stage_id>`. If one exists, record its id as the stage's `response_id`
+with status `submitted` in `run_manifest.json` and `resume`; if none exists, set the stage
+status to `failed_no_artifact` there and rerun with `--stage`. Keep the directory as evidence.
 
 **"A stage has been `in_progress` for hours."** Do not re-`run` it. `refresh` records the
 status; `resume` keeps polling; `cancel` cancels the remote response and finalizes what exists.
+A waiting `run` rides out transient retrieve errors (HTTP 408, 409, 425, 429, 5xx, network)
+for up to 30 consecutive polls, then exits with the exact `resume` command; the response
+keeps running remotely.
 
 **"I'm using this checkout against a different project."** Put the task pack and every
 referenced asset under the *target* workspace root and invoke with `--root /path/to/target`;
@@ -609,11 +655,11 @@ referenced asset under the *target* workspace root and invoke with `--root /path
 | **GPT-5.6 cache posture** | a role omits implicit cache mode with `ttl=30m` | `pack_loader` |
 | **background + store** | `background=true` with `store=false` | `pack_loader` |
 | **Stage shape / review config** | duplicate ids, mis-ordered numbers, mode/count mismatch, dangling carry-forward, handoff source not `reviewed`/`human`, unknown `reviewer`/`effort`, negative `max_revisions` | `pack_loader` |
-| **No-duplicate-submit** | `run` on a stage that is submitted or in progress | `_determine_next_stage` |
+| **No-duplicate-submit** | `run` on a stage that is submitted, in progress, `submitting`, or `submission_outcome_unknown`; an implicit rerun of a dead-end or abandoned stage without `--stage`; a pre-submission rerun while the attempt's recorded `pid` is alive | `_determine_next_stage`, `_refuse_if_attempt_is_live` |
 | **Gate order** | running past a waiting `human` or blocked `reviewed` stage without `--handoff-note` | `_determine_next_stage` |
 | **Exact token preflight** | input tokens exceed the stage or context limit | `_token_preflight_state` |
-| **Verdict contract** | reviewer output has no `approve`/`revise` verdict or fails the schema | `reviewer.normalize_verdict` |
-| **Run lock / state transitions** | two processes touch one run directory; an illegal stage transition | `.runner.lock`, `assert_stage_transition` |
+| **Verdict contract** | reviewer output has no `approve`/`revise` verdict or fails the schema; a codex verdict whose transcript never opened `artifact.md` | `reviewer.normalize_verdict`, `reviewer.reviewer_read_artifact` |
+| **Run lock / state transitions** | two processes touch one run directory (the lock is held for the whole review); an illegal stage transition | `.runner.lock`, `assert_stage_transition` |
 
 ---
 
@@ -628,6 +674,7 @@ Question                                First file to open
 "Why did the review fail to run?"    →  attempt_NNN/review/stderr_*.txt and invocation_*.json
 "What is the current stage state?"   →  run_manifest.json stages[] (status, current_attempt_id, attempts[].response_id)
 "What is the overall run state?"     →  run_manifest.json (status, current_stage_id, review_status)
+"Which command continues this run?"  →  rerun `run --run-dir <run_dir>`; its refusal or WARNING names the command
 "Did token preflight pass?"          →  attempt_NNN/token_preflight.json or token_preflight.error.json
 "Did a validator complain?"          →  attempt_NNN/validator_report.json
 "What is the clean deliverable?"     →  attempt_NNN/artifact.md
