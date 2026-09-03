@@ -287,7 +287,7 @@ class ResponsesRunnerV2WorkflowTests(unittest.TestCase):
             first_attempt_dir = ROOT / failed["stages"][0]["attempts"][0]["attempt_dir"]
             first_error_hash = sha256_file(first_attempt_dir / "submission.error.json")
 
-            with self.assertRaisesRegex(SystemExit, "No eligible stage"):
+            with self.assertRaisesRegex(SystemExit, "Rerun it as a new attempt"):
                 run_workflow(
                     workflow_file="automation/examples/responses_runner_v2_synthetic/workflows/one_pass.workflow.json",
                     runtime=RuntimeOptions(run_dir=run_dir.relative_to(ROOT), wait=True),

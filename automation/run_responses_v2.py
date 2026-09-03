@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from pathlib import Path
 from typing import Sequence
@@ -168,6 +169,45 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
+FAILED_RUN_STATUSES = {"failed", "cancelled", "blocked", "submission_outcome_unknown", "pending_finalization"}
+FAILED_STAGE_STATUSES = {
+    "failed", "failed_complete", "failed_no_artifact", "cancelled", "incomplete",
+    "blocked", "blocked_preflight", "submission_outcome_unknown",
+}
+
+
+def _report_outcome(root: Path, result: dict) -> int:
+    """Print the run outcome and return a non-zero code when the run did not succeed."""
+
+    try:
+        manifest = json.loads((root / result["run_manifest_path"]).read_text(encoding="utf-8"))
+    except (OSError, ValueError, KeyError, TypeError):
+        return 0
+    run_status = str(manifest.get("status", ""))
+    stage_id = result.get("stage_id") or manifest.get("current_stage_id")
+    stage_status = ""
+    for summary in manifest.get("stages", []):
+        if summary.get("stage_id") == stage_id:
+            stage_status = str(summary.get("status", ""))
+    print(f"RUN {run_status} stage {stage_id} {stage_status}", file=sys.stderr)
+    run_dir = result.get("run_dir", "<run_dir>")
+    if run_status in FAILED_RUN_STATUSES or stage_status in FAILED_STAGE_STATUSES:
+        print(
+            f"WARNING run did not succeed (run {run_status}, stage {stage_id} {stage_status}); "
+            f"inspect {result['run_manifest_path']} before using any artifact. A dead-end stage "
+            f"reruns as a new attempt with --run-dir {run_dir} --stage {stage_id}.",
+            file=sys.stderr,
+        )
+        return 2
+    if run_status == "waiting_for_review":
+        print(
+            f"WAITING stage {stage_id} needs a human note: read its artifact.md, then rerun with "
+            f"--run-dir {run_dir} --handoff-note <note.md>.",
+            file=sys.stderr,
+        )
+    return 0
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     args = parse_args(argv)
     root = repo_root(getattr(args, "root", None))
@@ -229,7 +269,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 file=sys.stderr,
             )
         print(result["run_manifest_path"])
-        return 0
+        return 0 if args.dry_run else _report_outcome(root, result)
 
     client = OpenAIClient.from_env(root=root)
     if args.command == "resume":
@@ -243,7 +283,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             root=root,
         )
         print(result["run_manifest_path"])
-        return 0
+        return _report_outcome(root, result)
 
     if args.command == "cancel":
         result = cancel_stage(

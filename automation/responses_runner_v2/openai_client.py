@@ -96,6 +96,10 @@ def resolve_api_key(root: Path | None = None) -> tuple[str, str]:
     raise SystemExit("OPENAI_API_KEY is not set in the environment and was not found in .env.")
 
 
+POLL_TRANSIENT_STATUS_CODES = frozenset({408, 409, 425, 429, 500, 502, 503, 504})
+MAX_CONSECUTIVE_POLL_FAILURES = 30
+
+
 def _retry_delay_seconds(attempt: int) -> float:
     return float(min(2 ** (attempt - 1), 30))
 
@@ -348,8 +352,25 @@ class OpenAIClient:
         checkpoint_callback: Callable[[dict[str, Any]], None] | None = None,
     ) -> dict[str, Any]:
         start = time.monotonic()
+        consecutive_failures = 0
         while True:
-            response_json = self.retrieve_response(response_id)
+            try:
+                response_json = self.retrieve_response(response_id)
+            except ApiError as exc:
+                # A background response keeps running through a polling outage;
+                # keep waiting for transient failures instead of abandoning it.
+                consecutive_failures += 1
+                transient = exc.status_code is None or exc.status_code in POLL_TRANSIENT_STATUS_CODES
+                elapsed = time.monotonic() - start
+                if (
+                    not transient
+                    or consecutive_failures >= MAX_CONSECUTIVE_POLL_FAILURES
+                    or (max_wait_seconds is not None and elapsed >= max_wait_seconds)
+                ):
+                    raise
+                time.sleep(poll_interval)
+                continue
+            consecutive_failures = 0
             if checkpoint_callback is not None:
                 checkpoint_callback(response_json)
             status = str(response_json.get("status", "unknown"))

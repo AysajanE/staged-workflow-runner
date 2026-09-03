@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import json
+import os
 import sys
 import time
 from contextlib import nullcontext
@@ -63,8 +64,39 @@ from .schema_validation import validate_contract
 from .validators import run_validator
 
 RUNNABLE_STAGE_STATES = {StageStatus.PREPARED.value, StageStatus.REVISION_REQUESTED.value}
+# No request reached the API in these states; a crash here leaves nothing to resume.
+PRE_SUBMISSION_STAGE_STATES = {
+    StageStatus.STAGING_INPUTS.value,
+    StageStatus.UPLOADING.value,
+    StageStatus.PREFLIGHT_PASSED.value,
+}
+# A request may have reached the API without a recorded response id.
+RECONCILE_STAGE_STATES = {StageStatus.SUBMITTING.value, StageStatus.SUBMISSION_OUTCOME_UNKNOWN.value}
+# A response id is recorded; `resume` finishes the stage.
+RESUMABLE_STAGE_STATES = {
+    StageStatus.SUBMITTED.value,
+    StageStatus.IN_PROGRESS.value,
+    StageStatus.REMOTE_TERMINAL_PENDING_FINALIZATION.value,
+    StageStatus.CANCELLING.value,
+    StageStatus.FINALIZED.value,
+}
+# Terminal outcomes without a usable artifact.
+DEAD_END_STAGE_STATES = {
+    StageStatus.FAILED_NO_ARTIFACT.value,
+    StageStatus.BLOCKED_PREFLIGHT.value,
+    StageStatus.FAILED_COMPLETE.value,
+    StageStatus.CANCELLED.value,
+    StageStatus.INCOMPLETE.value,
+}
 # States an operator may rerun with an explicit --stage; each rerun is a new attempt directory.
-RERUNNABLE_STAGE_STATES = {StageStatus.FAILED_NO_ARTIFACT.value, StageStatus.BLOCKED_PREFLIGHT.value}
+RERUNNABLE_STAGE_STATES = DEAD_END_STAGE_STATES | PRE_SUBMISSION_STAGE_STATES
+# Attempts in these states reached a review verdict and count against `max_revisions`.
+REVISION_COUNTED_STATES = {
+    StageStatus.COMPLETED.value,
+    StageStatus.WAITING_FOR_REVIEW.value,
+    StageStatus.REVISION_REQUESTED.value,
+    StageStatus.FINALIZED.value,
+}
 LIVE_OR_UNCERTAIN_STAGE_STATES = {
     StageStatus.STAGING_INPUTS.value,
     StageStatus.UPLOADING.value,
@@ -231,10 +263,8 @@ def _determine_next_stage(
         stage = workflow.stage(explicit_stage_id)
         own_status = str(stage_summaries[stage.stage_id].get("status", ""))
         if own_status not in RUNNABLE_STAGE_STATES and own_status not in RERUNNABLE_STAGE_STATES:
-            action = "resume" if own_status in LIVE_OR_UNCERTAIN_STAGE_STATES else "controlled rerun"
-            raise SystemExit(
-                f"Stage {stage.stage_id} is {own_status!r}, not prepared; use {action} instead of run."
-            )
+            raise SystemExit(_not_runnable_message(run_manifest, stage.stage_id, own_status))
+        _refuse_if_attempt_is_live(stage.stage_id, stage_summaries[stage.stage_id])
         for previous_stage in workflow.stages:
             if previous_stage.stage_number >= stage.stage_number:
                 break
@@ -258,10 +288,9 @@ def _determine_next_stage(
     for stage in workflow.stages:
         summary = stage_summaries[stage.stage_id]
         status = summary["status"]
-        if status in LIVE_OR_UNCERTAIN_STAGE_STATES:
-            raise SystemExit(
-                f"Stage {stage.stage_id} is nonterminal. Use resume or refresh instead of run."
-            )
+        if status in LIVE_OR_UNCERTAIN_STAGE_STATES or status in DEAD_END_STAGE_STATES:
+            # Never rerun a stage implicitly: the operator must name it with --stage.
+            raise SystemExit(_not_runnable_message(run_manifest, stage.stage_id, status))
         if status not in RUNNABLE_STAGE_STATES:
             continue
         if stage.stage_number == 1:
@@ -469,7 +498,70 @@ def _current_attempt_record(summary: dict[str, Any]) -> dict[str, Any] | None:
 
 
 def _revision_count(summary: dict[str, Any]) -> int:
-    return sum(1 for attempt in summary.get("attempts", []) if attempt.get("revision_of_attempt_id"))
+    """Revision attempts that reached a verdict; a revision that failed before review is not spent."""
+
+    return sum(
+        1
+        for attempt in summary.get("attempts", [])
+        if attempt.get("revision_of_attempt_id")
+        and str(attempt.get("local_state", "")) in REVISION_COUNTED_STATES
+    )
+
+
+def _attempt_owner_alive(summary: dict[str, Any]) -> int | None:
+    """PID of the runner process that opened the current attempt, if it is still running."""
+
+    record = _current_attempt_record(summary) or {}
+    pid = record.get("pid")
+    if not isinstance(pid, int) or pid <= 0:
+        return None
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return None
+    except PermissionError:
+        return pid
+    return pid
+
+
+def _refuse_if_attempt_is_live(stage_id: str, summary: dict[str, Any]) -> None:
+    status = str(summary.get("status", ""))
+    if status in PRE_SUBMISSION_STAGE_STATES:
+        pid = _attempt_owner_alive(summary)
+        if pid is not None:
+            raise SystemExit(
+                f"Stage {stage_id} is {status!r} in a live runner process (pid {pid}); wait for it "
+                "to finish or stop it before rerunning the stage."
+            )
+
+
+def _not_runnable_message(run_manifest: dict[str, Any], stage_id: str, status: str) -> str:
+    """Exact next command for a stage that `run` cannot start in its current state."""
+
+    run_dir = str(run_manifest.get("run_dir", "<run_dir>"))
+    rerun = f"run --root <root> --workflow-file <workflow> --run-dir {run_dir} --stage {stage_id}"
+    if status in RESUMABLE_STAGE_STATES:
+        return (
+            f"Stage {stage_id} is {status!r} with a recorded response; continue it with: "
+            f"resume --root <root> --run-dir {run_dir} --stage {stage_id}"
+        )
+    if status in RECONCILE_STAGE_STATES:
+        return (
+            f"Stage {stage_id} is {status!r}: a request may have reached the API without a recorded "
+            f"response id, so the runner will not resubmit it. Check the OpenAI dashboard for a "
+            f"response with metadata stage_id={stage_id}. If one exists, record its id as the stage's "
+            f"response_id with status 'submitted' in {run_dir}/run_manifest.json and use resume; if "
+            f"none exists, set the stage status to 'failed_no_artifact' there and rerun with: {rerun}"
+        )
+    if status in PRE_SUBMISSION_STAGE_STATES | DEAD_END_STAGE_STATES:
+        cleanup = " (recover-uploads can delete files the abandoned attempt uploaded)" if status in {
+            StageStatus.UPLOADING.value, StageStatus.PREFLIGHT_PASSED.value
+        } else ""
+        return (
+            f"Stage {stage_id} is {status!r} and no response is pending for it. Rerun it as a new "
+            f"attempt with: {rerun}{cleanup}"
+        )
+    return f"Stage {stage_id} is {status!r}; there is nothing to run for it."
 
 
 def _stage_task_text(run_manifest: dict[str, Any], stage: StageDefinition) -> str:
@@ -663,6 +755,7 @@ def _gate_persist(
     stage: StageDefinition,
     stage_paths: dict[str, Path],
     stage_status: str,
+    lock_already_held: bool = False,
 ) -> None:
     summary = artifacts.find_stage_summary(run_manifest, stage.stage_id)
     response_json = (
@@ -677,8 +770,9 @@ def _gate_persist(
         stage=stage,
         stage_paths=stage_paths,
         stage_status=stage_status,
-        token_preflight={"status": "previously_completed", "attempts": 0},
+        token_preflight=None,
         response_json=response_json,
+        lock_already_held=lock_already_held,
     )
 
 
@@ -740,31 +834,41 @@ def _apply_stage_gate(
         input_manifest_markdown_path=stage_paths["input_manifest_md"],
         handoff_paths=_reviewed_handoff_paths(root, stage_paths),
         revision_of_attempt_id=current.get("revision_of_attempt_id"),
+        validator_report_path=(
+            stage_paths["validator_report"] if stage_paths["validator_report"].exists() else None
+        ),
     )
-    result = stage_reviewer.run_review(
-        root=root,
-        config=config,
-        job=job,
-        review_dir=stage_paths["review_dir"],
-        runner=review_runner,
-    )
-    if result.approved:
-        disposition, new_status = "approved", StageStatus.COMPLETED.value
-    elif _revision_count(summary) < config.max_revisions:
-        disposition, new_status = "revision_requested", StageStatus.REVISION_REQUESTED.value
-    else:
-        disposition, new_status = "blocked", StageStatus.WAITING_FOR_REVIEW.value
-    verdict = dict(result.verdict)
-    verdict["disposition"] = disposition
-    write_json(stage_paths["review_verdict"], verdict)
-    _gate_persist(
-        root=root,
-        run_dir=run_dir,
-        run_manifest=run_manifest,
-        stage=stage,
-        stage_paths=stage_paths,
-        stage_status=new_status,
-    )
+    # Hold the run lock for the whole review so a second invocation is refused
+    # instead of starting a duplicate reviewer and racing on the manifest.
+    try:
+        with run_lock(run_dir):
+            result = stage_reviewer.run_review(
+                root=root,
+                config=config,
+                job=job,
+                review_dir=stage_paths["review_dir"],
+                runner=review_runner,
+            )
+            if result.approved:
+                disposition, new_status = "approved", StageStatus.COMPLETED.value
+            elif _revision_count(summary) < config.max_revisions:
+                disposition, new_status = "revision_requested", StageStatus.REVISION_REQUESTED.value
+            else:
+                disposition, new_status = "blocked", StageStatus.WAITING_FOR_REVIEW.value
+            verdict = dict(result.verdict)
+            verdict["disposition"] = disposition
+            write_json(stage_paths["review_verdict"], verdict)
+            _gate_persist(
+                root=root,
+                run_dir=run_dir,
+                run_manifest=run_manifest,
+                stage=stage,
+                stage_paths=stage_paths,
+                stage_status=new_status,
+                lock_already_held=True,
+            )
+    except RunLockError as exc:
+        raise SystemExit(str(exc)) from exc
     print(
         f"REVIEW [{stage.stage_id}/{attempt_id}] {result.verdict['verdict']} -> {disposition} "
         f"({result.notes_path})",
@@ -801,6 +905,16 @@ def _apply_handoff_note(
                 and not artifacts.find_stage_summary(manifest, candidate.stage_id).get("handoff_note_path")
             ]
             if not waiting:
+                # A reviewed stage whose reviewer failed stays `completed` with its
+                # review pending; a human note approves it in place.
+                waiting = [
+                    candidate
+                    for candidate in workflow.stages
+                    if _stage_review_pending(
+                        candidate, artifacts.find_stage_summary(manifest, candidate.stage_id)
+                    )
+                ]
+            if not waiting:
                 already = [
                     candidate.stage_id
                     for candidate in workflow.stages
@@ -810,7 +924,10 @@ def _apply_handoff_note(
                     run_manifest.clear()
                     run_manifest.update(manifest)
                     return
-                raise SystemExit("No stage is waiting for a handoff note.")
+                raise SystemExit(
+                    "No stage is waiting for a handoff note (no stage is at a human gate, "
+                    "blocked after review, or completed with its review pending)."
+                )
             target = waiting[-1]
             summary = artifacts.find_stage_summary(manifest, target.stage_id)
             summary["handoff_note_path"] = note_rel
@@ -971,6 +1088,7 @@ def _token_preflight_state(
         except ApiError as exc:
             last_error = exc
             if exc.status_code in policy.retryable_http_status_codes and attempt < policy.max_retries:
+                time.sleep(min(2.0**attempt, 30.0))
                 continue
             # Without a configured budget the API's own context check is the only
             # limit that matters, so a counting-service outage may be bypassed.
@@ -1257,6 +1375,8 @@ def _record_attempt_start(
         "attempt_dir": relpath(root, stage_paths["attempt_dir"]),
         "local_state": StageStatus.STAGING_INPUTS.value,
         "created_at": runner_now().isoformat(),
+        # Lets a later invocation tell an abandoned pre-submission attempt from a live one.
+        "pid": os.getpid(),
     }
     if revision_of_attempt_id is not None:
         attempt_record["revision_of_attempt_id"] = revision_of_attempt_id
@@ -1506,6 +1626,7 @@ def run_workflow(
         reference_context=runtime.reference_context,
     )
     run_dir, run_manifest = _load_or_create_run_manifest(root=root, workflow=workflow, runtime=runtime)
+    print(f"RUN_DIR {relpath(root, run_dir)}", file=sys.stderr)
     current_stage: StageDefinition | None = None
     warnings: list[dict[str, Any]] = []
     stage_results: list[dict[str, Any]] = []
@@ -1582,12 +1703,18 @@ def run_workflow(
                             f"Stage {stage.stage_id} changed state before allocation: "
                             f"{summary.get('status')!r}."
                         )
+                    _refuse_if_attempt_is_live(stage.stage_id, summary)
                     revision_of_attempt_id = (
                         str(summary.get("current_attempt_id"))
                         if summary.get("status") == StageStatus.REVISION_REQUESTED.value
                         and summary.get("current_attempt_id")
                         else None
                     )
+                    if revision_of_attempt_id is None and summary.get("status") in RERUNNABLE_STAGE_STATES:
+                        # A revision that died before review keeps its reviewer context on rerun.
+                        abandoned = _current_attempt_record(summary) or {}
+                        if abandoned.get("revision_of_attempt_id"):
+                            revision_of_attempt_id = str(abandoned["revision_of_attempt_id"])
                     attempt_number, stage_paths = artifacts.allocate_stage_attempt(
                         run_dir,
                         stage.stage_number,
@@ -1955,12 +2082,19 @@ def run_workflow(
             poll_wall_ms = 0
             if runtime.wait and str(response_json.get("status")) not in TERMINAL_RESPONSE_STATUSES:
                 poll_started = time.monotonic()
-                response_json = client.wait_for_terminal_response(
-                    str(response_json["id"]),
-                    poll_interval=runtime.poll_interval,
-                    max_wait_seconds=runtime.max_wait_seconds,
-                    checkpoint_callback=lambda polled: artifacts.write_response_latest(stage_paths, polled),
-                )
+                try:
+                    response_json = client.wait_for_terminal_response(
+                        str(response_json["id"]),
+                        poll_interval=runtime.poll_interval,
+                        max_wait_seconds=runtime.max_wait_seconds,
+                        checkpoint_callback=lambda polled: artifacts.write_response_latest(stage_paths, polled),
+                    )
+                except ApiError as exc:
+                    raise SystemExit(
+                        f"Stage {stage.stage_id} was submitted as {response_json.get('id')} but waiting "
+                        f"failed: {exc}. The response keeps running remotely; continue with: "
+                        f"resume --root <root> --run-dir {relpath(root, run_dir)} --stage {stage.stage_id}"
+                    ) from exc
                 poll_wall_ms = int((time.monotonic() - poll_started) * 1000)
                 artifacts.write_response_latest(stage_paths, response_json)
 

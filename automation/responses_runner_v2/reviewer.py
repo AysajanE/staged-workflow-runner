@@ -112,10 +112,11 @@ def build_review_job(
     input_manifest_markdown_path: Path,
     handoff_paths: list[Path],
     revision_of_attempt_id: str | None,
+    validator_report_path: Path | None = None,
 ) -> dict[str, Any]:
     """The exact, bounded input the reviewer sees."""
 
-    return {
+    job = {
         "schema_version": "responses_runner_v2.stage_review_job.v1",
         "workflow_id": workflow_id,
         "run_id": run_id,
@@ -129,6 +130,30 @@ def build_review_job(
         "handoff_paths": [relpath(root, path) for path in handoff_paths],
         "output_schema": REVIEW_VERDICT_SCHEMA_FILENAME,
     }
+    if validator_report_path is not None:
+        job["validator_report_path"] = relpath(root, validator_report_path)
+    return job
+
+
+def retry_guidance(root: Path, review_dir: Path) -> str:
+    """Exact continuation for a stage left `completed` with its review pending."""
+
+    run_dir = relpath(root, review_dir.parents[3])
+    return (
+        "The stage stays completed with its review pending. Retry the review with the same "
+        f"command plus --run-dir {run_dir}; to accept the artifact without a reviewer, add "
+        "--handoff-note <note.md> or --reviewer none to that command. A `run` without "
+        "--run-dir starts a NEW run and resubmits the stage at full cost."
+    )
+
+
+def reviewer_read_artifact(job: dict[str, Any], stdout: str, stderr: str) -> bool:
+    """Whether the reviewer transcript shows the artifact being opened."""
+
+    artifact = str(job["artifact_path"])
+    tail = "/".join(Path(artifact).parts[-2:])
+    transcript = stdout + "\n" + stderr
+    return artifact in transcript or tail in transcript
 
 
 def compose_prompt(job: dict[str, Any]) -> str:
@@ -401,13 +426,24 @@ def run_review(
     }
     invocation_path = review_dir / f"invocation_{stamp}.json"
     write_json(invocation_path, invocation)
+    guidance = retry_guidance(root, review_dir)
     if exit_code != 0:
         raise ReviewError(
             f"Reviewer {config.reviewer} exited with code {exit_code}; see "
-            f"{relpath(root, stderr_path)}. The stage stays completed with its review pending; "
-            "run again to retry the review or supply --handoff-note to approve it yourself."
+            f"{relpath(root, stderr_path)}. {guidance}"
         )
-    verdict = normalize_verdict(extract_verdict(stdout))
+    try:
+        verdict = normalize_verdict(extract_verdict(stdout))
+    except ReviewError as exc:
+        raise ReviewError(f"{exc} See {relpath(root, stdout_path)}. {guidance}") from exc
+    if config.reviewer == "codex" and not reviewer_read_artifact(job, stdout, stderr):
+        # A schema-valid verdict from a reviewer that never opened the artifact
+        # (for example a planning message emitted before ending the turn) is not a review.
+        raise ReviewError(
+            f"Reviewer {config.reviewer} returned a verdict but its transcript never opened "
+            f"{job['artifact_path']}; the verdict was not accepted. See "
+            f"{relpath(root, stderr_path)}. {guidance}"
+        )
     verdict_path = review_dir / "verdict.json"
     notes_path = review_dir / "reviewer_notes.md"
     verdict_record = {

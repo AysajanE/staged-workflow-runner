@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import tempfile
 import unittest
@@ -118,10 +119,15 @@ class ScriptedReviewer:
         verdict = self.verdicts.pop(0)
         if verdict == "crash":
             return SimpleNamespace(returncode=1, stdout="", stderr="reviewer exploded")
+        if verdict == "unread":
+            # A schema-valid verdict from a reviewer that never opened the artifact.
+            return SimpleNamespace(returncode=0, stdout=json.dumps(APPROVE), stderr="codex: planning")
+        artifact = re.search(r'"artifact_path": "([^"]+)"', input_text)
+        opened = artifact.group(1) if artifact else "artifact.md"
         return SimpleNamespace(
             returncode=0,
             stdout=json.dumps(verdict),
-            stderr="codex: tokens used: 1,234",
+            stderr=f"exec bash -lc 'cat {opened}'\ncodex: tokens used: 1,234",
         )
 
 
@@ -611,3 +617,209 @@ class ReviewedGateCliTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class IncompleteFirstClient(ChainClient):
+    """The first submission ends `incomplete` (output limit); later ones complete."""
+
+    def create_response(self, payload):
+        response = super().create_response(payload)
+        if len(self.create_requests) == 1:
+            response = dict(response)
+            response["status"] = "incomplete"
+            response["incomplete_details"] = {"reason": "max_output_tokens"}
+        return response
+
+
+class LiveRunHardeningTests(unittest.TestCase):
+    """Recovery paths that a paid run can hit: dead ends, crashes, reviewer failures."""
+
+    def _run_dir_under(self, output_root: Path) -> Path:
+        manifest = next(output_root.glob("*/run_manifest.json"))
+        return manifest.parent.relative_to(ROOT)
+
+    def test_incomplete_stage_is_a_dead_end_that_reruns_only_with_explicit_stage(self) -> None:
+        with tempfile.TemporaryDirectory(dir=ROOT) as tmp:
+            tmp_path = Path(tmp)
+            workflow_path = _make_pack(tmp_path)
+            client = IncompleteFirstClient()
+            first = _run(workflow_path, tmp_path / "runs", client=client, review_runner=ScriptedReviewer([]))
+            proposal = _summary(_manifest(first), "proposal")
+            self.assertEqual(proposal["status"], "incomplete")
+            self.assertEqual(_manifest(first)["status"], "failed")
+            with self.assertRaisesRegex(SystemExit, "--stage proposal"):
+                _run(workflow_path, tmp_path / "runs", client=client, run_dir=first["run_dir"])
+            rerun = _run(
+                workflow_path,
+                tmp_path / "runs",
+                client=client,
+                review_runner=ScriptedReviewer([APPROVE]),
+                run_dir=first["run_dir"],
+                stage_id="proposal",
+            )
+            proposal = _summary(_manifest(rerun), "proposal")
+        self.assertEqual(proposal["status"], "completed")
+        self.assertEqual(proposal["review_status"], "approved")
+        self.assertEqual([a["attempt_id"] for a in proposal["attempts"]], ["attempt_001", "attempt_002"])
+        self.assertIsNone(proposal["attempts"][1].get("revision_of_attempt_id"))
+
+    def test_pre_submission_crash_leaves_a_rerunnable_stage(self) -> None:
+        with tempfile.TemporaryDirectory(dir=ROOT) as tmp:
+            tmp_path = Path(tmp)
+            workflow_path = _make_pack(tmp_path)
+            client = ChainClient()
+            with mock.patch(
+                "automation.responses_runner_v2.workflow._build_stage_runtime_manifest",
+                side_effect=RuntimeError("disk vanished"),
+            ):
+                with self.assertRaises(RuntimeError):
+                    _run(workflow_path, tmp_path / "runs", client=client)
+            run_dir = self._run_dir_under(tmp_path / "runs")
+            manifest = artifacts.load_run_manifest(ROOT, ROOT / run_dir)
+            self.assertEqual(_summary(manifest, "proposal")["status"], "staging_inputs")
+            with self.assertRaisesRegex(SystemExit, "no response is pending.*--stage proposal"):
+                _run(workflow_path, tmp_path / "runs", client=client, run_dir=run_dir)
+            # While the crashed attempt's process is still alive the rerun is refused ...
+            with self.assertRaisesRegex(SystemExit, "live runner process"):
+                _run(workflow_path, tmp_path / "runs", client=client, run_dir=run_dir, stage_id="proposal")
+            # ... and once it is gone the stage reruns as a new attempt.
+            with mock.patch("automation.responses_runner_v2.workflow._attempt_owner_alive", return_value=None):
+                rerun = _run(
+                    workflow_path,
+                    tmp_path / "runs",
+                    client=client,
+                    review_runner=ScriptedReviewer([APPROVE]),
+                    run_dir=run_dir,
+                    stage_id="proposal",
+                )
+            proposal = _summary(_manifest(rerun), "proposal")
+        self.assertEqual(proposal["status"], "completed")
+        self.assertEqual(len(proposal["attempts"]), 2)
+        self.assertEqual(client.create_requests[0]["metadata"]["stage_id"], "proposal")
+
+    def test_reviewer_failure_names_the_run_dir_and_a_note_approves_in_place(self) -> None:
+        with tempfile.TemporaryDirectory(dir=ROOT) as tmp:
+            tmp_path = Path(tmp)
+            workflow_path = _make_pack(tmp_path)
+            client = ChainClient()
+            with self.assertRaisesRegex(SystemExit, r"--run-dir .*runs/.*reviewed-chain") as ctx:
+                _run(workflow_path, tmp_path / "runs", client=client, review_runner=ScriptedReviewer(["crash"]))
+            self.assertIn("NEW run", str(ctx.exception))
+            run_dir = self._run_dir_under(tmp_path / "runs")
+            pending = _summary(artifacts.load_run_manifest(ROOT, ROOT / run_dir), "proposal")
+            self.assertEqual(pending["status"], "completed")
+            self.assertNotIn("review_status", pending)
+            note = tmp_path / "approve.md"
+            note.write_text("Read it myself; proceed.\n", encoding="utf-8")
+            runner = ScriptedReviewer([APPROVE])
+            done = _run(
+                workflow_path,
+                tmp_path / "runs",
+                client=client,
+                review_runner=runner,
+                run_dir=run_dir,
+                handoff_note=note.relative_to(ROOT).as_posix(),
+            )
+            manifest = _manifest(done)
+            proposal = _summary(manifest, "proposal")
+            handoffs = _handoff_paths(_attempt_dir(_summary(manifest, "revision")))
+        self.assertEqual(manifest["status"], "completed")
+        self.assertEqual(proposal["review_status"], "human_approved")
+        self.assertEqual(proposal["handoff_note_path"], note.relative_to(ROOT).as_posix())
+        self.assertIn(note.relative_to(ROOT).as_posix(), handoffs)
+        self.assertEqual(len(runner.calls), 1)
+        self.assertEqual(len(client.create_requests), 3)
+
+    def test_failed_revision_attempt_keeps_its_reviewer_context_on_rerun(self) -> None:
+        original = run_workflow.__globals__["_revision_handoff_entries"]
+        tripped = {"done": False}
+
+        def flaky(**kwargs):
+            # Fail the first attempt that really is a revision, not the plain first draft.
+            entries = original(**kwargs)
+            if entries and not tripped["done"]:
+                tripped["done"] = True
+                raise SystemExit("attachment host unreachable")
+            return entries
+
+        with tempfile.TemporaryDirectory(dir=ROOT) as tmp:
+            tmp_path = Path(tmp)
+            workflow_path = _make_pack(tmp_path)
+            client = ChainClient()
+            with mock.patch("automation.responses_runner_v2.workflow._revision_handoff_entries", side_effect=flaky):
+                with self.assertRaisesRegex(SystemExit, "attachment host unreachable"):
+                    _run(workflow_path, tmp_path / "runs", client=client, review_runner=ScriptedReviewer([REVISE]))
+            run_dir = self._run_dir_under(tmp_path / "runs")
+            stuck = _summary(artifacts.load_run_manifest(ROOT, ROOT / run_dir), "proposal")
+            self.assertEqual(stuck["status"], "staging_inputs")
+            self.assertEqual(stuck["attempts"][-1]["revision_of_attempt_id"], "attempt_001")
+            runner = ScriptedReviewer([APPROVE])
+            with mock.patch("automation.responses_runner_v2.workflow._attempt_owner_alive", return_value=None):
+                rerun = _run(
+                    workflow_path,
+                    tmp_path / "runs",
+                    client=client,
+                    review_runner=runner,
+                    run_dir=run_dir,
+                    stage_id="proposal",
+                )
+            proposal = _summary(_manifest(rerun), "proposal")
+            artifact = (ROOT / proposal["artifact_markdown_path"]).read_text(encoding="utf-8")
+        self.assertEqual([a["attempt_id"] for a in proposal["attempts"]], ["attempt_001", "attempt_002", "attempt_003"])
+        self.assertEqual(proposal["attempts"][2]["revision_of_attempt_id"], "attempt_001")
+        self.assertIn("(revised)", artifact)
+        self.assertEqual(proposal["review_status"], "approved")
+        self.assertIn('"revision_of_attempt_id": "attempt_001"', runner.calls[0]["input_text"])
+
+    def test_verdict_from_a_reviewer_that_never_opened_the_artifact_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory(dir=ROOT) as tmp:
+            tmp_path = Path(tmp)
+            workflow_path = _make_pack(tmp_path)
+            with self.assertRaisesRegex(SystemExit, "never opened"):
+                _run(workflow_path, tmp_path / "runs", client=ChainClient(), review_runner=ScriptedReviewer(["unread"]))
+            run_dir = self._run_dir_under(tmp_path / "runs")
+            pending = _summary(artifacts.load_run_manifest(ROOT, ROOT / run_dir), "proposal")
+        self.assertEqual(pending["status"], "completed")
+        self.assertNotIn("review_status", pending)
+
+    def test_gate_keeps_the_measured_token_preflight(self) -> None:
+        with tempfile.TemporaryDirectory(dir=ROOT) as tmp:
+            tmp_path = Path(tmp)
+            workflow_path = _make_pack(tmp_path)
+            done = _run(
+                workflow_path, tmp_path / "runs", client=ChainClient(), review_runner=ScriptedReviewer([APPROVE, APPROVE])
+            )
+            proposal = _summary(_manifest(done), "proposal")
+        self.assertEqual(proposal["review_status"], "approved")
+        self.assertEqual(proposal["token_preflight"]["status"], "succeeded")
+        self.assertEqual(proposal["token_preflight"]["input_tokens"], 123)
+
+    def test_polling_survives_transient_retrieve_failures(self) -> None:
+        from automation.responses_runner_v2.openai_client import ApiError, OpenAIClient
+
+        client = OpenAIClient.__new__(OpenAIClient)
+        answers = [ApiError("gateway", status_code=503), ApiError("socket reset"), {"id": "r", "status": "completed"}]
+        with mock.patch.object(OpenAIClient, "retrieve_response", side_effect=answers):
+            result = client.wait_for_terminal_response("r", poll_interval=0, max_wait_seconds=60)
+        self.assertEqual(result["status"], "completed")
+        with mock.patch.object(OpenAIClient, "retrieve_response", side_effect=[ApiError("gone", status_code=404)]):
+            with self.assertRaisesRegex(ApiError, "gone"):
+                client.wait_for_terminal_response("r", poll_interval=0, max_wait_seconds=60)
+
+    def test_cli_reports_failed_outcomes_with_a_non_zero_code(self) -> None:
+        with tempfile.TemporaryDirectory(dir=ROOT) as tmp:
+            manifest_path = Path(tmp) / "run_manifest.json"
+            rel = manifest_path.relative_to(ROOT).as_posix()
+            base = {"stage_order": ["s1"], "current_stage_id": "s1"}
+            manifest_path.write_text(
+                json.dumps({**base, "status": "failed", "stages": [{"stage_id": "s1", "status": "incomplete"}]}),
+                encoding="utf-8",
+            )
+            failed = run_responses_v2._report_outcome(ROOT, {"run_manifest_path": rel, "stage_id": "s1", "run_dir": "r"})
+            manifest_path.write_text(
+                json.dumps({**base, "status": "completed", "stages": [{"stage_id": "s1", "status": "completed"}]}),
+                encoding="utf-8",
+            )
+            ok = run_responses_v2._report_outcome(ROOT, {"run_manifest_path": rel, "stage_id": "s1", "run_dir": "r"})
+        self.assertEqual(failed, 2)
+        self.assertEqual(ok, 0)

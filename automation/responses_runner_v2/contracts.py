@@ -325,9 +325,11 @@ class StageStatus(str, Enum):
 
 ALLOWED_STAGE_TRANSITIONS: dict[str, frozenset[str]] = {
     "prepared": frozenset({"staging_inputs"}),
-    "staging_inputs": frozenset({"uploading", "blocked_preflight", "failed_no_artifact"}),
-    "uploading": frozenset({"preflight_passed", "blocked_preflight", "failed_no_artifact"}),
-    "preflight_passed": frozenset({"submitting"}),
+    # Pre-submission states may be abandoned by a crash; an explicit `--stage`
+    # rerun allocates a fresh attempt that starts again from staging_inputs.
+    "staging_inputs": frozenset({"uploading", "blocked_preflight", "failed_no_artifact", "staging_inputs"}),
+    "uploading": frozenset({"preflight_passed", "blocked_preflight", "failed_no_artifact", "staging_inputs"}),
+    "preflight_passed": frozenset({"submitting", "staging_inputs"}),
     "submitting": frozenset({"submitted", "submission_outcome_unknown", "failed_no_artifact"}),
     "submitted": frozenset({"in_progress", "remote_terminal_pending_finalization", "cancelling"}),
     "in_progress": frozenset({"remote_terminal_pending_finalization", "cancelling"}),
@@ -341,10 +343,11 @@ ALLOWED_STAGE_TRANSITIONS: dict[str, frozenset[str]] = {
     "waiting_for_review": frozenset(),
     "completed": frozenset({"revision_requested", "waiting_for_review"}),
     "revision_requested": frozenset({"staging_inputs"}),
-    "failed_complete": frozenset(),
+    # Dead-end outcomes are rerunnable as a new attempt with an explicit `--stage`.
+    "failed_complete": frozenset({"staging_inputs"}),
     "failed_no_artifact": frozenset({"staging_inputs"}),
-    "cancelled": frozenset(),
-    "incomplete": frozenset(),
+    "cancelled": frozenset({"staging_inputs"}),
+    "incomplete": frozenset({"staging_inputs"}),
 }
 
 
