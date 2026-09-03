@@ -4,115 +4,323 @@
   "type": "object",
   "additionalProperties": false,
   "required": [
-    "schema_version", "run_id", "run_name", "workflow_id",
-    "workflow_manifest_path", "workflow_manifest_sha256", "workflow_asset_set_hash",
-    "run_contract_path", "run_contract_sha256", "assurance_profile", "revision",
-    "run_dir", "started_at", "updated_at", "status", "stage_order", "stages"
+    "schema_version",
+    "run_id",
+    "run_name",
+    "workflow_id",
+    "workflow_manifest_path",
+    "workflow_manifest_sha256",
+    "assurance_profile",
+    "revision",
+    "run_dir",
+    "started_at",
+    "updated_at",
+    "status",
+    "stage_order",
+    "stages"
   ],
   "properties": {
-    "schema_version": {"const": "responses_runner_v2.run_manifest.v2"},
-    "run_id": {"$ref": "#/$defs/id"},
-    "run_name": {"type": "string", "minLength": 1},
-    "workflow_id": {"$ref": "#/$defs/id"},
-    "workflow_manifest_path": {"$ref": "#/$defs/path"},
-    "workflow_manifest_sha256": {"$ref": "#/$defs/hash"},
-    "workflow_asset_set_hash": {"$ref": "#/$defs/hash"},
-    "run_contract_path": {"$ref": "#/$defs/path"},
-    "run_contract_sha256": {"$ref": "#/$defs/hash"},
-    "assurance_profile": {"enum": ["critical", "reviewed", "standard", "fast"]},
-    "revision": {"type": "integer", "minimum": 1},
-    "run_dir": {"$ref": "#/$defs/path"},
-    "started_at": {"type": "string", "format": "date-time"},
-    "updated_at": {"type": "string", "format": "date-time"},
-    "status": {
+    "schema_version": {
+      "const": "responses_runner_v2.run_manifest.v2"
+    },
+    "run_id": {
+      "$ref": "#/$defs/id"
+    },
+    "run_name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "workflow_id": {
+      "$ref": "#/$defs/id"
+    },
+    "workflow_manifest_path": {
+      "$ref": "#/$defs/path"
+    },
+    "workflow_manifest_sha256": {
+      "$ref": "#/$defs/hash"
+    },
+    "assurance_profile": {
       "enum": [
-        "created", "running", "submission_outcome_unknown", "pending_finalization",
-        "waiting_for_review", "completed", "failed", "cancelled", "blocked"
+        "critical",
+        "reviewed",
+        "standard",
+        "fast"
       ]
     },
-    "current_stage_id": {"$ref": "#/$defs/id"},
-    "stage_order": {
-      "type": "array", "minItems": 1, "uniqueItems": true,
-      "items": {"$ref": "#/$defs/id"}
+    "revision": {
+      "type": "integer",
+      "minimum": 1
     },
-    "operator_overrides": {"type": "object"},
+    "run_dir": {
+      "$ref": "#/$defs/path"
+    },
+    "started_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "updated_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "status": {
+      "enum": [
+        "created",
+        "running",
+        "submission_outcome_unknown",
+        "pending_finalization",
+        "waiting_for_review",
+        "completed",
+        "failed",
+        "cancelled",
+        "blocked"
+      ]
+    },
+    "current_stage_id": {
+      "$ref": "#/$defs/id"
+    },
+    "stage_order": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/id"
+      }
+    },
+    "operator_overrides": {
+      "type": "object"
+    },
     "stages": {
-      "type": "array", "minItems": 1,
-      "items": {"$ref": "#/$defs/stage"}
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/stage"
+      }
     }
   },
   "$defs": {
-    "id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{0,127}$"},
-    "path": {"type": "string", "minLength": 1},
-    "hash": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9._-]{0,127}$"
+    },
+    "path": {
+      "type": "string",
+      "minLength": 1
+    },
+    "hash": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
     "localState": {
       "enum": [
-        "prepared", "staging_inputs", "uploading", "preflight_passed", "submitting",
-        "submission_outcome_unknown", "submitted", "in_progress",
-        "remote_terminal_pending_finalization", "finalized", "waiting_for_review",
-        "completed", "failed", "failed_complete", "failed_no_artifact", "cancelled",
-        "cancelling", "incomplete", "blocked", "blocked_preflight", "revision_requested"
+        "prepared",
+        "staging_inputs",
+        "uploading",
+        "preflight_passed",
+        "submitting",
+        "submission_outcome_unknown",
+        "submitted",
+        "in_progress",
+        "remote_terminal_pending_finalization",
+        "finalized",
+        "waiting_for_review",
+        "completed",
+        "failed",
+        "failed_complete",
+        "failed_no_artifact",
+        "cancelled",
+        "cancelling",
+        "incomplete",
+        "blocked",
+        "blocked_preflight",
+        "revision_requested"
       ]
     },
     "remoteState": {
-      "enum": ["queued", "in_progress", "completed", "failed", "cancelled", "incomplete", "unknown"]
+      "enum": [
+        "queued",
+        "in_progress",
+        "completed",
+        "failed",
+        "cancelled",
+        "incomplete",
+        "unknown"
+      ]
     },
     "attempt": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["attempt_id", "attempt_number", "attempt_dir", "local_state", "created_at"],
+      "required": [
+        "attempt_id",
+        "attempt_number",
+        "attempt_dir",
+        "local_state",
+        "created_at"
+      ],
       "properties": {
-        "attempt_id": {"type": "string", "pattern": "^attempt_[0-9]{3,}$"},
-        "attempt_number": {"type": "integer", "minimum": 1},
-        "attempt_dir": {"$ref": "#/$defs/path"},
-        "local_state": {"$ref": "#/$defs/localState"},
-        "created_at": {"type": "string", "format": "date-time"},
-        "request_sha256": {"$ref": "#/$defs/hash"},
-        "submission_intent_path": {"$ref": "#/$defs/path"},
-        "checkpoint_path": {"$ref": "#/$defs/path"},
-        "checkpoint_sha256": {"$ref": "#/$defs/hash"},
-        "response_id": {"type": ["string", "null"]},
-        "remote_status": {"type": ["string", "null"]},
-        "revision_of_attempt_id": {"type": "string", "pattern": "^attempt_[0-9]{3,}$"}
+        "attempt_id": {
+          "type": "string",
+          "pattern": "^attempt_[0-9]{3,}$"
+        },
+        "attempt_number": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "attempt_dir": {
+          "$ref": "#/$defs/path"
+        },
+        "local_state": {
+          "$ref": "#/$defs/localState"
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "request_sha256": {
+          "$ref": "#/$defs/hash"
+        },
+        "response_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "remote_status": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "revision_of_attempt_id": {
+          "type": "string",
+          "pattern": "^attempt_[0-9]{3,}$"
+        },
+        "request_wall_ms": {
+          "type": "integer",
+          "minimum": 0
+        }
       }
     },
     "stage": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["stage_id", "stage_number", "gate", "stage_dir", "status"],
+      "required": [
+        "stage_id",
+        "stage_number",
+        "gate",
+        "stage_dir",
+        "status"
+      ],
       "properties": {
-        "stage_id": {"$ref": "#/$defs/id"},
-        "stage_number": {"type": "integer", "minimum": 1},
-        "gate": {"enum": ["auto", "review_required", "reviewed", "human", "terminal"]},
-        "stage_dir": {"$ref": "#/$defs/path"},
-        "status": {"$ref": "#/$defs/localState"},
-        "local_state": {"$ref": "#/$defs/localState"},
-        "current_attempt_id": {"type": "string", "pattern": "^attempt_[0-9]{3,}$"},
-        "attempts": {"type": "array", "items": {"$ref": "#/$defs/attempt"}},
-        "request_sha256": {"$ref": "#/$defs/hash"},
-        "response_id": {"type": "string", "minLength": 1},
-        "response_status": {"type": "string", "minLength": 1},
-        "remote_status": {"type": "string", "minLength": 1},
-        "checkpoint_path": {"$ref": "#/$defs/path"},
-        "checkpoint_sha256": {"$ref": "#/$defs/hash"},
-        "input_manifest_json_path": {"$ref": "#/$defs/path"},
-        "artifact_markdown_path": {"$ref": "#/$defs/path"},
-        "artifact_markdown_sha256": {"$ref": "#/$defs/hash"},
-        "response_json_path": {"$ref": "#/$defs/path"},
-        "response_json_sha256": {"$ref": "#/$defs/hash"},
-        "structured_output_path": {"$ref": "#/$defs/path"},
-        "structured_output_sha256": {"$ref": "#/$defs/hash"},
-        "token_preflight_path": {"$ref": "#/$defs/path"},
-        "validator_report_path": {"$ref": "#/$defs/path"},
-        "validators_passed": {"type": "boolean"},
-        "review_status": {
-          "enum": ["approved", "revision_requested", "blocked", "human_approved", "not_required"]
+        "stage_id": {
+          "$ref": "#/$defs/id"
         },
-        "review_verdict_path": {"$ref": "#/$defs/path"},
-        "reviewer_notes_path": {"$ref": "#/$defs/path"},
-        "handoff_note_path": {"$ref": "#/$defs/path"},
-        "review_approved": {"type": "boolean"},
-        "approved_from_status": {"$ref": "#/$defs/localState"}
+        "stage_number": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "gate": {
+          "enum": [
+            "auto",
+            "review_required",
+            "reviewed",
+            "human",
+            "terminal"
+          ]
+        },
+        "stage_dir": {
+          "$ref": "#/$defs/path"
+        },
+        "status": {
+          "$ref": "#/$defs/localState"
+        },
+        "local_state": {
+          "$ref": "#/$defs/localState"
+        },
+        "current_attempt_id": {
+          "type": "string",
+          "pattern": "^attempt_[0-9]{3,}$"
+        },
+        "attempts": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/attempt"
+          }
+        },
+        "request_sha256": {
+          "$ref": "#/$defs/hash"
+        },
+        "response_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "response_status": {
+          "type": "string",
+          "minLength": 1
+        },
+        "remote_status": {
+          "type": "string",
+          "minLength": 1
+        },
+        "input_manifest_json_path": {
+          "$ref": "#/$defs/path"
+        },
+        "artifact_markdown_path": {
+          "$ref": "#/$defs/path"
+        },
+        "artifact_markdown_sha256": {
+          "$ref": "#/$defs/hash"
+        },
+        "response_json_path": {
+          "$ref": "#/$defs/path"
+        },
+        "response_json_sha256": {
+          "$ref": "#/$defs/hash"
+        },
+        "structured_output_path": {
+          "$ref": "#/$defs/path"
+        },
+        "structured_output_sha256": {
+          "$ref": "#/$defs/hash"
+        },
+        "token_preflight_path": {
+          "$ref": "#/$defs/path"
+        },
+        "validator_report_path": {
+          "$ref": "#/$defs/path"
+        },
+        "validators_passed": {
+          "type": "boolean"
+        },
+        "review_status": {
+          "enum": [
+            "approved",
+            "revision_requested",
+            "blocked",
+            "human_approved",
+            "not_required"
+          ]
+        },
+        "review_verdict_path": {
+          "$ref": "#/$defs/path"
+        },
+        "reviewer_notes_path": {
+          "$ref": "#/$defs/path"
+        },
+        "handoff_note_path": {
+          "$ref": "#/$defs/path"
+        },
+        "review_approved": {
+          "type": "boolean"
+        },
+        "approved_from_status": {
+          "$ref": "#/$defs/localState"
+        },
+        "token_preflight": {
+          "type": "object"
+        },
+        "dry_run_dir": {
+          "$ref": "#/$defs/path"
+        }
       }
     }
   }

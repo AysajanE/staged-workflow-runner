@@ -8,7 +8,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from automation.responses_runner_v2 import attachments, request_plan, validators
+from automation.responses_runner_v2 import attachments, validators
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -301,109 +301,7 @@ class AttachmentSafetyTests(unittest.TestCase):
         self.assertEqual(client.calls, [])
 
 
-class TelemetryAndPlanningTests(unittest.TestCase):
-    def test_request_plan_uses_hash_handles_duplicates_and_conservative_budget(self) -> None:
-        digest = hashlib.sha256(b"same").hexdigest()
-        symbolic_id = request_plan.symbolic_file_handle(digest)
-        symbolic_request = {
-            "model": "gpt-5.6",
-            "input": [
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "input_file", "file_id": symbolic_id},
-                        {"type": "input_file", "file_id": symbolic_id},
-                    ],
-                }
-            ],
-        }
-        plan = request_plan.build_request_plan(
-            text_parts=["abc"],
-            files=[
-                {"path": "a.md", "sha256": digest, "bytes": 10, "authority": "primary"},
-                {"path": "b.md", "sha256": digest, "bytes": 10, "authority": "reference"},
-            ],
-            context_window=40,
-            max_output_tokens=5,
-            safety_margin_tokens=5,
-            data_handling_policy={
-                "sensitivity": "internal",
-                "retain_raw_request": True,
-                "retain_raw_response": True,
-                "retain_reviewer_output": False,
-                "retain_reasoning_summary": False,
-                "api_store_allowed": True,
-                "file_purpose": "user_data",
-                "delete_uploaded_files_on_complete": False,
-            },
-            request_store=True,
-            file_purpose="user_data",
-            delete_uploaded_files_on_complete=False,
-            symbolic_request_payload=symbolic_request,
-        )
-        self.assertEqual(plan["files"][0]["symbolic_file_id"], plan["files"][1]["symbolic_file_id"])
-        self.assertEqual(plan["estimate"]["estimated_input_tokens"], 23)
-        self.assertTrue(plan["estimate"]["fits_context"])
-        self.assertEqual(len(plan["duplicate_content_across_authorities"]), 1)
-        self.assertEqual(plan["data_handling"]["status"], "passed")
-        materialized = request_plan.materialize_request_payload(
-            symbolic_request,
-            ["file_provider_a", "file_provider_b"],
-        )
-        self.assertEqual(
-            request_plan.verify_materialized_request(plan, materialized),
-            symbolic_request,
-        )
-        with self.assertRaisesRegex(ValueError, "beyond provider file IDs"):
-            request_plan.verify_materialized_request(
-                plan,
-                {**materialized, "model": "gpt-5.5"},
-            )
-        self.assertEqual(
-            plan["normalized_request_sha256"],
-            request_plan.normalized_request_sha256(symbolic_request),
-        )
-        self._validate_schema("request_plan.schema.json", plan)
-
-    def test_request_plan_rejects_profile_disallowed_remote_retention(self) -> None:
-        with self.assertRaisesRegex(ValueError, "uploaded-file deletion"):
-            request_plan.build_request_plan(
-                text_parts=["brief"],
-                files=[],
-                context_window=100,
-                max_output_tokens=10,
-                data_handling_policy={
-                    "sensitivity": "internal",
-                    "api_store_allowed": True,
-                    "file_purpose": "user_data",
-                    "delete_uploaded_files_on_complete": True,
-                },
-                request_store=True,
-                file_purpose="user_data",
-                delete_uploaded_files_on_complete=False,
-            )
-
-    def _validate_schema(self, name: str, payload: dict) -> None:
-        schema_path = ROOT / "automation/responses_runner_v2/schemas" / name
-        schema = json.loads(schema_path.read_text(encoding="utf-8"))
-        self.assertEqual(schema["$schema"], "https://json-schema.org/draft/2020-12/schema")
-        if importlib.util.find_spec("jsonschema") is None:
-            return
-        import jsonschema
-
-        jsonschema.Draft202012Validator(schema).validate(payload)
-
-
 class ValidatorTests(unittest.TestCase):
-    def test_commonmark_fence_lint_accepts_longer_close_and_rejects_actual_nested_error(self) -> None:
-        self.assertEqual(
-            validators.validate_commonmark_fences("````text\nbody\n`````\n"),
-            [],
-        )
-        malformed = "```text\nouter\n````python\nbody\n`````\n```\n"
-        violations = validators.validate_commonmark_fences(malformed)
-        self.assertEqual([item["rule_id"] for item in violations], ["markdown.unclosed_fence"])
-
     def test_evidence_reference_validator_resolves_typed_hash_bound_sources_only(self) -> None:
         with tempfile.TemporaryDirectory(dir=ROOT) as tmp:
             base = Path(tmp)
@@ -430,15 +328,8 @@ class ValidatorTests(unittest.TestCase):
                                 "artifact_markdown_sha256": prior_hash,
                             },
                             {"stage_id": "current"},
-                        ]
-                    }
-                ),
-                encoding="utf-8",
-            )
-            (run_dir / "run_contract.json").write_text(
-                json.dumps(
-                    {
-                        "effective_runtime": {
+                        ],
+                        "operator_overrides": {
                             "input_bindings": [
                                 {
                                     "binding_id": "question",
@@ -446,7 +337,7 @@ class ValidatorTests(unittest.TestCase):
                                     "stage_ids": ["current"],
                                 }
                             ]
-                        }
+                        },
                     }
                 ),
                 encoding="utf-8",
@@ -509,33 +400,6 @@ class ValidatorTests(unittest.TestCase):
                 {item["rule_id"] for item in failed["violations"]},
                 {"citation.hash", "citation.manifest_member"},
             )
-
-    def test_markdown_playbook_validator_passes_valid_artifact_and_matches_schema(self) -> None:
-        with tempfile.TemporaryDirectory(dir=ROOT) as tmp:
-            artifact = Path(tmp) / "delivery.playbook.md"
-            artifact.write_text(_valid_playbook(), encoding="utf-8")
-            result = validators.run_validator("markdown_playbook_v1", artifact, root=ROOT)
-            self.assertTrue(result["passed"], result["violations"])
-            schema = json.loads(
-                (ROOT / "automation/responses_runner_v2/schemas/validator_result.schema.json").read_text(
-                    encoding="utf-8"
-                )
-            )
-            self.assertEqual(schema["$schema"], "https://json-schema.org/draft/2020-12/schema")
-            if importlib.util.find_spec("jsonschema") is None:
-                return
-            import jsonschema
-
-            jsonschema.Draft202012Validator(schema).validate(result)
-
-    def test_markdown_playbook_validator_catches_contract_failures(self) -> None:
-        invalid = _valid_playbook().replace("| src | true |", "| . | maybe |")
-        invalid = invalid.replace("Implement change", r"Implement \| change")
-        violations = validators.validate_markdown_playbook_v1(invalid)
-        rule_ids = {item["rule_id"] for item in violations}
-        self.assertIn("execution_table.cell_pipe", rule_ids)
-        self.assertIn("allowed_write_roots.safe_path", rule_ids)
-        self.assertIn("requires_red_green.boolean", rule_ids)
 
     def test_validator_registry_rejects_untrusted_ids(self) -> None:
         with tempfile.TemporaryDirectory(dir=ROOT) as tmp:

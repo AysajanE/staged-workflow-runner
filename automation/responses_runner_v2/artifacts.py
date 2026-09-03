@@ -9,7 +9,6 @@ from typing import Any
 
 from .contracts import (
     RUN_MANIFEST_SCHEMA_VERSION,
-    STAGE_CHECKPOINT_SCHEMA_VERSION,
     WorkflowDefinition,
     relpath,
     resolve_under_root,
@@ -88,11 +87,6 @@ def build_stage_paths(
         "input_manifest_json": stage_dir / "input_manifest.json",
         "input_manifest_md": stage_dir / "input_manifest.md",
         "request_payload": stage_dir / "request_payload.json",
-        "request_plan": stage_dir / "request_plan.json",
-        "local_context_estimate": stage_dir / "local_context_estimate.json",
-        "submission_intent": stage_dir / "submission.intent.json",
-        "cancellation_intent": stage_dir / "cancellation.intent.json",
-        "cancellation_result": stage_dir / "cancellation.result.json",
         "token_preflight": stage_dir / "token_preflight.json",
         "token_preflight_error": stage_dir / "token_preflight.error.json",
         "uploads_json": stage_dir / "uploads.json",
@@ -101,7 +95,6 @@ def build_stage_paths(
         "artifact_md": stage_dir / "artifact.md",
         "validator_report": stage_dir / "validator_report.json",
         "structured_output": stage_dir / "output.structured.json",
-        "stage_checkpoint": stage_dir / "stage_checkpoint.json",
         "review_dir": stage_dir / "review",
         "review_verdict": stage_dir / "review" / "verdict.json",
         "reviewer_notes": stage_dir / "review" / "reviewer_notes.md",
@@ -109,11 +102,6 @@ def build_stage_paths(
 
 
 _ATTEMPT_DIRECTORY_PATTERN = re.compile(r"^attempt_(\d{3,})$")
-_STATE_TRANSITION_FILE_PATTERN = re.compile(
-    r"^state_transition\.revision_(\d{10,})\.intent\.json$"
-)
-
-
 def list_stage_attempts(run_dir: Path, stage_number: int, stage_id: str) -> list[int]:
     stage_root = stage_root_path(run_dir, stage_number, stage_id)
     if not stage_root.exists():
@@ -230,65 +218,6 @@ def write_run_manifest(run_dir: Path, manifest: dict[str, Any]) -> Path:
     return write_json(run_manifest_path(run_dir), manifest)
 
 
-def write_run_manifest_cas(
-    *,
-    root: Path,
-    run_dir: Path,
-    manifest: dict[str, Any],
-    expected_revision: int,
-    stage_id: str | None = None,
-    expected_attempt_id: str | None = None,
-    prepared: bool = False,
-) -> Path:
-    """Write only when the durable manifest is the caller's exact base revision.
-
-    The caller must hold the run lock. Keeping this check next to the atomic
-    write prevents a result from a remote call being applied to a newer stage
-    attempt.
-    """
-
-    current = load_run_manifest(root, run_dir)
-    require_run_manifest_revision(
-        current,
-        expected_revision=expected_revision,
-        stage_id=stage_id,
-        expected_attempt_id=expected_attempt_id,
-    )
-    if prepared:
-        validate_contract(
-            manifest,
-            persisted_schema_filename("run_manifest", manifest.get("schema_version")),
-            label="run manifest",
-        )
-        return write_json(run_manifest_path(run_dir), manifest)
-    return write_run_manifest(run_dir, manifest)
-
-
-def require_run_manifest_revision(
-    current: dict[str, Any],
-    *,
-    expected_revision: int,
-    stage_id: str | None = None,
-    expected_attempt_id: str | None = None,
-) -> None:
-    """Check a manifest revision and optional current attempt without writing."""
-
-    current_revision = int(current.get("revision", 0))
-    if current_revision != expected_revision:
-        raise SystemExit(
-            "Run manifest revision conflict: "
-            f"expected {expected_revision}, found {current_revision}."
-        )
-    if stage_id is not None:
-        current_summary = find_stage_summary(current, stage_id)
-        current_attempt_id = current_summary.get("current_attempt_id")
-        if current_attempt_id != expected_attempt_id:
-            raise SystemExit(
-                f"Stage {stage_id} attempt conflict: expected {expected_attempt_id!r}, "
-                f"found {current_attempt_id!r}."
-            )
-
-
 def find_stage_summary(run_manifest: dict[str, Any], stage_id: str) -> dict[str, Any]:
     for stage_summary in run_manifest["stages"]:
         if stage_summary["stage_id"] == stage_id:
@@ -315,24 +244,6 @@ def write_request_payload(
     return write_json(stage_paths["request_payload"], payload)
 
 
-def write_submission_intent(stage_paths: dict[str, Path], payload: dict[str, Any]) -> Path:
-    return _write_immutable_text(
-        stage_paths["submission_intent"],
-        json.dumps(payload, indent=2, ensure_ascii=False) + "\n",
-    )
-
-
-def write_cancellation_intent(stage_paths: dict[str, Path], payload: dict[str, Any]) -> Path:
-    return _write_immutable_text(
-        stage_paths["cancellation_intent"],
-        json.dumps(payload, indent=2, ensure_ascii=False) + "\n",
-    )
-
-
-def write_cancellation_result(stage_paths: dict[str, Path], payload: dict[str, Any]) -> Path:
-    return write_json(stage_paths["cancellation_result"], payload)
-
-
 def write_uploads_payload(stage_paths: dict[str, Path], uploads_payload: dict[str, Any]) -> Path:
     return write_json(stage_paths["uploads_json"], uploads_payload)
 
@@ -353,128 +264,6 @@ def write_token_preflight_error(
 
 def write_response_latest(stage_paths: dict[str, Path], response_json: dict[str, Any]) -> Path:
     return write_json(stage_paths["response_latest_json"], response_json)
-
-
-def json_file_sha256(payload: Any) -> str:
-    """Hash the exact owner-only JSON representation written by ``write_json``."""
-
-    return sha256_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n")
-
-
-def prepare_stage_checkpoint(checkpoint: dict[str, Any]) -> str:
-    """Validate and return the hash of checkpoint bytes before publication."""
-
-    checkpoint["schema_version"] = STAGE_CHECKPOINT_SCHEMA_VERSION
-    validate_contract(
-        checkpoint,
-        persisted_schema_filename("stage_checkpoint", checkpoint.get("schema_version")),
-        label="stage checkpoint",
-    )
-    return json_file_sha256(checkpoint)
-
-
-def write_stage_checkpoint(stage_paths: dict[str, Path], checkpoint: dict[str, Any]) -> Path:
-    prepare_stage_checkpoint(checkpoint)
-    return write_json(stage_paths["stage_checkpoint"], checkpoint)
-
-
-def load_stage_checkpoint(stage_paths: dict[str, Path]) -> dict[str, Any]:
-    payload = json.loads(stage_paths["stage_checkpoint"].read_text(encoding="utf-8"))
-    validate_contract(
-        payload,
-        persisted_schema_filename("stage_checkpoint", payload.get("schema_version")),
-        label="stage checkpoint",
-    )
-    return payload
-
-
-def stage_state_transition_path(
-    stage_paths: dict[str, Path],
-    target_revision: int,
-) -> Path:
-    if target_revision < 1:
-        raise ValueError("target_revision must be positive")
-    return (
-        stage_paths["attempt_dir"]
-        / f"state_transition.revision_{target_revision:010d}.intent.json"
-    )
-
-
-def _validate_stage_state_transition(payload: dict[str, Any], *, label: str) -> None:
-    validate_contract(
-        payload,
-        "stage_state_transition.v1.schema.json",
-        label=label,
-    )
-    checkpoint = payload["target_checkpoint"]
-    target_manifest = payload["target_run_manifest"]
-    if checkpoint.get("schema_version") != "responses_runner_v2.stage_checkpoint.v2":
-        raise SystemExit(f"Invalid {label}: target checkpoint must use the v2 schema.")
-    if target_manifest.get("schema_version") != "responses_runner_v2.run_manifest.v2":
-        raise SystemExit(f"Invalid {label}: target run manifest must use the v2 schema.")
-    validate_contract(
-        checkpoint,
-        persisted_schema_filename("stage_checkpoint", checkpoint.get("schema_version")),
-        label=f"{label} target checkpoint",
-    )
-    validate_contract(
-        target_manifest,
-        persisted_schema_filename("run_manifest", target_manifest.get("schema_version")),
-        label=f"{label} target run manifest",
-    )
-    if json_file_sha256(checkpoint) != payload["target_checkpoint_sha256"]:
-        raise SystemExit(f"Invalid {label}: target checkpoint hash mismatch.")
-    if json_file_sha256(target_manifest) != payload["target_run_manifest_sha256"]:
-        raise SystemExit(f"Invalid {label}: target run manifest hash mismatch.")
-
-
-def write_stage_state_transition(
-    stage_paths: dict[str, Path],
-    payload: dict[str, Any],
-) -> Path:
-    """Durably publish one immutable checkpoint/manifest transition intent."""
-
-    _validate_stage_state_transition(payload, label="stage state transition")
-    path = stage_state_transition_path(stage_paths, payload["target_manifest_revision"])
-    return _write_immutable_text(
-        path,
-        json.dumps(payload, indent=2, ensure_ascii=False) + "\n",
-    )
-
-
-def list_stage_state_transitions(run_dir: Path) -> list[Path]:
-    """List only transition intents inside explicit v2 attempt directories."""
-
-    stages_dir = run_dir / "stages"
-    if not stages_dir.is_dir() or stages_dir.is_symlink():
-        return []
-    discovered: list[tuple[int, str, Path]] = []
-    for stage_root in stages_dir.iterdir():
-        if not stage_root.is_dir() or stage_root.is_symlink():
-            continue
-        for attempt_dir in stage_root.iterdir():
-            if (
-                not attempt_dir.is_dir()
-                or attempt_dir.is_symlink()
-                or _ATTEMPT_DIRECTORY_PATTERN.fullmatch(attempt_dir.name) is None
-            ):
-                continue
-            for path in attempt_dir.iterdir():
-                match = _STATE_TRANSITION_FILE_PATTERN.fullmatch(path.name)
-                if path.is_file() and not path.is_symlink() and match is not None:
-                    discovered.append((int(match.group(1)), path.as_posix(), path))
-    return [item[2] for item in sorted(discovered)]
-
-
-def load_stage_state_transition(path: Path) -> dict[str, Any]:
-    try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
-        raise SystemExit(f"Invalid stage state transition {path}: {exc}") from exc
-    if not isinstance(payload, dict):
-        raise SystemExit(f"Stage state transition must be a JSON object: {path}")
-    _validate_stage_state_transition(payload, label=f"stage state transition {path}")
-    return payload
 
 
 def extract_output_text(response_json: dict[str, Any]) -> str:

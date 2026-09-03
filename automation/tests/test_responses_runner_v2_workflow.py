@@ -11,7 +11,6 @@ from unittest import mock
 
 from automation.responses_runner_v2 import (
     artifacts,
-    request_plan,
     workflow as workflow_module,
 )
 from automation.responses_runner_v2.contracts import (
@@ -54,9 +53,12 @@ def _stage_dir(run_manifest: dict, stage_id: str | None = None, index: int = 0) 
         if stage_id is not None
         else run_manifest["stages"][index]
     )
-    checkpoint_path = summary.get("checkpoint_path")
-    if checkpoint_path:
-        return (ROOT / checkpoint_path).parent
+    current_attempt_id = summary.get("current_attempt_id")
+    for attempt in summary.get("attempts", []):
+        if attempt.get("attempt_id") == current_attempt_id:
+            return ROOT / attempt["attempt_dir"]
+    if summary.get("dry_run_dir"):
+        return ROOT / summary["dry_run_dir"]
     return ROOT / summary["stage_dir"]
 
 
@@ -311,29 +313,6 @@ class ResponsesRunnerV2WorkflowTests(unittest.TestCase):
             self.assertEqual(sha256_file(first_attempt_dir / "submission.error.json"), first_error_hash)
             self.assertTrue((ROOT / attempts[1]["attempt_dir"] / "artifact.md").exists())
 
-    def test_existing_run_rejects_effective_runtime_drift(self) -> None:
-        with tempfile.TemporaryDirectory(dir=ROOT) as tmp:
-            tmp_path = Path(tmp)
-            result = run_workflow(
-                workflow_file="automation/examples/responses_runner_v2_synthetic/workflows/one_pass.workflow.json",
-                runtime=RuntimeOptions(
-                    run_name="runtime-freeze",
-                    output_root=tmp_path.relative_to(ROOT),
-                    dry_run=True,
-                ),
-                root=ROOT,
-            )
-            with self.assertRaisesRegex(SystemExit, "effective runtime drifted"):
-                run_workflow(
-                    workflow_file="automation/examples/responses_runner_v2_synthetic/workflows/one_pass.workflow.json",
-                    runtime=RuntimeOptions(
-                        run_dir=Path(result["run_dir"]),
-                        max_output_tokens=1234,
-                        dry_run=True,
-                    ),
-                    root=ROOT,
-                )
-
     def test_existing_run_rejects_same_id_workflow_from_another_path(self) -> None:
         with tempfile.TemporaryDirectory(dir=ROOT) as tmp:
             tmp_path = Path(tmp)
@@ -371,7 +350,7 @@ class ResponsesRunnerV2WorkflowTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            with self.assertRaisesRegex(SystemExit, "does not match the frozen run contract"):
+            with self.assertRaisesRegex(SystemExit, "does not match the workflow this run was started with"):
                 run_workflow(
                     workflow_file=alternate_path.relative_to(ROOT),
                     runtime=RuntimeOptions(
@@ -387,13 +366,13 @@ class ResponsesRunnerV2WorkflowTests(unittest.TestCase):
             entered = threading.Event()
             release = threading.Event()
             first_errors: list[BaseException] = []
-            original_create_contract = workflow_module.create_run_contract
+            original_initialize = workflow_module.artifacts.initialize_run_manifest
 
-            def blocking_create_contract(**kwargs):
+            def blocking_initialize(**kwargs):
                 entered.set()
                 if not release.wait(timeout=10):
-                    raise AssertionError("test contract creation was not released")
-                return original_create_contract(**kwargs)
+                    raise AssertionError("test manifest initialization was not released")
+                return original_initialize(**kwargs)
 
             def initialize_first() -> None:
                 try:
@@ -409,9 +388,9 @@ class ResponsesRunnerV2WorkflowTests(unittest.TestCase):
                     first_errors.append(exc)
 
             with mock.patch.object(
-                workflow_module,
-                "create_run_contract",
-                side_effect=blocking_create_contract,
+                workflow_module.artifacts,
+                "initialize_run_manifest",
+                side_effect=blocking_initialize,
             ):
                 thread = threading.Thread(target=initialize_first)
                 thread.start()
@@ -432,41 +411,6 @@ class ResponsesRunnerV2WorkflowTests(unittest.TestCase):
             self.assertFalse(thread.is_alive())
             self.assertEqual(first_errors, [])
             self.assertTrue((run_dir / "run_manifest.json").exists())
-
-    def test_partial_initialization_rejects_effective_runtime_drift(self) -> None:
-        with tempfile.TemporaryDirectory(dir=ROOT) as tmp:
-            run_dir = Path(tmp) / "partial-run"
-            with mock.patch.object(
-                workflow_module.artifacts,
-                "write_run_manifest",
-                side_effect=SystemExit("synthetic pre-manifest crash"),
-            ):
-                with self.assertRaisesRegex(SystemExit, "synthetic pre-manifest crash"):
-                    run_workflow(
-                        workflow_file="automation/examples/responses_runner_v2_synthetic/workflows/one_pass.workflow.json",
-                        runtime=RuntimeOptions(
-                            run_dir=run_dir.relative_to(ROOT),
-                            dry_run=True,
-                        ),
-                        root=ROOT,
-                    )
-
-            self.assertTrue((run_dir / "run_initialization.intent.json").exists())
-            self.assertTrue((run_dir / "run_contract.json").exists())
-            self.assertFalse((run_dir / "run_manifest.json").exists())
-            with self.assertRaisesRegex(
-                SystemExit,
-                "does not match the requested workflow/runtime binding",
-            ):
-                run_workflow(
-                    workflow_file="automation/examples/responses_runner_v2_synthetic/workflows/one_pass.workflow.json",
-                    runtime=RuntimeOptions(
-                        run_dir=run_dir.relative_to(ROOT),
-                        max_output_tokens=1234,
-                        dry_run=True,
-                    ),
-                    root=ROOT,
-                )
 
     def test_nonempty_unjournaled_run_directory_is_preserved_and_rejected(self) -> None:
         with tempfile.TemporaryDirectory(dir=ROOT) as tmp:
@@ -489,37 +433,7 @@ class ResponsesRunnerV2WorkflowTests(unittest.TestCase):
                 )
 
             self.assertEqual(marker.read_text(encoding="utf-8"), "preserve me\n")
-            self.assertFalse((run_dir / "run_initialization.intent.json").exists())
-            self.assertFalse((run_dir / "run_contract.json").exists())
             self.assertFalse((run_dir / "run_manifest.json").exists())
-
-    def test_remote_result_cannot_apply_after_manifest_revision_race(self) -> None:
-        with tempfile.TemporaryDirectory(dir=ROOT) as tmp:
-            tmp_path = Path(tmp)
-            result = run_workflow(
-                workflow_file="automation/examples/responses_runner_v2_synthetic/workflows/one_pass.workflow.json",
-                runtime=RuntimeOptions(
-                    run_name="revision-race",
-                    output_root=tmp_path.relative_to(ROOT),
-                    wait=False,
-                ),
-                client=FakeClient(completed=False),
-                root=ROOT,
-            )
-            run_dir = ROOT / result["run_dir"]
-            with self.assertRaisesRegex(SystemExit, "revision conflict"):
-                resume_stage(
-                    run_dir=run_dir.relative_to(ROOT),
-                    stage_id="draft_summary",
-                    wait=False,
-                    poll_interval=0.0,
-                    max_wait_seconds=None,
-                    client=RacingRetrieveClient(run_dir),
-                    root=ROOT,
-                )
-            raced = artifacts.load_run_manifest(ROOT, run_dir)
-            self.assertEqual(raced["stages"][0]["status"], "in_progress")
-            self.assertFalse((_stage_dir(raced) / "artifact.md").exists())
 
     def test_concurrent_start_allows_exactly_one_primary_submission(self) -> None:
         with tempfile.TemporaryDirectory(dir=ROOT) as tmp:
@@ -592,7 +506,6 @@ class ResponsesRunnerV2WorkflowTests(unittest.TestCase):
             run_manifest = json.loads((run_dir / "run_manifest.json").read_text(encoding="utf-8"))
             stage_dir = _stage_dir(run_manifest)
             self.assertEqual(run_manifest["status"], "submission_outcome_unknown")
-            self.assertTrue((stage_dir / "submission.intent.json").exists())
             self.assertTrue((stage_dir / "submission.error.json").exists())
 
             second_client = FakeClient()
@@ -656,174 +569,6 @@ class ResponsesRunnerV2WorkflowTests(unittest.TestCase):
             self.assertEqual(resumed["status"], "completed")
             self.assertTrue((stage_dir / "artifact.md").exists())
 
-    def test_resume_completes_transition_after_finalized_state_crash(self) -> None:
-        with tempfile.TemporaryDirectory(dir=ROOT) as tmp:
-            tmp_path = Path(tmp)
-            original_persist = workflow_module._persist_stage_state
-
-            def persist_then_crash(**kwargs):
-                result = original_persist(**kwargs)
-                if kwargs.get("stage_status") == "finalized":
-                    raise RuntimeError("synthetic crash after finalized persistence")
-                return result
-
-            with mock.patch.object(
-                workflow_module,
-                "_persist_stage_state",
-                side_effect=persist_then_crash,
-            ):
-                with self.assertRaisesRegex(RuntimeError, "after finalized persistence"):
-                    run_workflow(
-                        workflow_file="automation/examples/responses_runner_v2_synthetic/workflows/one_pass.workflow.json",
-                        runtime=RuntimeOptions(
-                            run_name="finalized-crash",
-                            output_root=tmp_path.relative_to(ROOT),
-                            wait=True,
-                        ),
-                        client=FakeClient(),
-                        root=ROOT,
-                    )
-            run_dir = next(
-                path for path in tmp_path.iterdir() if (path / "run_manifest.json").exists()
-            )
-            crashed = artifacts.load_run_manifest(ROOT, run_dir)
-            self.assertEqual(crashed["stages"][0]["status"], "finalized")
-            self.assertTrue((_stage_dir(crashed) / "artifact.md").exists())
-
-            resumed = resume_stage(
-                run_dir=run_dir.relative_to(ROOT),
-                stage_id="draft_summary",
-                wait=True,
-                poll_interval=0.1,
-                max_wait_seconds=10.0,
-                client=FakeClient(),
-                root=ROOT,
-            )
-            self.assertEqual(resumed["status"], "completed")
-
-    def test_resume_reconciles_checkpoint_crash_without_duplicate_primary_post(self) -> None:
-        with tempfile.TemporaryDirectory(dir=ROOT) as tmp:
-            tmp_path = Path(tmp)
-            client = FakeClient(completed=False)
-            original_cas = artifacts.write_run_manifest_cas
-            crash_injected = False
-
-            def crash_before_submitted_manifest(**kwargs):
-                nonlocal crash_injected
-                summary = artifacts.find_stage_summary(
-                    kwargs["manifest"],
-                    "draft_summary",
-                )
-                if summary["status"] == "submitted" and not crash_injected:
-                    crash_injected = True
-                    raise RuntimeError("synthetic crash before submitted manifest CAS")
-                return original_cas(**kwargs)
-
-            with mock.patch.object(
-                artifacts,
-                "write_run_manifest_cas",
-                side_effect=crash_before_submitted_manifest,
-            ):
-                with self.assertRaisesRegex(RuntimeError, "before submitted manifest CAS"):
-                    run_workflow(
-                        workflow_file="automation/examples/responses_runner_v2_synthetic/workflows/one_pass.workflow.json",
-                        runtime=RuntimeOptions(
-                            run_name="checkpoint-manifest-crash",
-                            output_root=tmp_path.relative_to(ROOT),
-                            wait=False,
-                        ),
-                        client=client,
-                        root=ROOT,
-                    )
-
-            run_dir = next(
-                path for path in tmp_path.iterdir() if (path / "run_manifest.json").exists()
-            )
-            crashed = artifacts.load_run_manifest(ROOT, run_dir)
-            crashed_summary = crashed["stages"][0]
-            attempt_dir = ROOT / crashed_summary["attempts"][0]["attempt_dir"]
-            checkpoint_path = attempt_dir / "stage_checkpoint.json"
-            checkpoint = json.loads(checkpoint_path.read_text(encoding="utf-8"))
-            self.assertEqual(crashed_summary["status"], "submitting")
-            self.assertEqual(checkpoint["status"], "submitted")
-            self.assertNotEqual(
-                crashed_summary["checkpoint_sha256"],
-                sha256_file(checkpoint_path),
-            )
-            transitions = artifacts.list_stage_state_transitions(run_dir)
-            self.assertTrue(transitions)
-            pending = artifacts.load_stage_state_transition(transitions[-1])
-            self.assertEqual(
-                pending["target_manifest_revision"],
-                crashed["revision"] + 1,
-            )
-            self.assertEqual(
-                artifacts.find_stage_summary(
-                    pending["target_run_manifest"],
-                    "draft_summary",
-                )["status"],
-                "submitted",
-            )
-
-            duplicate_client = FakeClient()
-            with self.assertRaisesRegex(SystemExit, "use resume"):
-                run_workflow(
-                    workflow_file="automation/examples/responses_runner_v2_synthetic/workflows/one_pass.workflow.json",
-                    runtime=RuntimeOptions(
-                        run_dir=run_dir.relative_to(ROOT),
-                        stage_id="draft_summary",
-                        wait=False,
-                    ),
-                    client=duplicate_client,
-                    root=ROOT,
-                )
-            self.assertEqual(duplicate_client.create_requests, [])
-            startup_reconciled = artifacts.load_run_manifest(ROOT, run_dir)
-            startup_summary = startup_reconciled["stages"][0]
-            self.assertEqual(startup_summary["status"], "submitted")
-            self.assertEqual(
-                startup_summary["checkpoint_sha256"],
-                sha256_file(ROOT / startup_summary["checkpoint_path"]),
-            )
-
-            resumed = resume_stage(
-                run_dir=run_dir.relative_to(ROOT),
-                stage_id="draft_summary",
-                wait=True,
-                poll_interval=0.1,
-                max_wait_seconds=10.0,
-                client=client,
-                root=ROOT,
-            )
-            self.assertEqual(resumed["status"], "completed")
-            primary_posts = [
-                payload
-                for payload in client.create_requests
-                if payload["text"]["format"]["type"] != "json_schema"
-            ]
-            self.assertEqual(len(primary_posts), 1)
-            recovered = artifacts.load_run_manifest(ROOT, run_dir)
-            recovered_summary = recovered["stages"][0]
-            self.assertEqual(recovered_summary["status"], "completed")
-            self.assertEqual(
-                recovered_summary["checkpoint_sha256"],
-                sha256_file(ROOT / recovered_summary["checkpoint_path"]),
-            )
-
-    def test_transition_recovery_never_interprets_v1_manifest_evidence(self) -> None:
-        v1_manifest = {"schema_version": "responses_runner_v2.run_manifest.v1"}
-        with mock.patch.object(
-            artifacts,
-            "list_stage_state_transitions",
-            side_effect=AssertionError("v1 attempt evidence must not be inspected"),
-        ):
-            reconciled = workflow_module._reconcile_stage_state_transitions(
-                root=ROOT,
-                run_dir=ROOT / "unused-v1-run",
-                run_manifest=v1_manifest,
-            )
-        self.assertIs(reconciled, v1_manifest)
-
     def test_cancel_is_idempotent_and_finalizes_terminal_state(self) -> None:
         with tempfile.TemporaryDirectory(dir=ROOT) as tmp:
             tmp_path = Path(tmp)
@@ -858,7 +603,7 @@ class ResponsesRunnerV2WorkflowTests(unittest.TestCase):
             )
             self.assertEqual(run_manifest["stages"][0]["status"], "cancelled")
 
-    def test_dry_run_writes_request_payload_and_checkpoint(self) -> None:
+    def test_dry_run_writes_request_payload(self) -> None:
         with tempfile.TemporaryDirectory(dir=ROOT) as tmp:
             runtime = RuntimeOptions(
                 run_name="synthetic-dry-run",
@@ -875,158 +620,10 @@ class ResponsesRunnerV2WorkflowTests(unittest.TestCase):
             stage_dir = _stage_dir(run_manifest)
             request_payload = json.loads((stage_dir / "request_payload.json").read_text(encoding="utf-8"))
             self.assertTrue((stage_dir / "request_payload.json").exists())
-            self.assertTrue((stage_dir / "stage_checkpoint.json").exists())
             self.assertEqual(run_manifest["status"], "created")
             self.assertNotIn("attachment_role_blocks", request_payload)
 
-    def test_same_run_dry_and_live_request_payloads_have_exact_symbolic_parity(self) -> None:
-        with tempfile.TemporaryDirectory(dir=ROOT) as tmp:
-            run_dir = Path(tmp) / "same_run"
-            runtime_path = run_dir.relative_to(ROOT)
-            workflow_file = (
-                "automation/examples/responses_runner_v2_synthetic/"
-                "workflows/one_pass.workflow.json"
-            )
-            run_workflow(
-                workflow_file=workflow_file,
-                runtime=RuntimeOptions(
-                    run_name="dry-live-parity",
-                    run_dir=runtime_path,
-                    dry_run=True,
-                ),
-                root=ROOT,
-            )
-            dry_stage_dir = run_dir / "dry_runs/stages/01_draft_summary"
-            dry_payload = json.loads(
-                (dry_stage_dir / "request_payload.json").read_text(encoding="utf-8")
-            )
-            dry_plan = json.loads(
-                (dry_stage_dir / "request_plan.json").read_text(encoding="utf-8")
-            )
-
-            client = FakeClient(completed=False)
-            live = run_workflow(
-                workflow_file=workflow_file,
-                runtime=RuntimeOptions(
-                    run_name="dry-live-parity",
-                    run_dir=runtime_path,
-                ),
-                client=client,
-                root=ROOT,
-            )
-            live_manifest = artifacts.load_run_manifest(ROOT, ROOT / live["run_dir"])
-            live_stage_dir = _stage_dir(live_manifest)
-            live_payload = json.loads(
-                (live_stage_dir / "request_payload.json").read_text(encoding="utf-8")
-            )
-            live_plan = json.loads(
-                (live_stage_dir / "request_plan.json").read_text(encoding="utf-8")
-            )
-
-            self.assertEqual(dry_plan, live_plan)
-            self.assertEqual(dry_payload, dry_plan["symbolic_request_payload"])
-            self.assertEqual(
-                request_plan.verify_materialized_request(live_plan, live_payload),
-                dry_payload,
-            )
-            self.assertEqual(client.create_requests, [live_payload])
-            self.assertEqual(
-                dry_plan["normalized_request_sha256"],
-                request_plan.normalized_request_sha256(dry_payload),
-            )
-
-    def test_dry_run_warns_when_request_plan_exceeds_context(self) -> None:
-        with tempfile.TemporaryDirectory(dir=ROOT) as tmp:
-            output_root = Path(tmp)
-            original_build_request_plan = workflow_module.build_request_plan
-
-            def oversize_request_plan(**kwargs):
-                plan = original_build_request_plan(**kwargs)
-                plan["estimate"]["fits_context"] = False
-                return plan
-
-            with mock.patch.object(
-                workflow_module,
-                "build_request_plan",
-                side_effect=oversize_request_plan,
-            ):
-                result = run_workflow(
-                    workflow_file="automation/examples/responses_runner_v2_synthetic/workflows/one_pass.workflow.json",
-                    runtime=RuntimeOptions(
-                        run_name="synthetic-oversize-dry-run",
-                        output_root=output_root.relative_to(ROOT),
-                        dry_run=True,
-                        skip_token_count=True,
-                    ),
-                    root=ROOT,
-                )
-
-            run_manifest = artifacts.load_run_manifest(ROOT, ROOT / result["run_dir"])
-            stage_dir = _stage_dir(run_manifest)
-            self.assertEqual(run_manifest["status"], "created")
-            self.assertEqual(run_manifest["stages"][0]["status"], "prepared")
-            self.assertEqual(
-                [warning["code"] for warning in result["warnings"]],
-                ["request_plan_context_exceeded"],
-            )
-            self.assertTrue((stage_dir / "request_plan.json").exists())
-            self.assertTrue((stage_dir / "request_payload.json").exists())
-            self.assertFalse((stage_dir / "token_preflight.error.json").exists())
-
-    def test_byte_upper_bound_is_advisory_when_exact_preflight_will_run(self) -> None:
-        with tempfile.TemporaryDirectory(dir=ROOT) as tmp:
-            output_root = Path(tmp)
-            original_build_request_plan = workflow_module.build_request_plan
-            original_local_context_estimate = workflow_module._local_context_estimate
-
-            def oversize_request_plan(**kwargs):
-                plan = original_build_request_plan(**kwargs)
-                plan["estimate"]["fits_context"] = False
-                return plan
-
-            def advisory_local_context_estimate(**kwargs):
-                estimate = original_local_context_estimate(**kwargs)
-                estimate["within_context_window"] = False
-                estimate["passed"] = False
-                return estimate
-
-            with mock.patch.object(
-                workflow_module,
-                "build_request_plan",
-                side_effect=oversize_request_plan,
-            ), mock.patch.object(
-                workflow_module,
-                "_local_context_estimate",
-                side_effect=advisory_local_context_estimate,
-            ):
-                result = run_workflow(
-                    workflow_file="automation/examples/responses_runner_v2_synthetic/workflows/one_pass.workflow.json",
-                    runtime=RuntimeOptions(
-                        run_name="synthetic-advisory-byte-bound",
-                        output_root=output_root.relative_to(ROOT),
-                        dry_run=True,
-                    ),
-                    root=ROOT,
-                )
-
-            run_manifest = artifacts.load_run_manifest(ROOT, ROOT / result["run_dir"])
-            stage_dir = _stage_dir(run_manifest)
-            local_estimate = json.loads(
-                (stage_dir / "local_context_estimate.json").read_text(encoding="utf-8")
-            )
-            self.assertEqual(
-                local_estimate["enforcement"],
-                "advisory_exact_preflight_pending",
-            )
-            self.assertEqual(run_manifest["status"], "created")
-            self.assertEqual(
-                result["warnings"][0]["code"],
-                "exact_token_preflight_not_executed_in_dry_run",
-            )
-            self.assertTrue((stage_dir / "request_payload.json").exists())
-            self.assertFalse((stage_dir / "token_preflight.error.json").exists())
-
-    def test_continue_without_token_count_requires_passing_local_estimate(self) -> None:
+    def test_continue_without_token_count_requires_no_configured_budget(self) -> None:
         workflow = load_workflow_definition(
             "automation/examples/responses_runner_v2_synthetic/workflows/one_pass.workflow.json",
             root=ROOT,
@@ -1040,7 +637,8 @@ class ResponsesRunnerV2WorkflowTests(unittest.TestCase):
             workflow,
             request_defaults=replace(workflow.request_defaults, token_preflight=policy),
         )
-        stage = replace(workflow.stages[0], max_input_tokens=None)
+        budgeted_stage = workflow.stages[0]
+        unbudgeted_stage = replace(workflow.stages[0], max_input_tokens=None)
         runtime = RuntimeOptions()
 
         with tempfile.TemporaryDirectory(dir=ROOT) as tmp:
@@ -1055,30 +653,24 @@ class ResponsesRunnerV2WorkflowTests(unittest.TestCase):
                     root=ROOT,
                     client=client,
                     workflow=workflow,
-                    stage=stage,
+                    stage=budgeted_stage,
                     stage_paths=stage_paths,
                     payload={},
                     runtime=runtime,
-                    local_context_estimate={"passed": False},
                 )
             failed = json.loads(stage_paths["token_preflight_error"].read_text(encoding="utf-8"))
             self.assertEqual(failed["fallback_decision"], "fail_closed")
-            self.assertFalse(failed["local_advisory_estimate_passed"])
 
             continued = workflow_module._token_preflight_state(
                 root=ROOT,
                 client=client,
                 workflow=workflow,
-                stage=stage,
+                stage=unbudgeted_stage,
                 stage_paths=stage_paths,
                 payload={},
                 runtime=runtime,
-                local_context_estimate={"passed": True},
             )
-            self.assertEqual(
-                continued["status"],
-                "continued_after_retryable_service_failure",
-            )
+            self.assertEqual(continued["status"], "continued_after_retryable_service_failure")
 
     def test_exact_token_preflight_enforces_configured_input_limit(self) -> None:
         with tempfile.TemporaryDirectory(dir=ROOT) as tmp:
@@ -1099,13 +691,10 @@ class ResponsesRunnerV2WorkflowTests(unittest.TestCase):
             )
             run_manifest = artifacts.load_run_manifest(ROOT, run_dir)
             stage_dir = _stage_dir(run_manifest)
-            checkpoint = json.loads(
-                (stage_dir / "stage_checkpoint.json").read_text(encoding="utf-8")
-            )
             diagnostics = json.loads(
                 (stage_dir / "token_preflight.error.json").read_text(encoding="utf-8")
             )
-            self.assertEqual(checkpoint["status"], "blocked_preflight")
+            self.assertEqual(run_manifest["stages"][0]["status"], "blocked_preflight")
             self.assertEqual(diagnostics["reason"], "max_input_tokens_exceeded")
             self.assertEqual(client.create_requests, [])
 
@@ -1156,9 +745,8 @@ class ResponsesRunnerV2WorkflowTests(unittest.TestCase):
             run_dir = next(path for path in Path(tmp).iterdir() if (path / "run_manifest.json").exists())
             run_manifest = json.loads((run_dir / "run_manifest.json").read_text(encoding="utf-8"))
             stage_dir = _stage_dir(run_manifest)
-            checkpoint = json.loads((stage_dir / "stage_checkpoint.json").read_text(encoding="utf-8"))
-            self.assertEqual(checkpoint["status"], "blocked_preflight")
-            self.assertEqual(checkpoint["token_preflight"]["status"], "failed_closed")
+            self.assertEqual(run_manifest["stages"][0]["status"], "blocked_preflight")
+            self.assertEqual(run_manifest["stages"][0]["token_preflight"]["status"], "failed_closed")
             self.assertTrue((stage_dir / "token_preflight.error.json").exists())
             self.assertEqual(client.create_requests, [])
 
@@ -1220,11 +808,8 @@ class ResponsesRunnerV2WorkflowTests(unittest.TestCase):
             )
 
             run_manifest = json.loads((run_dir / "run_manifest.json").read_text(encoding="utf-8"))
-            checkpoint = json.loads(
-                (_stage_dir(run_manifest) / "stage_checkpoint.json").read_text(encoding="utf-8")
-            )
             self.assertEqual(
-                checkpoint["token_preflight"],
+                run_manifest["stages"][0]["token_preflight"],
                 {"status": "skipped_by_operator", "attempts": 0},
             )
 

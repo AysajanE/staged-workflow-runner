@@ -216,7 +216,6 @@ def _parse_stage(
     base_dir: Path,
     payload: dict[str, Any],
     *,
-    legacy_v1_defaults: bool = False,
     review_defaults: ReviewConfig | None = None,
 ) -> StageDefinition:
     require_keys(
@@ -383,9 +382,6 @@ def load_workflow_definition(
             root,
             base_dir,
             item,
-            legacy_v1_defaults=(
-                payload.get("schema_version") == "responses_runner_v2.workflow_manifest.v1"
-            ),
             review_defaults=review_defaults,
         )
         for item in stages_payload
@@ -467,23 +463,6 @@ def load_workflow_definition(
     assurance_profile = str(payload.get("assurance_profile", "critical"))
     if assurance_profile not in ASSURANCE_PROFILES:
         raise SystemExit(f"Unknown assurance_profile {assurance_profile!r}.")
-    data_policy = ASSURANCE_PROFILES[assurance_profile]["data_handling"]
-    if request_defaults.store and not data_policy["api_store_allowed"]:
-        raise SystemExit(
-            f"assurance_profile={assurance_profile} does not allow API store=true."
-        )
-    if request_defaults.file_uploads.purpose != data_policy["file_purpose"]:
-        raise SystemExit(
-            f"assurance_profile={assurance_profile} requires file purpose "
-            f"{data_policy['file_purpose']!r}."
-        )
-    if (
-        data_policy["delete_uploaded_files_on_complete"]
-        and not request_defaults.file_uploads.delete_on_completion
-    ):
-        raise SystemExit(
-            f"assurance_profile={assurance_profile} requires uploaded-file deletion on completion."
-        )
     if (
         payload.get("schema_version") == WORKFLOW_SCHEMA_VERSION
         and ASSURANCE_PROFILES[assurance_profile]["require_input_budget"]

@@ -30,12 +30,6 @@ REPO_ROOT_ENV_VAR = "RESPONSES_RUNNER_V2_ROOT"
 WORKFLOW_SCHEMA_VERSION = "responses_runner_v2.workflow_manifest.v2"
 INPUT_MANIFEST_SCHEMA_VERSION = "responses_runner_v2.input_manifest.v1"
 RUN_MANIFEST_SCHEMA_VERSION = "responses_runner_v2.run_manifest.v2"
-STAGE_CHECKPOINT_SCHEMA_VERSION = "responses_runner_v2.stage_checkpoint.v2"
-REVIEW_DECISION_SCHEMA_VERSION = "responses_runner_v2.review_decision.v1"
-STAGE_OUTCOME_SCHEMA_VERSION = "responses_runner_v2.stage_outcome.v1"
-HUMAN_PAUSE_SCHEMA_VERSION = "responses_runner_v2.human_pause.v1"
-FINAL_IMPLEMENTATION_BUNDLE_SCHEMA_VERSION = "responses_runner_v2.final_implementation_bundle.v2"
-FINAL_DELIVERY_BUNDLE_SCHEMA_VERSION = "responses_runner_v2.final_delivery_bundle.v1"
 
 ROLE_PRIMARY_JOB_INPUTS = "Primary Job Inputs"
 ROLE_REVIEWED_HANDOFF_INPUTS = "Reviewed Handoff Inputs"
@@ -233,77 +227,18 @@ ASSURANCE_PROFILES: dict[str, dict[str, Any]] = {
     "critical": {
         "fail_closed": True,
         "require_input_budget": True,
-        "data_handling": {
-            "sensitivity": "confidential",
-            "allowed_evidence_kinds": (
-                "workspace_file",
-                "repository_file",
-                "document",
-                "url",
-                "record",
-                "dataset",
-            ),
-            "local_directory_mode": "0700",
-            "local_file_mode": "0600",
-            "retain_raw_request": True,
-            "retain_raw_response": True,
-            "retain_reviewer_output": True,
-            "retain_reasoning_summary": False,
-            "api_store_allowed": True,
-            "file_purpose": "user_data",
-            "delete_uploaded_files_on_complete": False,
-        },
     },
     "reviewed": {
         "fail_closed": True,
         "require_input_budget": True,
-        "data_handling": {
-            "sensitivity": "internal",
-            "allowed_evidence_kinds": ("workspace_file", "document", "url", "record", "dataset"),
-            "local_directory_mode": "0700",
-            "local_file_mode": "0600",
-            "retain_raw_request": True,
-            "retain_raw_response": True,
-            "retain_reviewer_output": True,
-            "retain_reasoning_summary": False,
-            "api_store_allowed": True,
-            "file_purpose": "user_data",
-            "delete_uploaded_files_on_complete": False,
-        },
     },
     "standard": {
         "fail_closed": True,
         "require_input_budget": False,
-        "data_handling": {
-            "sensitivity": "internal",
-            "allowed_evidence_kinds": ("workspace_file", "document", "url", "record", "dataset"),
-            "local_directory_mode": "0700",
-            "local_file_mode": "0600",
-            "retain_raw_request": True,
-            "retain_raw_response": True,
-            "retain_reviewer_output": False,
-            "retain_reasoning_summary": False,
-            "api_store_allowed": True,
-            "file_purpose": "user_data",
-            "delete_uploaded_files_on_complete": False,
-        },
     },
     "fast": {
         "fail_closed": False,
         "require_input_budget": False,
-        "data_handling": {
-            "sensitivity": "public_or_internal",
-            "allowed_evidence_kinds": ("workspace_file", "document", "url", "record", "dataset"),
-            "local_directory_mode": "0700",
-            "local_file_mode": "0600",
-            "retain_raw_request": True,
-            "retain_raw_response": True,
-            "retain_reviewer_output": False,
-            "retain_reasoning_summary": False,
-            "api_store_allowed": True,
-            "file_purpose": "user_data",
-            "delete_uploaded_files_on_complete": True,
-        },
     },
 }
 
@@ -386,14 +321,6 @@ class StageStatus(str, Enum):
     FAILED_NO_ARTIFACT = "failed_no_artifact"
     CANCELLING = "cancelling"
     REVISION_REQUESTED = "revision_requested"
-
-
-class ResumeMode(str, Enum):
-    """How a checkpoint was produced or refreshed."""
-
-    FRESH_SUBMIT = "fresh_submit"
-    RESUME_RESPONSE_ID = "resume_response_id"
-    REFRESH_STATUS_ONLY = "refresh_status_only"
 
 
 ALLOWED_STAGE_TRANSITIONS: dict[str, frozenset[str]] = {

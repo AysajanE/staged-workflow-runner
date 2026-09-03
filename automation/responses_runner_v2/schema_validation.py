@@ -48,22 +48,17 @@ def validate_contract(payload: Any, filename: str, *, label: str) -> None:
 
 
 def workflow_schema_filename(schema_version: object) -> str:
-    if schema_version == "responses_runner_v2.workflow_manifest.v1":
-        return "workflow_manifest.schema.json"
     if schema_version == "responses_runner_v2.workflow_manifest.v2":
         return "workflow_manifest.v2.schema.json"
     raise ContractValidationError(
         f"Unsupported workflow schema_version: {schema_version!r}. "
-        "Use a documented v1 compatibility path or a v2 workflow."
+        "Only responses_runner_v2.workflow_manifest.v2 is supported."
     )
 
 
 def persisted_schema_filename(kind: str, schema_version: object) -> str:
     supported = {
-        ("run_manifest", "responses_runner_v2.run_manifest.v1"): "run_manifest.schema.json",
         ("run_manifest", "responses_runner_v2.run_manifest.v2"): "run_manifest.v2.schema.json",
-        ("stage_checkpoint", "responses_runner_v2.stage_checkpoint.v1"): "stage_checkpoint.schema.json",
-        ("stage_checkpoint", "responses_runner_v2.stage_checkpoint.v2"): "stage_checkpoint.v2.schema.json",
         ("input_manifest", "responses_runner_v2.input_manifest.v1"): "input_manifest.schema.json",
     }
     filename = supported.get((kind, schema_version))

@@ -9,7 +9,7 @@ from pathlib import Path
 from unittest import mock
 from urllib import error
 
-from automation.responses_runner_v2 import artifacts, run_contract
+from automation.responses_runner_v2 import artifacts
 from automation.responses_runner_v2.contracts import sha256_file, write_json
 from automation.responses_runner_v2.locking import RunLockError, run_lock
 from automation.responses_runner_v2.openai_client import (
@@ -36,43 +36,6 @@ class _FakeHttpResponse:
 
 
 class ArtifactDurabilityTests(unittest.TestCase):
-    def test_contract_directory_projection_matches_attachment_safety_rules(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary_directory:
-            root = Path(temporary_directory)
-            target = root / "inputs"
-            target.mkdir()
-            allowed = target / "allowed.txt"
-            allowed.write_text("allowed", encoding="utf-8")
-            ignored = target / "ignored.txt"
-            ignored.write_text("ignored", encoding="utf-8")
-            secret = target / ".env"
-            secret.write_text("secret", encoding="utf-8")
-            outside = root.parent / f"{root.name}-outside.txt"
-            outside.write_text("outside", encoding="utf-8")
-            symlink = target / "outside-link.txt"
-            symlink.symlink_to(outside)
-            ignored_rel = ignored.relative_to(root).as_posix()
-            try:
-                with mock.patch.object(
-                    run_contract.attachments,
-                    "_git_ignored_entries",
-                    return_value=(ignored_rel,),
-                ):
-                    with self.assertRaisesRegex(SystemExit, "Sensitive attachment filename"):
-                        run_contract._expand_member("runtime:primary:0", target, root=root)
-                    secret.unlink()
-                    with self.assertRaisesRegex(SystemExit, "escapes workspace root"):
-                        run_contract._expand_member("runtime:primary:0", target, root=root)
-                    symlink.unlink()
-                    members = run_contract._expand_member(
-                        "runtime:primary:0",
-                        target,
-                        root=root,
-                    )
-            finally:
-                outside.unlink(missing_ok=True)
-            self.assertEqual(members, [("runtime:primary:0:allowed.txt", allowed.resolve())])
-
     def test_atomic_state_write_is_owner_only_under_permissive_umask(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             path = Path(temporary_directory) / "state" / "record.json"
@@ -160,23 +123,6 @@ class ArtifactDurabilityTests(unittest.TestCase):
             }
             with self.assertRaises(FileExistsError):
                 artifacts.write_clean_artifact(path, changed)
-
-    def test_submission_intent_is_idempotent_but_not_replaceable(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary_directory:
-            paths = artifacts.build_stage_paths(
-                Path(temporary_directory) / "run",
-                1,
-                "draft",
-                attempt_number=1,
-            )
-            intent = {"attempt_id": "attempt_001", "request_sha256": "a" * 64}
-            artifacts.write_submission_intent(paths, intent)
-            artifacts.write_submission_intent(paths, intent)
-            with self.assertRaises(FileExistsError):
-                artifacts.write_submission_intent(
-                    paths,
-                    {"attempt_id": "attempt_001", "request_sha256": "b" * 64},
-                )
 
 class OpenAIClientRetryTests(unittest.TestCase):
     def setUp(self) -> None:

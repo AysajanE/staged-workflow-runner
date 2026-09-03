@@ -12,14 +12,7 @@ from dataclasses import replace as dataclass_replace
 
 from . import attachments, artifacts
 from . import reviewer as stage_reviewer
-from .request_plan import (
-    build_request_plan,
-    materialize_request_payload,
-    symbolic_file_handle,
-    verify_materialized_request,
-)
 from .contracts import (
-    ASSURANCE_PROFILES,
     COMMON_RUNNER_INSTRUCTIONS,
     DEFAULT_OUTPUT_ROOT,
     DEFAULT_PRIMARY_MODEL,
@@ -27,8 +20,8 @@ from .contracts import (
     GateType,
     ModelRole,
     RUNNER_VERSION,
-    ResumeMode,
     RunStatus,
+    RuntimeInputBinding,
     RuntimeOptions,
     StageDefinition,
     StageStatus,
@@ -65,12 +58,6 @@ from .pack_loader import (
     load_tool_profile,
     load_workflow_definition,
     validate_operator_inputs,
-)
-from .run_contract import (
-    create_run_contract,
-    load_and_verify_run_contract,
-    runtime_from_contract,
-    verify_effective_runtime,
 )
 from .schema_validation import validate_contract
 from .validators import run_validator
@@ -134,155 +121,6 @@ def _operator_overrides(runtime: RuntimeOptions) -> dict[str, Any]:
     }
 
 
-RUN_INITIALIZATION_INTENT_FILENAME = "run_initialization.intent.json"
-
-
-def _run_initialization_intent_path(run_dir: Path) -> Path:
-    return run_dir / RUN_INITIALIZATION_INTENT_FILENAME
-
-
-def _validate_partial_run_initialization(
-    *,
-    root: Path,
-    run_dir: Path,
-    workflow,
-    runtime: RuntimeOptions,
-    run_name: str,
-    intent: dict[str, Any],
-) -> dict[str, Any]:
-    """Validate an immutable pre-manifest initialization intent and its partial files."""
-
-    if set(intent) != {
-        "schema_version",
-        "created_at",
-        "target_manifest",
-        "target_manifest_sha256",
-    } or intent.get("schema_version") != "responses_runner_v2.run_initialization_intent.v1":
-        raise SystemExit("Invalid run-initialization intent; refusing partial recovery.")
-    target = intent.get("target_manifest")
-    if not isinstance(target, dict) or artifacts.json_file_sha256(target) != intent.get(
-        "target_manifest_sha256"
-    ):
-        raise SystemExit("Run-initialization intent manifest hash mismatch.")
-    expected_stages = [
-        {
-            "stage_id": stage.stage_id,
-            "stage_number": stage.stage_number,
-            "gate": stage.gate.value,
-            "stage_dir": relpath(
-                root,
-                artifacts.stage_root_path(run_dir, stage.stage_number, stage.stage_id),
-            ),
-            "status": "prepared",
-        }
-        for stage in workflow.stages
-    ]
-    expected_fixed = {
-        "schema_version": "responses_runner_v2.run_manifest.v2",
-        "run_name": run_name,
-        "workflow_id": workflow.workflow_id,
-        "workflow_manifest_path": relpath(root, workflow.workflow_file),
-        "workflow_manifest_sha256": sha256_file(workflow.workflow_file),
-        "run_dir": relpath(root, run_dir),
-        "status": "created",
-        "stage_order": [stage.stage_id for stage in workflow.stages],
-        "operator_overrides": _operator_overrides(runtime),
-        "stages": expected_stages,
-    }
-    if any(target.get(key) != value for key, value in expected_fixed.items()):
-        raise SystemExit(
-            "Run-initialization intent does not match the requested workflow/runtime binding."
-        )
-    if not isinstance(target.get("run_id"), str) or not target["run_id"]:
-        raise SystemExit("Run-initialization intent is missing its run identity.")
-    if not isinstance(target.get("started_at"), str) or not target["started_at"]:
-        raise SystemExit("Run-initialization intent is missing its start timestamp.")
-
-    allowed_files = {
-        run_dir / ".runner.lock",
-        _run_initialization_intent_path(run_dir),
-        run_dir / "run_contract.json",
-    }
-    allowed_dirs = {run_dir / "stages"} | {
-        artifacts.stage_root_path(run_dir, stage.stage_number, stage.stage_id)
-        for stage in workflow.stages
-    }
-    unexpected = [
-        path
-        for path in run_dir.rglob("*")
-        if (path.is_file() and path not in allowed_files)
-        or (path.is_dir() and path not in allowed_dirs)
-    ]
-    if unexpected:
-        raise SystemExit(
-            "Refusing partial run initialization with unexpected evidence: "
-            + ", ".join(relpath(root, path) for path in sorted(unexpected))
-        )
-    return dict(target)
-
-
-def _verify_initial_run_contract(
-    *,
-    root: Path,
-    run_dir: Path,
-    workflow,
-    runtime: RuntimeOptions,
-) -> dict[str, Any]:
-    contract = load_and_verify_run_contract(root=root, run_dir=run_dir)
-    if (
-        contract.get("workflow_id") != workflow.workflow_id
-        or contract.get("assurance_profile") != workflow.assurance_profile
-    ):
-        raise SystemExit("Partial run contract does not match the requested workflow.")
-    workflow_member = next(
-        (
-            member
-            for member in contract.get("members", [])
-            if member.get("role") == "workflow_manifest"
-        ),
-        None,
-    )
-    if (
-        workflow_member is None
-        or workflow_member.get("path") != relpath(root, workflow.workflow_file)
-        or workflow_member.get("sha256") != sha256_file(workflow.workflow_file)
-    ):
-        raise SystemExit("Partial run contract workflow binding mismatch.")
-    verify_effective_runtime(contract, runtime)
-    return contract
-
-
-def _allows_review_gated_stage_output_increase(
-    *,
-    workflow,
-    run_manifest: dict[str, Any],
-    contract: dict[str, Any],
-    runtime: RuntimeOptions,
-) -> bool:
-    """Allow only a larger cap for one prepared stage after an approved gate."""
-
-    if runtime.stage_id is None or runtime.max_output_tokens is None:
-        return False
-    stage = workflow.stage(runtime.stage_id)
-    if stage.stage_number <= 1:
-        return False
-    summary = artifacts.find_stage_summary(run_manifest, stage.stage_id)
-    if summary.get("status") != StageStatus.PREPARED.value:
-        return False
-    if summary.get("current_attempt_id") or summary.get("attempts"):
-        return False
-    previous_stage = workflow.stages[stage.stage_number - 2]
-    previous_summary = artifacts.find_stage_summary(
-        run_manifest, previous_stage.stage_id
-    )
-    if (
-        previous_stage.gate not in {GateType.HUMAN, GateType.REVIEWED}
-        or previous_summary.get("status") != StageStatus.WAITING_FOR_REVIEW.value
-    ):
-        return False
-    frozen_limit = contract["effective_runtime"].get("max_output_tokens")
-    baseline = frozen_limit if frozen_limit is not None else stage.max_output_tokens
-    return baseline is not None and runtime.max_output_tokens > int(baseline)
 
 
 def _load_or_create_run_manifest(
@@ -310,118 +148,64 @@ def _load_or_create_run_manifest(
                         f"Run directory workflow mismatch: expected {workflow.workflow_id}, "
                         f"got {manifest['workflow_id']}"
                     )
-                if manifest.get("schema_version") != "responses_runner_v2.run_manifest.v2":
+                if manifest.get("workflow_manifest_sha256") != sha256_file(workflow.workflow_file):
                     raise SystemExit(
-                        "This is a frozen v1 run. Its terminal evidence remains readable, but it cannot "
-                        "be continued under v2 semantics because its assets and attempts were not frozen. "
-                        "Archive it and start a new v2 run."
+                        "Caller workflow manifest does not match the workflow this run was started with "
+                        f"({manifest.get('workflow_manifest_path')}); continue with the original "
+                        "workflow file or start a new run."
                     )
-                manifest = _reconcile_stage_state_transitions(
-                    root=root,
-                    run_dir=run_dir,
-                    run_manifest=manifest,
-                )
-                contract = load_and_verify_run_contract(root=root, run_dir=run_dir)
-                workflow_member = next(
-                    (
-                        member
-                        for member in contract.get("members", [])
-                        if member.get("role") == "workflow_manifest"
-                    ),
-                    None,
-                )
-                caller_workflow_path = relpath(root, workflow.workflow_file)
-                if (
-                    workflow_member is None
-                    or workflow_member.get("path") != caller_workflow_path
-                    or workflow_member.get("sha256") != sha256_file(workflow.workflow_file)
-                ):
-                    raise SystemExit(
-                        "Caller workflow manifest does not match the frozen run contract; "
-                        "resume with the original workflow file."
-                    )
-                verify_effective_runtime(
-                    contract,
-                    runtime,
-                    allow_stage_output_increase=_allows_review_gated_stage_output_increase(
-                        workflow=workflow,
-                        run_manifest=manifest,
-                        contract=contract,
-                        runtime=runtime,
-                    ),
-                )
                 return run_dir, manifest
-            intent_path = _run_initialization_intent_path(run_dir)
-            if intent_path.exists():
-                intent = load_json(intent_path, "run-initialization intent")
-                manifest = _validate_partial_run_initialization(
-                    root=root,
-                    run_dir=run_dir,
-                    workflow=workflow,
-                    runtime=runtime,
-                    run_name=run_name,
-                    intent=intent,
+            unexpected_entries = [path for path in run_dir.iterdir() if path.name != ".runner.lock"]
+            if unexpected_entries:
+                raise SystemExit(
+                    f"Refusing to initialize nonempty run directory without run_manifest.json: {run_dir}"
                 )
-            else:
-                unexpected_entries = [
-                    path for path in run_dir.iterdir() if path.name != ".runner.lock"
-                ]
-                if unexpected_entries:
-                    raise SystemExit(
-                        f"Refusing to initialize nonempty run directory without run_manifest.json: {run_dir}"
-                    )
-                manifest = artifacts.initialize_run_manifest(
-                    root=root,
-                    workflow=workflow,
-                    run_id=new_run_id(),
-                    run_name=run_name,
-                    run_dir=run_dir,
-                    operator_overrides=_operator_overrides(runtime),
-                )
-                intent = {
-                    "schema_version": "responses_runner_v2.run_initialization_intent.v1",
-                    "created_at": runner_now().isoformat(),
-                    "target_manifest": manifest,
-                    "target_manifest_sha256": artifacts.json_file_sha256(manifest),
-                }
-                write_json(intent_path, intent)
-
+            manifest = artifacts.initialize_run_manifest(
+                root=root,
+                workflow=workflow,
+                run_id=new_run_id(),
+                run_name=run_name,
+                run_dir=run_dir,
+                operator_overrides=_operator_overrides(runtime),
+            )
             for stage in workflow.stages:
-                artifacts.build_stage_paths(
-                    run_dir,
-                    stage.stage_number,
-                    stage.stage_id,
-                )
-            contract_path = run_dir / "run_contract.json"
-            if contract_path.exists():
-                contract = _verify_initial_run_contract(
-                    root=root,
-                    run_dir=run_dir,
-                    workflow=workflow,
-                    runtime=runtime,
-                )
-            else:
-                create_run_contract(
-                    root=root,
-                    run_dir=run_dir,
-                    workflow=workflow,
-                    runtime=runtime,
-                )
-                contract = _verify_initial_run_contract(
-                    root=root,
-                    run_dir=run_dir,
-                    workflow=workflow,
-                    runtime=runtime,
-                )
+                artifacts.build_stage_paths(run_dir, stage.stage_number, stage.stage_id)
             manifest["revision"] = 1
             manifest["assurance_profile"] = workflow.assurance_profile
-            manifest["run_contract_path"] = relpath(root, contract_path)
-            manifest["run_contract_sha256"] = sha256_file(contract_path)
-            manifest["workflow_asset_set_hash"] = contract["workflow_asset_set_hash"]
             artifacts.write_run_manifest(run_dir, manifest)
             return run_dir, manifest
     except RunLockError as exc:
         raise SystemExit(str(exc)) from exc
+
+
+def _runtime_from_manifest(run_manifest: dict[str, Any], **control: Any) -> RuntimeOptions:
+    """Rebuild the request-affecting runtime options a run was started with."""
+
+    payload = run_manifest.get("operator_overrides") or {}
+    return RuntimeOptions(
+        primary_job_inputs=list(payload.get("primary_job_inputs", [])),
+        reference_context=list(payload.get("reference_context", [])),
+        input_bindings=[
+            RuntimeInputBinding(
+                binding_id=str(binding["binding_id"]),
+                path=str(binding["path"]),
+                authority=str(binding["authority"]),
+                stage_ids=tuple(binding.get("stage_ids", [])),
+            )
+            for binding in payload.get("input_bindings", [])
+        ],
+        max_input_tokens=payload.get("max_input_tokens"),
+        skip_token_count=bool(payload.get("skip_token_count", False)),
+        max_output_tokens=payload.get("max_output_tokens"),
+        file_expires_after=payload.get("file_expires_after"),
+        delete_uploaded_files_on_complete=payload.get("delete_uploaded_files_on_complete"),
+        primary_model=payload.get("primary_model"),
+        structural_model=payload.get("structural_model"),
+        service_tier=payload.get("service_tier"),
+        safety_identifier=payload.get("safety_identifier"),
+        prompt_cache_key_strategy=str(payload.get("prompt_cache_key_strategy", "stable_lane_v1")),
+        **control,
+    )
 
 
 def _stage_summary_map(run_manifest: dict[str, Any]) -> dict[str, dict[str, Any]]:
@@ -893,13 +677,8 @@ def _gate_persist(
         stage=stage,
         stage_paths=stage_paths,
         stage_status=stage_status,
-        resume_mode=ResumeMode.RESUME_RESPONSE_ID,
         token_preflight={"status": "previously_completed", "attempts": 0},
         response_json=response_json,
-        structured_output_written=stage_paths["structured_output"].exists(),
-        uploads_payload_path=(
-            stage_paths["uploads_json"] if stage_paths["uploads_json"].exists() else None
-        ),
     )
 
 
@@ -1117,74 +896,6 @@ def _build_request_payload(
     return payload
 
 
-def _local_context_estimate(
-    *,
-    workflow,
-    stage: StageDefinition,
-    runtime: RuntimeOptions,
-    resolved_manifest: dict[str, Any],
-    rendered_manifest_md: str,
-) -> dict[str, Any]:
-    """Compute a conservative pre-upload bound without making a remote call."""
-
-    instruction_bytes = len(_build_instructions(workflow, stage).encode("utf-8"))
-    task_bytes = len(load_text_asset(stage.task_path).encode("utf-8"))
-    manifest_bytes = len(rendered_manifest_md.encode("utf-8"))
-    attachment_bytes = 0
-    for field_name in (
-        "primary_job_inputs",
-        "reviewed_handoff_inputs",
-        "attached_repository_files",
-        "reference_context",
-    ):
-        for entry in resolved_manifest.get(field_name, []):
-            resolved = entry.get("resolved", {})
-            for expanded in resolved.get("expanded_paths", []):
-                value = expanded.get("bytes")
-                if isinstance(value, int) and value >= 0:
-                    attachment_bytes += value
-    # One input byte per token overstates real usage by roughly 4x on prose
-    # and source code. The estimate is advisory only; the API enforces the
-    # real context limit and exact preflight, when enabled, enforces budget.
-    estimated_input_tokens = (
-        instruction_bytes + task_bytes + manifest_bytes + attachment_bytes
-    )
-    requested_output_tokens = _effective_max_output_tokens(workflow, stage, runtime)
-    context_window = model_context_window(_effective_model(workflow, stage, runtime))
-    safety_margin_tokens = max(4096, int((context_window or 0) * 0.02))
-    configured_input_limit = _effective_max_input_tokens(stage, runtime)
-    within_input_limit = (
-        configured_input_limit is None or estimated_input_tokens <= configured_input_limit
-    )
-    within_context_window = (
-        context_window is not None
-        and estimated_input_tokens + requested_output_tokens + safety_margin_tokens
-        <= context_window
-    )
-    return {
-        "schema_version": "responses_runner_v2.local_context_estimate.v1",
-        "method": "utf8_bytes_upper_bound_v1",
-        "instruction_bytes": instruction_bytes,
-        "task_bytes": task_bytes,
-        "manifest_bytes": manifest_bytes,
-        "attachment_bytes": attachment_bytes,
-        "estimated_input_tokens": estimated_input_tokens,
-        "configured_input_limit": configured_input_limit,
-        "requested_output_tokens": requested_output_tokens,
-        "safety_margin_tokens": safety_margin_tokens,
-        "context_window": context_window,
-        "within_input_limit": within_input_limit,
-        "within_context_window": within_context_window,
-        "passed": within_input_limit and within_context_window,
-        "enforcement": (
-            "advisory_exact_preflight_pending"
-            if workflow.request_defaults.token_preflight.enabled
-            and not runtime.skip_token_count
-            else "advisory_only"
-        ),
-    }
-
-
 def _token_preflight_state(
     *,
     root: Path,
@@ -1194,7 +905,6 @@ def _token_preflight_state(
     stage_paths: dict[str, Path],
     payload: dict[str, Any],
     runtime: RuntimeOptions,
-    local_context_estimate: dict[str, Any],
 ) -> dict[str, Any]:
     hard_limit = _effective_max_input_tokens(stage, runtime)
     if runtime.skip_token_count or not workflow.request_defaults.token_preflight.enabled:
@@ -1262,11 +972,12 @@ def _token_preflight_state(
             last_error = exc
             if exc.status_code in policy.retryable_http_status_codes and attempt < policy.max_retries:
                 continue
+            # Without a configured budget the API's own context check is the only
+            # limit that matters, so a counting-service outage may be bypassed.
             continue_without_count = (
                 exc.status_code in policy.retryable_http_status_codes
                 and policy.on_retryable_service_failure == "continue_without_token_count"
                 and hard_limit is None
-                and bool(local_context_estimate.get("passed"))
             )
             error_payload = {
                 "object": "token_preflight_error",
@@ -1277,9 +988,6 @@ def _token_preflight_state(
                 "error_message": str(exc),
                 "fallback_decision": (
                     "continue_without_token_count" if continue_without_count else "fail_closed"
-                ),
-                "local_advisory_estimate_passed": bool(
-                    local_context_estimate.get("passed")
                 ),
             }
             error_path = artifacts.write_token_preflight_error(stage_paths, error_payload)
@@ -1325,119 +1033,6 @@ def _stage_status_from_response(
     return StageStatus.SUBMITTED.value
 
 
-def _build_checkpoint(
-    *,
-    root: Path,
-    run_manifest: dict[str, Any],
-    stage: StageDefinition,
-    stage_paths: dict[str, Path],
-    stage_status: str,
-    resume_mode: ResumeMode,
-    token_preflight: dict[str, Any],
-    response_json: dict[str, Any] | None,
-    structured_output_written: bool,
-    uploads_payload_path: Path | None,
-) -> dict[str, Any]:
-    stage_summary = artifacts.find_stage_summary(run_manifest, stage.stage_id)
-    attempt_id = stage_summary.get("current_attempt_id")
-    checkpoint: dict[str, Any] = {
-        "run_id": run_manifest["run_id"],
-        "stage_id": stage.stage_id,
-        "stage_number": stage.stage_number,
-        **({"attempt_id": attempt_id} if attempt_id else {}),
-        "attempt_dir": relpath(root, stage_paths["attempt_dir"]),
-        "updated_at": runner_now().isoformat(),
-        "status": stage_status,
-        "local_state": stage_status,
-        "remote_status": (
-            str(response_json.get("status")) if response_json is not None else None
-        ),
-        "terminal": stage_status in {
-            StageStatus.COMPLETED.value,
-            StageStatus.WAITING_FOR_REVIEW.value,
-            StageStatus.FAILED.value,
-            StageStatus.CANCELLED.value,
-            StageStatus.INCOMPLETE.value,
-            StageStatus.BLOCKED.value,
-            StageStatus.BLOCKED_PREFLIGHT.value,
-            StageStatus.FAILED_COMPLETE.value,
-            StageStatus.FAILED_NO_ARTIFACT.value,
-        },
-        "resume_mode": resume_mode.value,
-        "review_checkpoint_required": stage.gate in {GateType.HUMAN, GateType.REVIEWED},
-        "request_payload_path": relpath(root, stage_paths["request_payload"]),
-        "input_manifest_json_path": relpath(root, stage_paths["input_manifest_json"]),
-        "input_manifest_markdown_path": relpath(root, stage_paths["input_manifest_md"]),
-        "token_preflight": token_preflight,
-        "artifacts": {
-            "stage_dir": relpath(root, stage_paths["stage_dir"]),
-            "response_latest_json_path": relpath(root, stage_paths["response_latest_json"]),
-            **(
-                {
-                    "artifact_markdown_path": relpath(root, stage_paths["artifact_md"]),
-                    "artifact_markdown_sha256": sha256_file(stage_paths["artifact_md"]),
-                }
-                if stage_paths["artifact_md"].exists()
-                else {}
-            ),
-            **(
-                {"response_final_json_path": relpath(root, stage_paths["response_final_json"])}
-                if stage_paths["response_final_json"].exists()
-                else {}
-            ),
-            **(
-                {"structured_output_path": relpath(root, stage_paths["structured_output"])}
-                if structured_output_written and stage_paths["structured_output"].exists()
-                else {}
-            ),
-            **(
-                {"uploads_json_path": relpath(root, uploads_payload_path)}
-                if uploads_payload_path is not None
-                else {}
-            ),
-        },
-        "finalization": {
-            "status": (
-                "completed"
-                if stage_status
-                in {
-                    StageStatus.FINALIZED.value,
-                    StageStatus.COMPLETED.value,
-                    StageStatus.WAITING_FOR_REVIEW.value,
-                    StageStatus.FAILED_COMPLETE.value,
-                    StageStatus.FAILED_NO_ARTIFACT.value,
-                    StageStatus.CANCELLED.value,
-                    StageStatus.INCOMPLETE.value,
-                }
-                else "pending"
-            )
-        },
-    }
-    if response_json is not None:
-        checkpoint["response"] = {
-            "id": str(response_json.get("id")),
-            "status": str(response_json.get("status")),
-            "model": str(response_json.get("model")),
-            "background": bool(response_json.get("background", False)),
-            "store": bool(response_json.get("store", False)),
-            **(
-                {"created_at": int(response_json["created_at"])}
-                if response_json.get("created_at") is not None
-                else {}
-            ),
-            **(
-                {"completed_at": int(response_json["completed_at"])}
-                if response_json.get("completed_at") is not None
-                else {}
-            ),
-        }
-        if response_json.get("error") is not None:
-            checkpoint["error"] = response_json.get("error")
-        if response_json.get("incomplete_details") is not None:
-            checkpoint["incomplete_details"] = response_json.get("incomplete_details")
-    return checkpoint
-
-
 def _sync_stage_summary(
     *,
     root: Path,
@@ -1446,18 +1041,17 @@ def _sync_stage_summary(
     stage_paths: dict[str, Path],
     stage_status: str,
     response_json: dict[str, Any] | None,
-    token_preflight_path: Path | None,
-    checkpoint_sha256: str | None = None,
+    token_preflight: dict[str, Any] | None = None,
+    token_preflight_path: Path | None = None,
 ) -> None:
+    """Project the on-disk attempt state into the run manifest's stage summary."""
+
     summary = artifacts.find_stage_summary(run_manifest, stage.stage_id)
     summary["status"] = stage_status
     summary["local_state"] = stage_status
-    summary["checkpoint_path"] = relpath(root, stage_paths["stage_checkpoint"])
-    if checkpoint_sha256 is not None:
-        summary["checkpoint_sha256"] = checkpoint_sha256
-    elif stage_paths["stage_checkpoint"].exists():
-        summary["checkpoint_sha256"] = sha256_file(stage_paths["stage_checkpoint"])
     summary["input_manifest_json_path"] = relpath(root, stage_paths["input_manifest_json"])
+    if token_preflight is not None:
+        summary["token_preflight"] = dict(token_preflight)
     if stage_paths["artifact_md"].exists():
         summary["artifact_markdown_path"] = relpath(root, stage_paths["artifact_md"])
         summary["artifact_markdown_sha256"] = sha256_file(stage_paths["artifact_md"])
@@ -1497,9 +1091,6 @@ def _sync_stage_summary(
     for attempt in summary.get("attempts", []):
         if attempt.get("attempt_id") == current_attempt_id:
             attempt["local_state"] = stage_status
-            attempt["checkpoint_path"] = summary["checkpoint_path"]
-            if summary.get("checkpoint_sha256"):
-                attempt["checkpoint_sha256"] = summary["checkpoint_sha256"]
             if response_json is not None:
                 attempt["response_id"] = summary.get("response_id")
                 attempt["remote_status"] = summary.get("remote_status")
@@ -1675,141 +1266,6 @@ def _record_attempt_start(
     run_manifest["revision"] = int(run_manifest.get("revision", 0)) + 1
 
 
-def _reconcile_stage_state_transitions(
-    *,
-    root: Path,
-    run_dir: Path,
-    run_manifest: dict[str, Any],
-) -> dict[str, Any]:
-    """Roll forward durable v2 checkpoint intents whose manifest CAS did not finish.
-
-    The caller holds the run lock. Frozen v1 manifests never enter this path, and
-    discovery is restricted to explicit ``attempt_NNN`` directories.
-    """
-
-    if run_manifest.get("schema_version") != "responses_runner_v2.run_manifest.v2":
-        return run_manifest
-    manifest_path = artifacts.run_manifest_path(run_dir)
-    for transition_path in artifacts.list_stage_state_transitions(run_dir):
-        transition = artifacts.load_stage_state_transition(transition_path)
-        if transition["run_id"] != run_manifest["run_id"]:
-            raise SystemExit(
-                f"Stage state transition run_id mismatch: {transition_path}"
-            )
-        base_revision = int(transition["base_manifest_revision"])
-        target_revision = int(transition["target_manifest_revision"])
-        if target_revision != base_revision + 1:
-            raise SystemExit(
-                f"Stage state transition must advance exactly one revision: {transition_path}"
-            )
-        current_revision = int(run_manifest["revision"])
-        if target_revision < current_revision:
-            continue
-        if target_revision == current_revision:
-            if sha256_file(manifest_path) != transition["target_run_manifest_sha256"]:
-                raise SystemExit(
-                    "Committed stage state transition does not match the durable run manifest: "
-                    f"{transition_path}"
-                )
-            continue
-        if base_revision != current_revision:
-            raise SystemExit(
-                "Stage state transition does not continue the durable run manifest revision: "
-                f"{transition_path}"
-            )
-        if sha256_file(manifest_path) != transition["base_manifest_sha256"]:
-            raise SystemExit(
-                "Stage state transition base manifest hash mismatch: "
-                f"{transition_path}"
-            )
-
-        stage_id = str(transition["stage_id"])
-        attempt_id = str(transition["attempt_id"])
-        target_manifest = copy.deepcopy(transition["target_run_manifest"])
-        checkpoint = copy.deepcopy(transition["target_checkpoint"])
-        if (
-            target_manifest.get("schema_version")
-            != "responses_runner_v2.run_manifest.v2"
-            or int(target_manifest.get("revision", 0)) != target_revision
-            or target_manifest.get("run_id") != run_manifest["run_id"]
-        ):
-            raise SystemExit(f"Invalid target run manifest in transition: {transition_path}")
-        current_summary = artifacts.find_stage_summary(run_manifest, stage_id)
-        target_summary = artifacts.find_stage_summary(target_manifest, stage_id)
-        if (
-            current_summary.get("current_attempt_id") != attempt_id
-            or target_summary.get("current_attempt_id") != attempt_id
-            or checkpoint.get("run_id") != run_manifest["run_id"]
-            or checkpoint.get("stage_id") != stage_id
-            or checkpoint.get("attempt_id") != attempt_id
-        ):
-            raise SystemExit(
-                f"Stage state transition attempt identity mismatch: {transition_path}"
-            )
-        try:
-            attempt_number = int(attempt_id.removeprefix("attempt_"))
-            stage_number = int(checkpoint["stage_number"])
-        except (KeyError, ValueError) as exc:
-            raise SystemExit(
-                f"Invalid stage state transition attempt coordinates: {transition_path}"
-            ) from exc
-        expected_paths = artifacts.build_stage_paths(
-            run_dir,
-            stage_number,
-            stage_id,
-            attempt_number=attempt_number,
-            create=False,
-        )
-        expected_checkpoint_path = relpath(root, expected_paths["stage_checkpoint"])
-        expected_transition_path = artifacts.stage_state_transition_path(
-            expected_paths,
-            target_revision,
-        )
-        if (
-            transition["target_checkpoint_path"] != expected_checkpoint_path
-            or transition_path.resolve() != expected_transition_path.resolve()
-            or checkpoint.get("attempt_dir")
-            != relpath(root, expected_paths["attempt_dir"])
-            or int(current_summary.get("stage_number", 0)) != stage_number
-            or int(target_summary.get("stage_number", 0)) != stage_number
-            or target_summary.get("checkpoint_path") != expected_checkpoint_path
-            or target_summary.get("checkpoint_sha256")
-            != transition["target_checkpoint_sha256"]
-        ):
-            raise SystemExit(
-                f"Stage state transition path or hash binding mismatch: {transition_path}"
-            )
-
-        checkpoint_path = expected_paths["stage_checkpoint"]
-        if checkpoint_path.exists():
-            actual_checkpoint_sha256 = sha256_file(checkpoint_path)
-            allowed_checkpoint_hashes = {
-                transition["target_checkpoint_sha256"],
-                current_summary.get("checkpoint_sha256"),
-            }
-            allowed_checkpoint_hashes.discard(None)
-            if actual_checkpoint_sha256 not in allowed_checkpoint_hashes:
-                raise SystemExit(
-                    f"Stage checkpoint cannot be reconciled safely: {checkpoint_path}"
-                )
-        if (
-            not checkpoint_path.exists()
-            or sha256_file(checkpoint_path) != transition["target_checkpoint_sha256"]
-        ):
-            artifacts.write_stage_checkpoint(expected_paths, checkpoint)
-        artifacts.write_run_manifest_cas(
-            root=root,
-            run_dir=run_dir,
-            manifest=target_manifest,
-            expected_revision=base_revision,
-            stage_id=stage_id,
-            expected_attempt_id=attempt_id,
-            prepared=True,
-        )
-        run_manifest = target_manifest
-    return run_manifest
-
-
 def _persist_stage_state(
     *,
     root: Path,
@@ -1818,28 +1274,33 @@ def _persist_stage_state(
     stage: StageDefinition,
     stage_paths: dict[str, Path],
     stage_status: str,
-    resume_mode: ResumeMode,
     token_preflight: dict[str, Any],
     response_json: dict[str, Any] | None,
-    structured_output_written: bool = False,
-    uploads_payload_path: Path | None = None,
     lock_already_held: bool = False,
     allow_prepared_preflight_block: bool = False,
 ) -> None:
-    expected_revision = int(run_manifest.get("revision", 0))
-    expected_attempt_id = artifacts.find_stage_summary(
-        run_manifest, stage.stage_id
-    ).get("current_attempt_id")
+    """Record a stage status change with one atomic run-manifest write.
+
+    The manifest is the single durable record. Under the run lock the write is
+    refused if another process has moved the stage to a different attempt, and
+    the status change must follow the stage transition table.
+    """
+
+    expected_attempt_id = artifacts.find_stage_summary(run_manifest, stage.stage_id).get(
+        "current_attempt_id"
+    )
     lock_context = nullcontext() if lock_already_held else run_lock(run_dir)
     try:
         with lock_context:
-            durable_manifest = artifacts.load_run_manifest(root, run_dir)
-            artifacts.require_run_manifest_revision(
-                durable_manifest,
-                expected_revision=expected_revision,
-                stage_id=stage.stage_id,
-                expected_attempt_id=expected_attempt_id,
+            durable = artifacts.load_run_manifest(root, run_dir)
+            durable_attempt_id = artifacts.find_stage_summary(durable, stage.stage_id).get(
+                "current_attempt_id"
             )
+            if durable_attempt_id != expected_attempt_id:
+                raise SystemExit(
+                    f"Stage {stage.stage_id} attempt conflict: expected {expected_attempt_id!r}, "
+                    f"found {durable_attempt_id!r}."
+                )
             current_status = str(
                 artifacts.find_stage_summary(run_manifest, stage.stage_id).get("status", "")
             )
@@ -1850,27 +1311,14 @@ def _persist_stage_state(
                     and stage_status == StageStatus.BLOCKED_PREFLIGHT.value
                 ):
                     assert_stage_transition(current_status, stage_status)
-            checkpoint = _build_checkpoint(
+            _sync_stage_summary(
                 root=root,
                 run_manifest=run_manifest,
                 stage=stage,
                 stage_paths=stage_paths,
                 stage_status=stage_status,
-                resume_mode=resume_mode,
+                response_json=response_json,
                 token_preflight=token_preflight,
-                response_json=response_json,
-                structured_output_written=structured_output_written,
-                uploads_payload_path=uploads_payload_path,
-            )
-            checkpoint_sha256 = artifacts.prepare_stage_checkpoint(checkpoint)
-            target_manifest = copy.deepcopy(run_manifest)
-            _sync_stage_summary(
-                root=root,
-                run_manifest=target_manifest,
-                stage=stage,
-                stage_paths=stage_paths,
-                stage_status=stage_status,
-                response_json=response_json,
                 token_preflight_path=(
                     stage_paths["token_preflight"]
                     if stage_paths["token_preflight"].exists()
@@ -1878,90 +1326,17 @@ def _persist_stage_state(
                     if stage_paths["token_preflight_error"].exists()
                     else None
                 ),
-                checkpoint_sha256=checkpoint_sha256,
             )
-            target_manifest["status"] = _run_status_after_stage(
+            run_manifest["status"] = _run_status_after_stage(
                 stage_status=stage_status,
-                has_next_stage=stage.stage_number < len(target_manifest["stage_order"]),
+                has_next_stage=stage.stage_number < len(run_manifest["stage_order"]),
                 stage=stage,
             )
-            target_manifest["current_stage_id"] = stage.stage_id
-            target_manifest["revision"] = expected_revision + 1
-            target_manifest["updated_at"] = runner_now().isoformat()
-            if not isinstance(expected_attempt_id, str):
-                # Dry-run compatibility has no v2 attempt identity and cannot
-                # be promoted into the live attempt-transition journal.
-                artifacts.write_stage_checkpoint(stage_paths, checkpoint)
-                artifacts.write_run_manifest_cas(
-                    root=root,
-                    run_dir=run_dir,
-                    manifest=target_manifest,
-                    expected_revision=expected_revision,
-                    stage_id=stage.stage_id,
-                    expected_attempt_id=None,
-                    prepared=True,
-                )
-                run_manifest.clear()
-                run_manifest.update(target_manifest)
-                return
-            transition = {
-                "schema_version": "responses_runner_v2.stage_state_transition.v1",
-                "run_id": target_manifest["run_id"],
-                "stage_id": stage.stage_id,
-                "attempt_id": expected_attempt_id,
-                "created_at": runner_now().isoformat(),
-                "base_manifest_revision": expected_revision,
-                "target_manifest_revision": expected_revision + 1,
-                "base_manifest_sha256": sha256_file(
-                    artifacts.run_manifest_path(run_dir)
-                ),
-                "target_checkpoint_path": relpath(
-                    root,
-                    stage_paths["stage_checkpoint"],
-                ),
-                "target_checkpoint_sha256": checkpoint_sha256,
-                "target_checkpoint": checkpoint,
-                "target_run_manifest_sha256": artifacts.json_file_sha256(
-                    target_manifest
-                ),
-                "target_run_manifest": target_manifest,
-            }
-            artifacts.write_stage_state_transition(stage_paths, transition)
-            artifacts.write_stage_checkpoint(stage_paths, checkpoint)
-            artifacts.write_run_manifest_cas(
-                root=root,
-                run_dir=run_dir,
-                manifest=target_manifest,
-                expected_revision=expected_revision,
-                stage_id=stage.stage_id,
-                expected_attempt_id=expected_attempt_id,
-                prepared=True,
-            )
-            run_manifest.clear()
-            run_manifest.update(target_manifest)
+            run_manifest["current_stage_id"] = stage.stage_id
+            run_manifest["revision"] = int(run_manifest.get("revision", 0)) + 1
+            artifacts.write_run_manifest(run_dir, run_manifest)
     except RunLockError as exc:
         raise SystemExit(str(exc)) from exc
-
-
-def _request_plan_context_warning(
-    *,
-    root: Path,
-    stage_paths: dict[str, Path],
-    request_plan: dict[str, Any],
-    conservative_gate_required: bool,
-) -> dict[str, Any] | None:
-    """Warn when the byte upper bound says the request may exceed the context window."""
-
-    if request_plan["estimate"]["fits_context"] or not conservative_gate_required:
-        return None
-    return {
-        "code": "request_plan_context_exceeded",
-        "message": (
-            "The request plan's byte upper bound exceeds the model context window; "
-            "the bound overstates real token usage and the API enforces the real limit."
-        ),
-        "diagnostics_path": relpath(root, stage_paths["request_plan"]),
-    }
 
 
 def _run_stage_validators(
@@ -2023,7 +1398,6 @@ def _finalize_terminal_response(
     response_json: dict[str, Any],
     token_preflight: dict[str, Any],
     uploads_payload: dict[str, Any] | None,
-    resume_mode: ResumeMode,
 ) -> tuple[str, dict[str, Any] | None]:
     uploads_path = stage_paths["uploads_json"] if stage_paths["uploads_json"].exists() else None
     _persist_stage_state(
@@ -2033,10 +1407,8 @@ def _finalize_terminal_response(
         stage=stage,
         stage_paths=stage_paths,
         stage_status=StageStatus.REMOTE_TERMINAL_PENDING_FINALIZATION.value,
-        resume_mode=resume_mode,
         token_preflight=token_preflight,
         response_json=response_json,
-        uploads_payload_path=uploads_path,
     )
     try:
         structured_written = _write_stage_artifacts_for_response(
@@ -2066,11 +1438,8 @@ def _finalize_terminal_response(
             stage=stage,
             stage_paths=stage_paths,
             stage_status=StageStatus.REMOTE_TERMINAL_PENDING_FINALIZATION.value,
-            resume_mode=resume_mode,
             token_preflight=token_preflight,
             response_json=response_json,
-            structured_output_written=stage_paths["structured_output"].exists(),
-            uploads_payload_path=uploads_path,
         )
         raise
 
@@ -2092,11 +1461,8 @@ def _finalize_terminal_response(
         stage=stage,
         stage_paths=stage_paths,
         stage_status=StageStatus.FINALIZED.value,
-        resume_mode=resume_mode,
         token_preflight=token_preflight,
         response_json=response_json,
-        structured_output_written=structured_written,
-        uploads_payload_path=uploads_path,
     )
     final_status = _stage_status_from_response(
         response_json,
@@ -2111,11 +1477,8 @@ def _finalize_terminal_response(
         stage=stage,
         stage_paths=stage_paths,
         stage_status=final_status,
-        resume_mode=resume_mode,
         token_preflight=token_preflight,
         response_json=response_json,
-        structured_output_written=structured_written,
-        uploads_payload_path=uploads_path,
     )
     return final_status, uploads_payload
 
@@ -2266,39 +1629,6 @@ def run_workflow(
             resolved_manifest=resolved_manifest,
             rendered_markdown=rendered_manifest_md,
         )
-        local_estimate = _local_context_estimate(
-            workflow=workflow,
-            stage=stage,
-            runtime=runtime,
-            resolved_manifest=resolved_manifest,
-            rendered_manifest_md=rendered_manifest_md,
-        )
-        validate_contract(
-            local_estimate,
-            "local_context_estimate.schema.json",
-            label="local context estimate",
-        )
-        write_json(stage_paths["local_context_estimate"], local_estimate)
-        if not local_estimate["passed"]:
-            warnings.append(
-                {
-                    "code": (
-                        "exact_token_preflight_not_executed_in_dry_run"
-                        if runtime.dry_run
-                        else "local_context_estimate_exceeded"
-                    ),
-                    "message": (
-                        "The conservative local context estimate exceeds a configured limit; "
-                        + (
-                            "live execution will rely on exact token preflight and may block."
-                            if runtime.dry_run
-                            else "the estimate is advisory and the API enforces the real limit."
-                        )
-                    ),
-                    "diagnostics_path": relpath(root, stage_paths["local_context_estimate"]),
-                }
-            )
-
         uploads_payload: dict[str, Any] | None = None
         request_payload: dict[str, Any]
         staging_dir = stage_paths["attempt_dir"] / "upload_inputs"
@@ -2321,7 +1651,7 @@ def run_workflow(
         symbolic_by_role: dict[str, list[str]] = {}
         symbolic_manifest_file_id = ""
         for prepared, descriptor in zip(prepared_uploads, descriptors, strict=True):
-            symbolic_id = symbolic_file_handle(descriptor["sha256"])
+            symbolic_id = f"file_sha256_{descriptor['sha256']}"
             if prepared["role_label"] == "Stage Input Manifest":
                 symbolic_manifest_file_id = symbolic_id
             else:
@@ -2346,78 +1676,17 @@ def run_workflow(
             role_blocks=role_blocks,
             tool_settings=_resolve_tool_settings(root, workflow, stage),
         )
-        request_plan = build_request_plan(
-            text_parts=[
-                _build_instructions(workflow, stage),
-                _stage_task_text(run_manifest, stage),
-                rendered_manifest_md,
-            ],
-            files=descriptors,
-            context_window=(
-                model_context_window(_effective_model(workflow, stage, runtime)) or 1
-            ),
-            max_output_tokens=_effective_max_output_tokens(workflow, stage, runtime),
-            data_handling_policy=ASSURANCE_PROFILES[workflow.assurance_profile]["data_handling"],
-            request_store=workflow.request_defaults.store,
-            file_purpose=workflow.request_defaults.file_uploads.purpose,
-            delete_uploaded_files_on_complete=_delete_uploads_on_complete(workflow, runtime),
-            symbolic_request_payload=symbolic_request_payload,
-        )
-        write_json(stage_paths["request_plan"], request_plan)
-        plan_warning = _request_plan_context_warning(
-            root=root,
-            stage_paths=stage_paths,
-            request_plan=request_plan,
-            conservative_gate_required=(
-                runtime.skip_token_count
-                or not workflow.request_defaults.token_preflight.enabled
-            ),
-        )
-        if plan_warning is not None:
-            warnings.append(plan_warning)
-
         if runtime.dry_run:
-            request_payload = request_plan["symbolic_request_payload"]
-            artifacts.write_request_payload(stage_paths=stage_paths, payload=request_payload)
-            stage_status = StageStatus.PREPARED.value
-            checkpoint = _build_checkpoint(
-                root=root,
-                run_manifest=run_manifest,
-                stage=stage,
-                stage_paths=stage_paths,
-                stage_status=stage_status,
-                resume_mode=ResumeMode.FRESH_SUBMIT,
-                token_preflight={"status": "pending"},
-                response_json=None,
-                structured_output_written=False,
-                uploads_payload_path=None,
-            )
-            artifacts.write_stage_checkpoint(stage_paths, checkpoint)
-            _sync_stage_summary(
-                root=root,
-                run_manifest=run_manifest,
-                stage=stage,
-                stage_paths=stage_paths,
-                stage_status=stage_status,
-                response_json=None,
-                token_preflight_path=None,
-            )
-            run_manifest["status"] = RunStatus.CREATED.value
-            run_manifest["current_stage_id"] = stage.stage_id
-            expected_revision = int(run_manifest.get("revision", 0))
-            run_manifest["revision"] = expected_revision + 1
+            artifacts.write_request_payload(stage_paths=stage_paths, payload=symbolic_request_payload)
             try:
                 with run_lock(run_dir):
-                    artifacts.write_run_manifest_cas(
-                        root=root,
-                        run_dir=run_dir,
-                        manifest=run_manifest,
-                        expected_revision=expected_revision,
-                        stage_id=stage.stage_id,
-                        expected_attempt_id=artifacts.find_stage_summary(
-                            run_manifest, stage.stage_id
-                        ).get("current_attempt_id"),
-                    )
+                    run_manifest = artifacts.load_run_manifest(root, run_dir)
+                    summary = artifacts.find_stage_summary(run_manifest, stage.stage_id)
+                    summary["dry_run_dir"] = relpath(root, stage_paths["stage_dir"])
+                    run_manifest["status"] = RunStatus.CREATED.value
+                    run_manifest["current_stage_id"] = stage.stage_id
+                    run_manifest["revision"] = int(run_manifest.get("revision", 0)) + 1
+                    artifacts.write_run_manifest(run_dir, run_manifest)
             except RunLockError as exc:
                 raise SystemExit(str(exc)) from exc
             result = {
@@ -2451,7 +1720,6 @@ def run_workflow(
                 stage=stage,
                 stage_paths=stage_paths,
                 stage_status=StageStatus.UPLOADING.value,
-                resume_mode=ResumeMode.FRESH_SUBMIT,
                 token_preflight={"status": "pending", "attempts": 0},
                 response_json=None,
             )
@@ -2498,18 +1766,12 @@ def run_workflow(
                     stage=stage,
                     stage_paths=stage_paths,
                     stage_status=StageStatus.FAILED_NO_ARTIFACT.value,
-                    resume_mode=ResumeMode.FRESH_SUBMIT,
                     token_preflight={
                         "status": "pending",
                         "attempts": 0,
                         "error_message": "attachment upload failed before submission",
                     },
                     response_json=None,
-                    uploads_payload_path=(
-                        stage_paths["uploads_json"]
-                        if stage_paths["uploads_json"].exists()
-                        else None
-                    ),
                 )
                 raise
             artifacts.write_input_manifests(
@@ -2517,31 +1779,27 @@ def run_workflow(
                 resolved_manifest=resolved_manifest,
                 rendered_markdown=rendered_manifest_md,
             )
-            uploads_payload_path = artifacts.write_uploads_payload(stage_paths, uploads_payload)
-            uploaded_files = uploads_payload.get("files")
-            if not isinstance(uploaded_files, list) or len(uploaded_files) != len(
-                request_plan["files"]
-            ):
-                raise SystemExit("Uploaded attachments do not match the symbolic request plan.")
-            provider_file_ids: list[str] = []
-            for planned, uploaded in zip(request_plan["files"], uploaded_files, strict=True):
-                if (
-                    not isinstance(uploaded, dict)
-                    or uploaded.get("upload_sha256") != planned["sha256"]
-                    or uploaded.get("attachment_role") != planned["authority"]
-                    or not isinstance(uploaded.get("file_id"), str)
-                    or not uploaded["file_id"]
-                ):
-                    raise SystemExit("Uploaded attachments do not match the symbolic request plan.")
-                provider_file_ids.append(uploaded["file_id"])
-            request_payload = materialize_request_payload(
-                request_plan["symbolic_request_payload"],
-                provider_file_ids,
+            artifacts.write_uploads_payload(stage_paths, uploads_payload)
+            live_content, live_role_blocks = attachments.build_request_input_content(
+                task_text=_stage_task_text(run_manifest, stage),
+                input_manifest_file_id=_manifest_file_id,
+                role_to_file_ids=_role_to_file_ids,
             )
-            try:
-                verify_materialized_request(request_plan, request_payload)
-            except ValueError as exc:
-                raise SystemExit(str(exc)) from exc
+            request_payload = _build_request_payload(
+                workflow=workflow,
+                stage=stage,
+                run_manifest=run_manifest,
+                runtime=runtime,
+                text_config=_build_text_config(
+                    root=root,
+                    workflow=workflow,
+                    stage=stage,
+                    runtime=runtime,
+                ),
+                content=live_content,
+                role_blocks=live_role_blocks,
+                tool_settings=_resolve_tool_settings(root, workflow, stage),
+            )
             artifacts.write_request_payload(stage_paths=stage_paths, payload=request_payload)
             try:
                 token_preflight = _token_preflight_state(
@@ -2552,7 +1810,6 @@ def run_workflow(
                     stage_paths=stage_paths,
                     payload=request_payload,
                     runtime=runtime,
-                    local_context_estimate=local_estimate,
                 )
             except BaseException:
                 _persist_stage_state(
@@ -2562,7 +1819,6 @@ def run_workflow(
                     stage=stage,
                     stage_paths=stage_paths,
                     stage_status=StageStatus.BLOCKED_PREFLIGHT.value,
-                    resume_mode=ResumeMode.FRESH_SUBMIT,
                     token_preflight={
                         "status": "failed_closed",
                         "attempts": 0,
@@ -2576,7 +1832,6 @@ def run_workflow(
                         ),
                     },
                     response_json=None,
-                    uploads_payload_path=uploads_payload_path,
                 )
                 if uploads_payload is not None:
                     uploads_payload = attachments.cleanup_uploaded_files(
@@ -2600,10 +1855,8 @@ def run_workflow(
                 stage=stage,
                 stage_paths=stage_paths,
                 stage_status=StageStatus.PREFLIGHT_PASSED.value,
-                resume_mode=ResumeMode.FRESH_SUBMIT,
                 token_preflight=token_preflight,
                 response_json=None,
-                uploads_payload_path=uploads_payload_path,
             )
 
             request_hash = sha256_text(
@@ -2611,25 +1864,10 @@ def run_workflow(
             )
             summary = artifacts.find_stage_summary(run_manifest, stage.stage_id)
             attempt_id = str(summary["current_attempt_id"])
-            artifacts.write_submission_intent(
-                stage_paths,
-                {
-                    "schema_version": "responses_runner_v2.submission_intent.v1",
-                    "run_id": run_manifest["run_id"],
-                    "stage_id": stage.stage_id,
-                    "attempt_id": attempt_id,
-                    "request_sha256": request_hash,
-                    "created_at": runner_now().isoformat(),
-                },
-            )
             summary["request_sha256"] = request_hash
             for attempt in summary.get("attempts", []):
                 if attempt.get("attempt_id") == attempt_id:
                     attempt["request_sha256"] = request_hash
-                    attempt["submission_intent_path"] = relpath(
-                        root,
-                        stage_paths["submission_intent"],
-                    )
             _persist_stage_state(
                 root=root,
                 run_dir=run_dir,
@@ -2637,10 +1875,8 @@ def run_workflow(
                 stage=stage,
                 stage_paths=stage_paths,
                 stage_status=StageStatus.SUBMITTING.value,
-                resume_mode=ResumeMode.FRESH_SUBMIT,
                 token_preflight=token_preflight,
                 response_json=None,
-                uploads_payload_path=uploads_payload_path,
             )
             request_started = time.monotonic()
             try:
@@ -2670,10 +1906,8 @@ def run_workflow(
                     stage=stage,
                     stage_paths=stage_paths,
                     stage_status=failed_state,
-                    resume_mode=ResumeMode.FRESH_SUBMIT,
                     token_preflight=token_preflight,
                     response_json=None,
-                    uploads_payload_path=uploads_payload_path,
                 )
                 if not exc.outcome_unknown and uploads_payload is not None:
                     uploads_payload = attachments.cleanup_uploaded_files(
@@ -2702,10 +1936,8 @@ def run_workflow(
                 stage=stage,
                 stage_paths=stage_paths,
                 stage_status=StageStatus.SUBMITTED.value,
-                resume_mode=ResumeMode.FRESH_SUBMIT,
                 token_preflight=token_preflight,
                 response_json=response_json,
-                uploads_payload_path=uploads_payload_path,
             )
             stage_status = _stage_status_from_response(response_json, stage, has_next_stage)
             if stage_status != StageStatus.SUBMITTED.value:
@@ -2716,10 +1948,8 @@ def run_workflow(
                     stage=stage,
                     stage_paths=stage_paths,
                     stage_status=stage_status,
-                    resume_mode=ResumeMode.FRESH_SUBMIT,
                     token_preflight=token_preflight,
                     response_json=response_json,
-                    uploads_payload_path=uploads_payload_path,
                 )
 
             poll_wall_ms = 0
@@ -2747,7 +1977,6 @@ def run_workflow(
                     response_json=response_json,
                     token_preflight=token_preflight,
                     uploads_payload=uploads_payload,
-                    resume_mode=ResumeMode.FRESH_SUBMIT,
                 )
 
                 if (
@@ -2798,7 +2027,6 @@ def _load_existing_workflow_for_run(root: Path, run_manifest: dict[str, Any]):
             "Live v1 runs cannot be resumed under v2 semantics because their original contract "
             "and attempt identity were not frozen. Preserve the evidence and start a new v2 run."
         )
-    load_and_verify_run_contract(root=root, run_dir=run_dir)
     return load_workflow_definition(
         run_manifest["workflow_manifest_path"],
         root=root,
@@ -2863,16 +2091,11 @@ def resume_stage(
     try:
         with run_lock(resolved_run_dir):
             run_manifest = artifacts.load_run_manifest(root, resolved_run_dir)
-            run_manifest = _reconcile_stage_state_transitions(
-                root=root,
-                run_dir=resolved_run_dir,
-                run_manifest=run_manifest,
-            )
     except RunLockError as exc:
         raise SystemExit(str(exc)) from exc
     workflow = _load_existing_workflow_for_run(root, run_manifest)
-    effective_runtime = runtime_from_contract(
-        load_and_verify_run_contract(root=root, run_dir=resolved_run_dir),
+    effective_runtime = _runtime_from_manifest(
+        run_manifest,
         wait=wait,
         poll_interval=poll_interval,
         max_wait_seconds=max_wait_seconds,
@@ -2921,29 +2144,7 @@ def resume_stage(
         artifacts.write_response_latest(stage_paths, response_json)
     uploads_payload = _load_uploads_payload(stage_paths)
     has_next_stage = workflow.next_stage(stage.stage_id) is not None
-    structured_output_written = stage_paths["structured_output"].exists()
-    token_preflight = (
-        {"status": "skipped_by_operator", "attempts": 0}
-        if effective_runtime.skip_token_count
-        or not workflow.request_defaults.token_preflight.enabled
-        else {"status": "pending"}
-    )
-    if stage_paths["token_preflight"].exists():
-        token_payload = load_json(stage_paths["token_preflight"], "token preflight")
-        token_preflight = {
-            "status": "succeeded",
-            "attempts": 1,
-            "input_tokens": token_payload.get("input_tokens"),
-            "diagnostics_path": relpath(root, stage_paths["token_preflight"]),
-        }
-    elif stage_paths["token_preflight_error"].exists():
-        token_payload = load_json(stage_paths["token_preflight_error"], "token preflight error")
-        token_preflight = {
-            "status": token_payload.get("fallback_decision", "failed_closed"),
-            "attempts": int(token_payload.get("attempts", 0)),
-            "error_message": token_payload.get("error_message"),
-            "diagnostics_path": relpath(root, stage_paths["token_preflight_error"]),
-        }
+    token_preflight = dict(stage_summary.get("token_preflight") or {"status": "pending", "attempts": 0})
     remote_terminal = str(response_json.get("status")) in TERMINAL_RESPONSE_STATUSES
     if remote_terminal and not refresh_status_only and local_state not in finalized_local_states:
         final_status, _uploads = _finalize_terminal_response(
@@ -2958,7 +2159,6 @@ def resume_stage(
             response_json=response_json,
             token_preflight=token_preflight,
             uploads_payload=uploads_payload,
-            resume_mode=ResumeMode.RESUME_RESPONSE_ID,
         )
         if final_status == StageStatus.COMPLETED.value and stage.gate == GateType.REVIEWED:
             _apply_stage_gate(
@@ -2996,13 +2196,8 @@ def resume_stage(
         stage=stage,
         stage_paths=stage_paths,
         stage_status=stage_status,
-        resume_mode=(
-            ResumeMode.REFRESH_STATUS_ONLY if refresh_status_only else ResumeMode.RESUME_RESPONSE_ID
-        ),
         token_preflight=token_preflight,
         response_json=response_json,
-        structured_output_written=structured_output_written,
-        uploads_payload_path=stage_paths["uploads_json"] if stage_paths["uploads_json"].exists() else None,
     )
     return {
         "run_dir": relpath(root, resolved_run_dir),
@@ -3079,20 +2274,9 @@ def cancel_stage(
                 raise SystemExit(f"Stage {stage_id} has no known response_id to cancel.")
             if local_state == StageStatus.REMOTE_TERMINAL_PENDING_FINALIZATION.value:
                 should_cancel = False
-            elif stage_paths["cancellation_intent"].exists():
+            elif local_state == StageStatus.CANCELLING.value:
                 should_cancel = False
             elif local_state in {StageStatus.SUBMITTED.value, StageStatus.IN_PROGRESS.value}:
-                artifacts.write_cancellation_intent(
-                    stage_paths,
-                    {
-                        "schema_version": "responses_runner_v2.cancellation_intent.v1",
-                        "run_id": run_manifest["run_id"],
-                        "stage_id": stage_id,
-                        "attempt_id": summary.get("current_attempt_id"),
-                        "response_id": response_id,
-                        "created_at": runner_now().isoformat(),
-                    },
-                )
                 _persist_stage_state(
                     root=root,
                     run_dir=resolved_run_dir,
@@ -3100,14 +2284,8 @@ def cancel_stage(
                     stage=stage,
                     stage_paths=stage_paths,
                     stage_status=StageStatus.CANCELLING.value,
-                    resume_mode=ResumeMode.RESUME_RESPONSE_ID,
                     token_preflight={"status": "previously_completed", "attempts": 0},
                     response_json=None,
-                    uploads_payload_path=(
-                        stage_paths["uploads_json"]
-                        if stage_paths["uploads_json"].exists()
-                        else None
-                    ),
                     lock_already_held=True,
                 )
                 should_cancel = True
@@ -3127,7 +2305,6 @@ def cancel_stage(
                     f"Cancellation outcome is unknown for response {response_id}; refresh manually."
                 ) from exc
             cancellation = {"error": str(exc), "status_code": exc.status_code}
-        artifacts.write_cancellation_result(stage_paths, cancellation)
     return resume_stage(
         run_dir=resolved_run_dir,
         stage_id=stage_id,
