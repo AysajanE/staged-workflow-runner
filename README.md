@@ -22,6 +22,11 @@ through the gates until a human is needed or the terminal stage is done.
   archives) was removed: on the real supervised run it cost 282 reviewer-agent minutes against
   32 minutes of primary model time and never changed the primary output.
 - `run_manifest.json` is now the single durable record per run.
+- Measured on the same three-stage audit workload as the supervised baseline (2026-09-03): the
+  lean runner finished in 46.6 minutes wall clock with 36.1 minutes of primary model time
+  (including one reviewer-requested revision), 6.9 minutes of Codex review, and 3.5 minutes of
+  uploads, preflight, and polling. The baseline spent 282 reviewer-agent minutes and 48 idle
+  minutes against 32.4 primary minutes and never produced its final artifact.
 
 ## Operating Contract
 
